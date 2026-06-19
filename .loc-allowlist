@@ -1,0 +1,8 @@
+# Grandfathered Python modules exceeding the 600-LOC budget.
+#
+# Format: <repo-relative path>:<ceiling LOC>
+# - Ceiling is the file's current line count at allowlist time.
+# - Files may shrink freely; growing past the ceiling fails CI.
+# - Removing an entry after a successful split is the goal.
+#
+# No current production Python modules exceed the 600-line budget.

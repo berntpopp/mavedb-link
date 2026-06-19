@@ -1,0 +1,29 @@
+services:
+  mavedb-link:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        MAVEDB_LINK_GIT_SHA: ${MAVEDB_LINK_GIT_SHA:-unknown}
+        MAVEDB_LINK_BUILT_AT: ${MAVEDB_LINK_BUILT_AT:-}
+    image: mavedb-link:latest
+    restart: unless-stopped
+    environment:
+      MAVEDB_LINK_HOST: 0.0.0.0
+      MAVEDB_LINK_PORT: 8000
+      MAVEDB_LINK_TRANSPORT: unified
+      MAVEDB_LINK_MCP_PATH: /mcp
+      MAVEDB_LINK_LOG_FORMAT: json
+      # Override the upstream API if needed:
+      # MAVEDB_LINK_API__BASE_URL: https://api.mavedb.org/api/v1
+    ports:
+      # Pin a deterministic, non-conflicting host port (fleet convention).
+      # mavedb sits beside the variant-effect siblings gnomad (8020) / vep (8021).
+      # Override via docker/.env; `make docker-url` prints the live URL.
+      - "${MAVEDB_LINK_HOST_PORT:-8023}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
