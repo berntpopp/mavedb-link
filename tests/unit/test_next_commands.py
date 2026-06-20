@@ -47,6 +47,24 @@ def test_after_get_score_set_chains_to_scores() -> None:
     assert "get_experiment" in tools
 
 
+def test_after_get_score_set_offers_collection_when_member() -> None:
+    # GAP-E: a score set's official_collections is the in-surface discovery route to
+    # get_collection (MaveDB has no collection search/list endpoint), so steer to it.
+    steps = nc.after_get_score_set(
+        {
+            "urn": "urn:mavedb:00001222-a-2",
+            "official_collections": ["urn:mavedb:collection-603dafbf"],
+        }
+    )
+    coll = [s for s in steps if s["tool"] == "get_collection"]
+    assert coll and coll[0]["arguments"]["urn"] == "urn:mavedb:collection-603dafbf"
+
+
+def test_after_get_score_set_no_collection_step_when_not_member() -> None:
+    steps = nc.after_get_score_set({"urn": "urn:mavedb:00000001-a-1"})
+    assert all(s["tool"] != "get_collection" for s in steps)
+
+
 def test_after_variant_scores_pages_by_start() -> None:
     payload = {"urn": "urn:mavedb:00000001-a-1", "truncated": True, "next_start": 100}
     steps = nc.after_get_variant_scores(payload)
