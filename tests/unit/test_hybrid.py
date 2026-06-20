@@ -210,6 +210,18 @@ async def test_mapped_variants_mirror_and_live_compact_interchangeable(
     assert mirror_out == live_out
 
 
+async def test_find_variant_resolves_vrs_and_rollup_from_mirror(hybrid: HybridClient) -> None:
+    # D.3: find_variant(variant_urn=) resolves the variant's VRS from the annotation
+    # index (no live /variants fetch) and rolls it up from the mirror -- so the
+    # cross-dataset consolidation path is fully mirror-served when enrich is off.
+    provenance.begin()
+    out = await MaveDBService(hybrid).find_variant(variant_urn=f"{CALIBRATED_URN}#1", enrich=False)
+    assert out["resolved_by"] == "variant_urn"
+    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
+    assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
+    assert provenance.snapshot()["data_source"] == "mirror"
+
+
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
     svc = MaveDBService(hybrid)
     with respx.mock(base_url=BASE_URL) as mock:

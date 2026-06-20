@@ -33,6 +33,18 @@ from mavedb_link.services.shaping import shape_mapped_variant, shape_single_vari
 #: GA4GH VRS allele ids start with this scheme; the upstream endpoint enforces it.
 _VRS_PREFIX = "ga4gh:"
 
+#: Process-wide memo of HGVS validation results. Upstream /hgvs/validate is
+#: idempotent (a string is valid-or-not regardless of when asked), so a repeat is
+#: served without the ~1.6s round-trip (D.2). Bounded FIFO; only settled results
+#: (valid / parseable-but-wrong) are stored -- transient errors raise before here.
+_HGVS_CACHE: dict[str, dict[str, Any]] = {}
+_HGVS_CACHE_MAX = 2048
+
+
+def clear_hgvs_validation_cache() -> None:
+    """Drop the HGVS validation memo (used for test isolation)."""
+    _HGVS_CACHE.clear()
+
 
 def _clamp(value: int, lo: int, hi: int) -> int:
     """Clamp ``value`` into ``[lo, hi]``."""
@@ -96,6 +108,14 @@ async def _vrs_from_variant(client: MaveDBClient, variant_urn: str) -> str:
             hint="It is the 'variant_urn'/'accession' from get_variant_scores or "
             "get_variant_score.",
         )
+    # Mirror fast-path (D.3): the annotation index maps the variant URN -> VRS
+    # directly, so the common find_variant(variant_urn=) path skips a live variant
+    # fetch. Duck-typed so a plain live client just falls through to the record read.
+    from_mirror = getattr(client, "mapped_vrs_for_variant", None)
+    if callable(from_mirror):
+        mirror_vrs = from_mirror(candidate)
+        if mirror_vrs:
+            return str(mirror_vrs)
     raw = await client.get_json(f"/variants/{candidate.replace('#', '%23')}")
     shaped = shape_single_variant(raw, "standard")  # standard carries current mappings
     for mapping in shaped.get("mapped_variants") or []:
@@ -222,11 +242,23 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
             field="variant",
             hint="e.g. 'NM_000059.4:c.8167G>A' or 'NP_000050.3:p.Asp2723His'.",
         )
+    cached = _HGVS_CACHE.get(candidate)
+    if cached is not None:
+        return dict(cached)  # a copy so a caller cannot mutate the shared entry
     try:
         result = await client.post_json("/hgvs/validate", json={"variant": candidate})
     except InvalidInputError as exc:  # 400/422: invalid, surface the reason
-        return {"variant": candidate, "valid": False, "message": exc.message}
-    return {"variant": candidate, "valid": bool(result), "message": "Valid per MaveDB validation."}
+        payload = {"variant": candidate, "valid": False, "message": exc.message}
+    else:
+        payload = {
+            "variant": candidate,
+            "valid": bool(result),
+            "message": "Valid per MaveDB validation.",
+        }
+    if len(_HGVS_CACHE) >= _HGVS_CACHE_MAX:  # bounded FIFO: evict the oldest entry
+        _HGVS_CACHE.pop(next(iter(_HGVS_CACHE)), None)
+    _HGVS_CACHE[candidate] = payload
+    return dict(payload)
 
 
 def _shape_classified_variant(variant: dict[str, Any], fc: dict[str, Any]) -> dict[str, Any]:
