@@ -8,6 +8,7 @@ message.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -17,6 +18,7 @@ from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
+from mavedb_link.constants import RESPONSE_TOKEN_BUDGET, TOKEN_ESTIMATE_CHARS_PER_TOKEN
 from mavedb_link.exceptions import (
     AmbiguousQueryError,
     DataUnavailableError,
@@ -32,6 +34,8 @@ from mavedb_link.services.shaping import DEFAULT_RESPONSE_MODE
 logger = logging.getLogger(__name__)
 
 _RETRYABLE = {"rate_limited", "upstream_unavailable", "data_unavailable"}
+#: response_modes whose richer enrichment can fail where a leaner one succeeds.
+_RICH_MODES = ("standard", "full")
 
 
 @dataclass
@@ -93,7 +97,11 @@ def _classify(exc: BaseException) -> tuple[str, str]:
         first = exc.errors()[0]
         loc = ".".join(str(p) for p in first["loc"]) or "input"
         return "invalid_input", f"Invalid input -- `{loc}`: {first['msg']}"
-    return "internal_error", "An internal error occurred. The request was not completed."
+    return (
+        "internal_error",
+        "An unexpected internal error occurred and the request was not completed. "
+        "Retry; if it persists, lower response_mode or call get_diagnostics.",
+    )
 
 
 def classify_exception(exc: BaseException) -> tuple[str, str]:
@@ -109,16 +117,40 @@ def _recovery_action(error_code: str) -> str:
     return "switch_tool"
 
 
+def _lower_mode_step(context: McpErrorContext) -> dict[str, Any]:
+    """A ready-to-run re-call of the same tool at a lower verbosity (GAP-2)."""
+    args = {k: v for k, v in context.arguments.items() if k != "response_mode"}
+    return cmd(context.tool_name, **args, response_mode="compact")
+
+
 def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, Any]:
     error_code, message = _classify(exc)
+    retryable = error_code in _RETRYABLE
+    recovery = _recovery_action(error_code)
+    lower_mode = False
+    # GAP-2/0.3: an internal error while assembling a richer view often clears at a
+    # lower verbosity, so make it honest -- retryable, with a concrete remedy --
+    # rather than a terminal opaque failure.
+    if error_code == "internal_error" and context.response_mode in _RICH_MODES:
+        retryable = True
+        recovery = "lower_response_mode"
+        lower_mode = True
+        message = (
+            f"An internal error occurred while assembling the '{context.response_mode}' "
+            f"response for {context.tool_name}. This often clears at a lower verbosity "
+            "-- retry with response_mode='compact'."
+        )
     envelope: dict[str, Any] = {
         "success": False,
         "error_code": error_code,
         "message": message,
-        "retryable": error_code in _RETRYABLE,
-        "recovery_action": _recovery_action(error_code),
+        "retryable": retryable,
+        "recovery_action": recovery,
         "_meta": {"tool": context.tool_name, "request_id": _request_id()},
     }
+    if lower_mode:
+        envelope["_meta"]["next_commands"] = [_lower_mode_step(context)]
+        return envelope
     if isinstance(exc, InvalidInputError):
         if exc.field is not None:
             envelope["field"] = exc.field
@@ -207,19 +239,54 @@ def _stamp_capabilities_version(meta: dict[str, Any]) -> None:
         meta["capabilities_version"] = version
 
 
-def _shape_meta(meta: dict[str, Any], response_mode: str) -> dict[str, Any]:
-    """Tier ``_meta`` verbosity by ``response_mode`` to control the per-call token tax.
+#: Observability scalars present in EVERY response's _meta, at every tier (GAP-5).
+_OBSERVABILITY_KEYS = ("tool", "request_id", "elapsed_ms", "truncated")
 
-    - ``minimal``: ``{tool, request_id}`` only (caller opted out of guidance).
-    - ``compact`` (default): keep ``next_commands`` + ``capabilities_version``, drop
-      ``elapsed_ms`` from the hot path (still recorded server-side).
-    - ``standard`` / ``full``: the complete ``_meta`` including ``elapsed_ms``.
+
+def _shape_meta(meta: dict[str, Any], response_mode: str) -> dict[str, Any]:
+    """Tier ``_meta`` verbosity by ``response_mode`` while keeping observability uniform.
+
+    Every tier carries the observability scalars (``tool``, ``request_id``,
+    ``elapsed_ms``, ``truncated``; ``token_estimate`` is appended afterwards) so a
+    caller always has a reliable completeness + latency signal (GAP-5, G7).
+    ``minimal`` is the guidance opt-out: it drops ``next_commands`` and
+    ``capabilities_version``; the richer tiers keep the full block.
     """
     if response_mode == "minimal":
-        return {"tool": meta["tool"], "request_id": meta["request_id"]}
-    if response_mode in ("standard", "full"):
-        return meta
-    return {k: v for k, v in meta.items() if k != "elapsed_ms"}
+        return {k: meta[k] for k in _OBSERVABILITY_KEYS if k in meta}
+    return meta
+
+
+def _estimate_tokens(payload: dict[str, Any]) -> int:
+    """Rough token estimate of a payload (chars/4); never raises on odd values."""
+    try:
+        chars = len(json.dumps(payload, default=str))
+    except Exception:  # pragma: no cover - estimate must never break a tool
+        return 0
+    return chars // TOKEN_ESTIMATE_CHARS_PER_TOKEN
+
+
+def _apply_budget_guard(result: dict[str, Any], context: McpErrorContext) -> None:
+    """Flag + steer (never silently emit) a response over the token budget (1.3).
+
+    Domain data is left intact -- lossy server-side trimming would corrupt the
+    structured output -- but ``_meta`` is marked ``truncated``/``budget_exceeded``
+    with a concrete steer, and a leaner re-call is prepended to ``next_commands``.
+    """
+    meta = result["_meta"]
+    if meta.get("token_estimate", 0) <= RESPONSE_TOKEN_BUDGET:
+        return
+    meta["truncated"] = True
+    meta["budget_exceeded"] = True
+    meta["steer"] = (
+        f"Response is ~{meta['token_estimate']} tokens (> the {RESPONSE_TOKEN_BUDGET}-token "
+        "budget). Re-call with a smaller limit=, response_mode='compact'/'minimal', or page "
+        "via offset=/start=."
+    )
+    if context.response_mode in _RICH_MODES:
+        steps = meta.get("next_commands")
+        if isinstance(steps, list):
+            meta["next_commands"] = [_lower_mode_step(context), *steps]
 
 
 async def run_mcp_tool(
@@ -242,17 +309,25 @@ async def run_mcp_tool(
                 "tool": tool_name,
                 "request_id": _request_id(),
                 "elapsed_ms": elapsed,
+                # Hoist a uniform completeness signal from the body (GAP-5/G7).
+                "truncated": bool(result.get("truncated")),
             }
             _stamp_capabilities_version(meta)
             result["_meta"] = _shape_meta(meta, ctx.response_mode)
+            # token_estimate is computed over the (near-final) payload, then the
+            # budget guard may flag/steer an over-budget response (1.3/1.4).
+            result["_meta"]["token_estimate"] = _estimate_tokens(result)
+            _apply_budget_guard(result, ctx)
             metrics.record(tool_name, elapsed, ok=success)
         return result
     except Exception as exc:  # broad catch is the error-boundary contract
         elapsed = int((time.perf_counter() - start) * 1000)
         envelope = _error_envelope(exc, ctx)
         envelope["_meta"]["elapsed_ms"] = elapsed
+        envelope["_meta"]["truncated"] = False
         _stamp_capabilities_version(envelope["_meta"])
         envelope["_meta"] = _shape_meta(envelope["_meta"], ctx.response_mode)
+        envelope["_meta"]["token_estimate"] = _estimate_tokens(envelope)
         metrics.record(tool_name, elapsed, ok=False)
         logger.warning(
             "mcp_tool_error tool=%s code=%s exc=%s",

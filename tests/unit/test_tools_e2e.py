@@ -245,28 +245,36 @@ async def test_get_score_distribution_summarises_and_locates(
 async def test_meta_tiering_by_response_mode(
     respx_mock: respx.Router, facade: Any, structured: Any
 ) -> None:
+    # GAP-5: observability scalars (elapsed_ms, truncated, token_estimate) are
+    # UNIFORM across every tier; minimal stays the guidance opt-out.
     _mock_all(respx_mock)
+    observability = {"tool", "request_id", "elapsed_ms", "truncated", "token_estimate"}
+
     minimal = structured(
         await facade.call_tool(
             "get_score_set", {"urn": fixtures.SCORE_SET_URN, "response_mode": "minimal"}
         )
     )
-    assert set(minimal["_meta"].keys()) == {"tool", "request_id"}
+    assert observability <= set(minimal["_meta"])
+    assert "next_commands" not in minimal["_meta"]  # guidance opt-out
+    assert "capabilities_version" not in minimal["_meta"]
 
     compact = structured(
         await facade.call_tool(
             "get_score_set", {"urn": fixtures.SCORE_SET_URN, "response_mode": "compact"}
         )
     )
+    assert observability <= set(compact["_meta"])
     assert "next_commands" in compact["_meta"]
-    assert "elapsed_ms" not in compact["_meta"]
+    assert "elapsed_ms" in compact["_meta"]  # now uniform, no longer stripped
 
     full = structured(
         await facade.call_tool(
             "get_score_set", {"urn": fixtures.SCORE_SET_URN, "response_mode": "full"}
         )
     )
-    assert "elapsed_ms" in full["_meta"]
+    assert observability <= set(full["_meta"])
+    assert full["_meta"]["truncated"] is False
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)

@@ -28,6 +28,7 @@ from mavedb_link.constants import (
     MAX_SCORES_LIMIT,
     MAX_SEARCH_LIMIT,
     RECOMMENDED_CITATION,
+    RESPONSE_TOKEN_BUDGET,
     TARGET_CATEGORIES,
 )
 from mavedb_link.mcp.arg_help import tool_signature
@@ -75,6 +76,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "tool_count",
     "response_modes",
     "default_response_mode",
+    "response_token_budget",
     "recommended_workflows",
     "calibration_surface",
     "calibration_semantics",
@@ -140,16 +142,22 @@ def build_capabilities() -> dict[str, Any]:
             "tool",
             "request_id",
             "elapsed_ms",
+            "truncated",
+            "token_estimate",
             "capabilities_version",
             "next_commands",
         ],
         "per_call_meta_semantics": (
-            "_meta verbosity is tiered by response_mode: minimal returns only "
-            "{tool, request_id}; compact (default) adds next_commands + "
-            "capabilities_version but omits elapsed_ms; standard/full add "
-            "elapsed_ms. Every compact-or-richer response carries next_commands; "
-            "minimal is the explicit opt-out."
+            "Every response's _meta carries uniform observability scalars -- tool, "
+            "request_id, elapsed_ms, truncated (a machine-readable completeness "
+            "signal), and token_estimate (~chars/4) -- at EVERY response_mode, so a "
+            "caller always has a reliable latency + completeness signal. compact/"
+            "standard/full additionally carry next_commands + capabilities_version; "
+            "minimal is the guidance opt-out (observability scalars only). A response "
+            "whose token_estimate exceeds response_token_budget also carries "
+            "_meta.budget_exceeded + _meta.steer with a leaner re-call."
         ),
+        "response_token_budget": RESPONSE_TOKEN_BUDGET,
         "capabilities_version_semantics": (
             "_meta.capabilities_version is a content hash of this discovery "
             "contract. A warm client caches the last value and skips re-fetching "
@@ -187,7 +195,9 @@ def build_capabilities() -> dict[str, Any]:
             "start/next_start (and accepts offset as an alias for start), and now "
             "carries a real total (= num_variants). When truncated, "
             "_meta.next_commands includes a ready-to-call forward-page step. Never "
-            "infer completeness from list length."
+            "infer completeness from list length -- read _meta.truncated, which is "
+            "present on EVERY response (true when a list page or the token budget cut "
+            "the result)."
         ),
         "response_mode_semantics": (
             "full returns the complete record incl. heavy free text (abstract/method "

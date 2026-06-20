@@ -89,5 +89,12 @@ DISTRIBUTION_FETCH_LIMIT = 200_000
 #: Histogram bin count for the distribution summary.
 DISTRIBUTION_BINS = 10
 
+#: MCP hosts (e.g. Claude Code) truncate a tool response at ~25,000 tokens. The
+#: envelope estimates each response's size, exposes it as _meta.token_estimate,
+#: and flags + steers (never silently exceeds) any response over this budget.
+RESPONSE_TOKEN_BUDGET = 25_000
+#: Rough chars-per-token divisor for the server-side token estimate (English/JSON).
+TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4
+
 #: Score-table CSV namespaces selectable via get_variant_scores.
 SCORE_NAMESPACES: list[str] = ["scores", "counts"]

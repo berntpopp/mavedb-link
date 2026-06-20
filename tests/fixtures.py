@@ -209,21 +209,19 @@ PREFIXED_SCORES_CSV = (
 #: variant-record path did not, so classify_score crashed on `str <= float` at
 #: standard/full (GAP-2). The fixture locks the coercion fix.
 VARIANT_RAW_STR_SCORE: dict[str, Any] = {
-    **{k: v for k, v in {
-        "urn": VARIANT_URN,
-        "hgvsNt": "c.2T>G",
-        "hgvsPro": "p.Met1Arg",
-        "scoreSet": {"urn": SCORE_SET_URN},
-        "mappedVariants": [
-            {
-                "variantUrn": VARIANT_URN,
-                "postMapped": {"type": "Allele", "id": "ga4gh:VA.KJ_post2"},
-                "clingenAlleleId": "CA000002",
-                "current": True,
-            }
-        ],
-    }.items()},
+    "urn": VARIANT_URN,
+    "hgvsNt": "c.2T>G",
+    "hgvsPro": "p.Met1Arg",
+    "scoreSet": {"urn": SCORE_SET_URN},
     "data": {"score_data": {"score": "-1.2", "sd": "0.2"}, "count_data": None},
+    "mappedVariants": [
+        {
+            "variantUrn": VARIANT_URN,
+            "postMapped": {"type": "Allele", "id": "ga4gh:VA.KJ_post2"},
+            "clingenAlleleId": "CA000002",
+            "current": True,
+        }
+    ],
 }
 
 #: A variant record that ALSO carries a superseded (current:false) mapping, to
