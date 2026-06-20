@@ -440,10 +440,12 @@ class MaveDBService:
         """
         score_set_urn = validate_score_set_urn(urn)
         capped = _clamp(limit, 1, MAX_MAPPED_LIMIT)
-        raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-        items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
-        if current_only:
-            items = [it for it in items if isinstance(it, dict) and it.get("current")]
+        items = self._mirror_mapped_variants(score_set_urn, current_only, response_mode)
+        if items is None:
+            raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
+            items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
+            if current_only:
+                items = [it for it in items if isinstance(it, dict) and it.get("current")]
         items = sorted(items, key=_mapped_sort_key)
         total = len(items)
         page = items[offset : offset + capped]
@@ -456,6 +458,25 @@ class MaveDBService:
             "join_key": "variant_urn",
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
+
+    def _mirror_mapped_variants(
+        self, urn: str, current_only: bool, response_mode: str
+    ) -> list[dict[str, Any]] | None:
+        """Mirror-served current mapped variants when the shape is reproducible (GAP-B).
+
+        The annotation index holds only CURRENT mappings + the compact identity
+        fields, so it serves a current_only compact/minimal read interchangeably
+        with live; standard/full (full VRS objects) and current_only=False fall
+        through to live. Duck-typed on the client so a plain live client always
+        defers, mirroring how get_diagnostics consults mirror_status.
+        """
+        if not current_only or response_mode in ("standard", "full"):
+            return None
+        fetch = getattr(self._client, "score_set_mapped_variants", None)
+        if not callable(fetch):
+            return None
+        result: list[dict[str, Any]] | None = fetch(urn)
+        return result
 
     async def find_variant(
         self,

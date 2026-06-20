@@ -121,6 +121,95 @@ async def test_mirror_and_live_score_set_are_shape_identical(hybrid: HybridClien
     assert mirror_out == live_out
 
 
+async def test_mapped_variants_served_from_mirror(hybrid: HybridClient) -> None:
+    # GAP-B: the per-set mapped-variant enumeration serves from the SQLite mirror
+    # for the default (current_only, compact) read -- no live 9.7s round-trip, and
+    # no respx route registered, so any live attempt would error instead.
+    provenance.begin()
+    out = await MaveDBService(hybrid).get_mapped_variants(CALIBRATED_URN)
+    assert out["total"] == 2
+    assert out["mapped_variants"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
+    assert out["mapped_variants"][0]["vrs_id"] == "ga4gh:VA.MINI_digest1"
+    assert out["mapped_variants"][0]["clingen_allele_id"] == "CA999001"
+    assert provenance.snapshot()["data_source"] == "mirror"
+
+
+async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClient) -> None:
+    # standard/full need the full VRS objects the annotation index lacks, so they
+    # fall through to live to preserve shape interchangeability.
+    provenance.begin()
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "variantUrn": f"{CALIBRATED_URN}#1",
+                        "preMapped": {"id": "pre1"},
+                        "postMapped": {"id": "ga4gh:VA.MINI_digest1", "type": "Allele"},
+                        "clingenAlleleId": "CA999001",
+                        "current": True,
+                        "vrsVersion": "2.0",
+                    }
+                ],
+            )
+        )
+        out = await MaveDBService(hybrid).get_mapped_variants(
+            CALIBRATED_URN, response_mode="standard"
+        )
+    assert route.called
+    assert provenance.snapshot()["data_source"] == "live"
+    assert "post_mapped" in out["mapped_variants"][0]
+
+
+async def test_mapped_variants_current_false_falls_through_to_live(hybrid: HybridClient) -> None:
+    # The annotation index carries only CURRENT mappings; current_only=False (which
+    # asks for superseded rows too) must therefore go live for completeness.
+    provenance.begin()
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        await MaveDBService(hybrid).get_mapped_variants(CALIBRATED_URN, current_only=False)
+    assert route.called
+    assert provenance.snapshot()["data_source"] == "live"
+
+
+async def test_mapped_variants_mirror_and_live_compact_interchangeable(
+    hybrid: HybridClient,
+) -> None:
+    # The invariant: a mirror-served compact page is interchangeable with the live one.
+    from mavedb_link.api.client import MaveDBClient
+
+    mirror_out = await MaveDBService(hybrid).get_mapped_variants(CALIBRATED_URN)
+    live = MaveDBClient(MaveDBApiConfig(base_url=BASE_URL, max_retries=0))
+    try:
+        with respx.mock(base_url=BASE_URL) as mock:
+            mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+                return_value=httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "variantUrn": f"{CALIBRATED_URN}#1",
+                            "postMapped": {"id": "ga4gh:VA.MINI_digest1"},
+                            "clingenAlleleId": "CA999001",
+                            "current": True,
+                        },
+                        {
+                            "variantUrn": f"{CALIBRATED_URN}#2",
+                            "postMapped": {"id": "ga4gh:VA.MINI_digest2"},
+                            "clingenAlleleId": "CA999002",
+                            "current": True,
+                        },
+                    ],
+                )
+            )
+            live_out = await MaveDBService(live).get_mapped_variants(CALIBRATED_URN)
+    finally:
+        await live.aclose()
+    assert mirror_out == live_out
+
+
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
     svc = MaveDBService(hybrid)
     with respx.mock(base_url=BASE_URL) as mock:
