@@ -20,6 +20,7 @@ live, so a snapshot newer than the dump is always reachable.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from urllib.parse import unquote
 
@@ -287,7 +288,7 @@ def mirror_status(client: object) -> dict[str, Any]:
     if not callable(meta_fn):
         return {"present": False}
     meta = meta_fn()
-    return {
+    status = {
         "present": True,
         "as_of": meta.get("dump_as_of"),
         "zenodo_record": meta.get("zenodo_record"),
@@ -296,6 +297,10 @@ def mirror_status(client: object) -> dict[str, Any]:
         "mapped_variant_count": meta.get("mapped_variant_count"),
         "built_utc": meta.get("build_utc"),
     }
+    mapping_coverage = _mapping_coverage(meta.get("mapping_coverage_json"))
+    if mapping_coverage is not None:
+        status["mapping_coverage"] = mapping_coverage
+    return status
 
 
 def mapped_cache_status(client: object) -> dict[str, Any]:
@@ -320,6 +325,20 @@ def _as_mapped_variants(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _mapping_coverage(raw: Any) -> dict[str, int] | None:
+    """Decode the mirror meta mapping coverage JSON."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    keys = ("complete", "incomplete", "failed", "none")
+    return {key: int(data.get(key, 0) or 0) for key in keys}
 
 
 def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:

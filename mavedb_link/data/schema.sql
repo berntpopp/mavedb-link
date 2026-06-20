@@ -15,6 +15,7 @@ CREATE TABLE meta (
     experiment_count      INTEGER,
     score_set_count       INTEGER,
     mapped_variant_count  INTEGER,
+    mapping_coverage_json TEXT,
     build_utc             TEXT,
     build_duration_s      REAL
 );

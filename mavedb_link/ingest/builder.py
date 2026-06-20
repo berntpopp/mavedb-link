@@ -74,6 +74,19 @@ def _fts_fields(score_set: dict[str, Any]) -> tuple[str, str]:
     return genes, " ".join(authors)
 
 
+def _empty_mapping_coverage() -> dict[str, int]:
+    """Initial mappingState coverage counters for diagnostics."""
+    return {"complete": 0, "incomplete": 0, "failed": 0, "none": 0}
+
+
+def _count_mapping_state(coverage: dict[str, int], score_set: dict[str, Any]) -> None:
+    """Increment the mapping coverage bucket for one score set."""
+    state = str(score_set.get("mappingState") or "").strip().lower()
+    if state not in ("complete", "incomplete", "failed"):
+        state = "none"
+    coverage[state] += 1
+
+
 def _insert_score_set(
     con: sqlite3.Connection,
     zf: zipfile.ZipFile,
@@ -224,6 +237,7 @@ def _populate(
         con.execute("PRAGMA synchronous = OFF")
         con.executescript(_schema_sql())
         es_count = exp_count = ss_count = mapped_count = 0
+        mapping_coverage = _empty_mapping_coverage()
         for es in main.get("experimentSets") or []:
             es_count += 1
             con.execute(
@@ -246,6 +260,7 @@ def _populate(
                 )
                 for score_set in exp.get("scoreSets") or []:
                     ss_count += 1
+                    _count_mapping_state(mapping_coverage, score_set)
                     enriched = {
                         **score_set,
                         "experiment": {"urn": exp.get("urn")},
@@ -263,6 +278,7 @@ def _populate(
         "experiment_count": exp_count,
         "score_set_count": ss_count,
         "mapped_variant_count": mapped_count,
+        "mapping_coverage": mapping_coverage,
         "schema_version": SCHEMA_VERSION,
     }
 
@@ -287,8 +303,8 @@ def _write_meta(
         con.execute(
             "INSERT INTO meta (id, schema_version, dump_as_of, zenodo_record, zenodo_version, "
             "source_url, source_md5, experiment_set_count, experiment_count, score_set_count, "
-            "mapped_variant_count, build_utc, build_duration_s) "
-            "VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "mapped_variant_count, mapping_coverage_json, build_utc, build_duration_s) "
+            "VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 SCHEMA_VERSION,
                 summary["dump_as_of"],
@@ -300,6 +316,7 @@ def _write_meta(
                 summary["experiment_count"],
                 summary["score_set_count"],
                 summary["mapped_variant_count"],
+                json.dumps(summary["mapping_coverage"], sort_keys=True),
                 datetime.now(UTC).isoformat(),
                 round(time.monotonic() - started, 3),
             ),

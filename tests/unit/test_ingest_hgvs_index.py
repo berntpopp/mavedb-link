@@ -1,4 +1,4 @@
-"""hgvs_index is populated from the scores CSV during the mirror build (schema v2)."""
+"""hgvs_index is populated from the scores CSV during the mirror build (schema v3)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from mavedb_link.ingest.parsing import extract_hgvs_rows
 from tests.dump_fixture import write_mini_dump
 
 
-def test_schema_version_is_two() -> None:
-    assert MIRROR_SCHEMA_VERSION == 2
+def test_schema_version_is_three() -> None:
+    assert MIRROR_SCHEMA_VERSION == 3
 
 
 def test_extract_hgvs_rows_normalizes_and_scopes() -> None:

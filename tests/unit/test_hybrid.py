@@ -17,6 +17,7 @@ import respx
 from mavedb_link.config import MaveDBApiConfig
 from mavedb_link.data import provenance
 from mavedb_link.data.hybrid import HybridClient
+from mavedb_link.data.mapped_cache import MappedVariantCache
 from mavedb_link.data.repository import MirrorRepository
 from mavedb_link.ingest.builder import build_database
 from mavedb_link.mcp.envelope import run_mcp_tool
@@ -297,6 +298,37 @@ async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
     assert diag["mirror"]["as_of"] == DUMP_AS_OF
     assert diag["mirror"]["score_set_count"] == 2
     assert diag["mirror"]["zenodo_record"] == "18511521"
+    assert diag["mirror"]["mapping_coverage"] == {
+        "complete": 1,
+        "incomplete": 0,
+        "failed": 0,
+        "none": 1,
+    }
+    assert diag["cache"] == {"enabled": False}
+
+
+async def test_diagnostics_reports_cache_status(tmp_path: Path) -> None:
+    db = tmp_path / "mavedb.sqlite"
+    build_database(write_mini_dump(tmp_path), db, zenodo_record="18511521")
+    repo = MirrorRepository.open(db)
+    assert repo is not None
+    cache = MappedVariantCache(tmp_path / "mapped.sqlite", data_version="1:v4", lru_sets=16)
+    cache.put(CALIBRATED_URN, [])
+    client = HybridClient(
+        MaveDBApiConfig(base_url=BASE_URL, max_retries=0), repository=repo, cache=cache
+    )
+    svc = MaveDBService(client)
+    try:
+        with respx.mock(base_url=BASE_URL) as mock:
+            mock.get("/api/version").mock(
+                return_value=httpx.Response(200, json={"name": "mavedb-api", "version": "x"})
+            )
+            diag = await svc.get_diagnostics()
+    finally:
+        await svc.aclose()
+    assert diag["cache"]["enabled"] is True
+    assert diag["cache"]["on_disk"] == 1
+    assert diag["cache"]["data_version"] == "1:v4"
 
 
 async def test_diagnostics_live_only_reports_no_mirror() -> None:
@@ -310,5 +342,6 @@ async def test_diagnostics_live_only_reports_no_mirror() -> None:
             )
             diag = await svc.get_diagnostics()
         assert diag["mirror"] == {"present": False}
+        assert diag["cache"] == {"enabled": False}
     finally:
         await svc.aclose()
