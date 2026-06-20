@@ -19,6 +19,10 @@ KNOWN_SCORE_SET = "urn:mavedb:00000001-a-1"
 KNOWN_EXPERIMENT = "urn:mavedb:00000001-a"
 #: A score set with curated calibrations (BRCA2 HDR, IGVF controls).
 CALIBRATED_SCORE_SET = "urn:mavedb:00001224-a-1"
+#: A BRCA1 functional set with >1000 variants (drives the ordering-alignment check).
+ORDERING_SCORE_SET = "urn:mavedb:00000081-a-1"
+#: A BRCA2 SGE set storing accession-prefixed hgvs_nt and null hgvs_pro (F5).
+SGE_SCORE_SET = "urn:mavedb:00001242-a-1"
 
 
 @pytest.fixture
@@ -133,3 +137,62 @@ async def test_get_hgvs_validation_live(live_service: MaveDBService) -> None:
     invalid = await live_service.get_hgvs_validation("NM_000059.4:c.8167A>G")
     assert invalid["valid"] is False
     assert invalid["message"]
+
+
+# --- remediation contracts (this session) --------------------------------------
+
+
+async def test_mapped_variants_ordering_is_numeric(live_service: MaveDBService) -> None:
+    # F1: rows are ordered numerically by variant_index, NOT lexically. A lexical
+    # sort would yield 1,10,100,...,2 -> NOT monotonically increasing.
+    out = await live_service.get_mapped_variants(ORDERING_SCORE_SET, limit=30)
+    assert out["ordering"] == "variant_index"
+    indices = [m["variant_index"] for m in out["mapped_variants"] if m.get("variant_index")]
+    assert indices == sorted(indices)
+    assert indices, "expected mapped variants with parseable indices"
+
+
+async def test_variant_score_both_paths_same_shape_live(live_service: MaveDBService) -> None:
+    # F2: resolve the same variant by URN and by its hgvs -> identical key sets.
+    scores = await live_service.get_variant_scores(KNOWN_SCORE_SET, start=0, limit=20)
+    row = next(
+        (
+            r
+            for r in scores["rows"]
+            if r.get("accession") and (r.get("hgvs_nt") or r.get("hgvs_pro"))
+        ),
+        None,
+    )
+    assert row, "expected a row with an hgvs string to drive the lookup"
+    hgvs = row.get("hgvs_nt") or row.get("hgvs_pro")
+    by_urn = await live_service.get_variant_score(row["accession"])
+    by_hgvs = await live_service.get_variant_score(KNOWN_SCORE_SET, hgvs=hgvs)
+    assert set(by_urn) == set(by_hgvs)
+    assert by_urn["resolved_by"] == "variant_urn"
+    assert by_hgvs["resolved_by"] == "hgvs"
+    assert any(v.get("variant_urn") == row["accession"] for v in by_hgvs["variants"])
+
+
+async def test_bare_hgvs_resolves_accession_prefixed_set(live_service: MaveDBService) -> None:
+    # F5: a bare c. form resolves a set that stores accession-prefixed hgvs_nt.
+    out = await live_service.get_variant_score(SGE_SCORE_SET, hgvs="c.8168A>G")
+    assert out["match_count"] >= 1
+    assert any(":c.8168A>G" in (v.get("hgvs_nt") or "") for v in out["variants"])
+
+
+async def test_score_set_standard_vs_full_tiering(live_service: MaveDBService) -> None:
+    # F8: standard elides the heavy free text + caps author lists; full carries them.
+    standard = await live_service.get_score_set(KNOWN_SCORE_SET, response_mode="standard")
+    full = await live_service.get_score_set(KNOWN_SCORE_SET, response_mode="full")
+    assert "method_text" not in standard
+    assert full.get("method_text")
+    std_pub = standard["publications"]["primary"][0]
+    assert "authors" not in std_pub
+    assert full["publications"]["primary"][0].get("authors") is not None
+
+
+async def test_diagnostics_advertises_interpretation(live_service: MaveDBService) -> None:
+    # A4: diagnostics names the interpretation surface.
+    diag = await live_service.get_diagnostics()
+    assert diag["interpretation"]["calibration_supported"] is True
+    assert "get_variant_scores" in diag["interpretation"]["surfaced_by"]
