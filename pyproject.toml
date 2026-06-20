@@ -39,6 +39,7 @@ dependencies = [
     "typer>=0.12.0,<1.0.0",
     "mcp[cli]>=1.27.0,<2.0.0",
     "fastmcp>=3.2.0,<4.0.0",
+    "zstandard>=0.22.0,<1.0.0",
 ]
 
 [dependency-groups]
@@ -61,10 +62,12 @@ Repository = "https://github.com/berntpopp/mavedb-link"
 [project.scripts]
 mavedb-link = "server:main"
 mavedb-link-mcp = "mcp_server:main"
+mavedb-link-data = "mavedb_link.ingest.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mavedb_link"]
 include = ["server.py", "mcp_server.py"]
+artifacts = ["mavedb_link/data/*.sql"]
 
 [tool.ruff]
 line-length = 100
