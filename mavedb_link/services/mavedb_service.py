@@ -483,17 +483,21 @@ class MaveDBService:
         vrs_id: str | None = None,
         *,
         variant_urn: str | None = None,
+        hgvs: str | None = None,
+        gene: str | None = None,
         only_current: bool = True,
         enrich: bool = True,
         limit: int = DEFAULT_FIND_LIMIT,
         offset: int = 0,
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
-        """Find a variant across every score set by VRS id OR variant URN (delegated)."""
+        """Find a variant across every score set by VRS id, variant URN, or HGVS (delegated)."""
         return await resolvers.find_variant(
             self._client,
             vrs_id,
             variant_urn=variant_urn,
+            hgvs=hgvs,
+            gene=gene,
             only_current=only_current,
             enrich=enrich,
             limit=limit,

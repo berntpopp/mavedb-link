@@ -50,6 +50,27 @@ _VariantUrn = Annotated[
         examples=["urn:mavedb:00000001-a-1#2"],
     ),
 ]
+_Hgvs = Annotated[
+    str | None,
+    Field(
+        default=None,
+        description="A bare HGVS string (e.g. 'p.Asp2723His', 'c.8167G>A', or an "
+        "accessioned 'NM_000059.4:c.8167G>A'). Resolved to its VRS internally via the "
+        "local mirror, falling back to a capped live probe of gene='s score sets — so "
+        "you do NOT pre-map it. Pass gene= alongside to disambiguate / enable the live "
+        "fallback. Use this OR vrs_id OR variant_urn.",
+        examples=["p.Asp2723His", "NM_000059.4:c.8167G>A"],
+    ),
+]
+_Gene = Annotated[
+    str | None,
+    Field(
+        default=None,
+        description="HGNC gene symbol that scopes an hgvs= lookup (required when the HGVS "
+        "is not in the mirror and must be resolved live). Ignored unless hgvs= is set.",
+        examples=["BRCA1", "TP53"],
+    ),
+]
 _FindLimit = Annotated[
     int, Field(ge=1, le=MAX_FIND_LIMIT, description="Max cross-dataset hits (default 25).")
 ]
@@ -74,17 +95,21 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             "rollup for 'every assay that measured this variant'). Pass a VRS id "
             "(ga4gh:VA…) OR a variant_urn ('urn:mavedb:…-a-1#2'): a variant URN is "
             "resolved to its VRS internally, so you do NOT need to map it first — "
-            "chain straight from get_variant_score. Each hit carries its "
+            "chain straight from get_variant_score. ALSO accepts a bare hgvs= string "
+            "(+ optional gene=) resolved to its VRS internally — chain straight from an "
+            "HGVS the user typed, no map-first round-trip. Each hit carries its "
             "score_set_urn, variant_urn, ClinGen Allele ID, and (when enrich=true, "
             "default) the score + calibrated classifications. ClinGen Allele IDs are "
             "not accepted upstream; pass the variant_urn instead. Paged via "
-            "offset/limit. Signature: find_variant(vrs_id=, variant_urn=, "
+            "offset/limit. Signature: find_variant(vrs_id=, variant_urn=, hgvs=, gene=, "
             "only_current=, enrich=, limit=, offset=, response_mode=)."
         ),
     )
     async def find_variant(
         vrs_id: _VrsId = None,
         variant_urn: _VariantUrn = None,
+        hgvs: _Hgvs = None,
+        gene: _Gene = None,
         only_current: Annotated[
             bool, Field(description="Keep only current genome mappings (default true).")
         ] = True,
@@ -99,6 +124,8 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             payload = await get_mavedb_service().find_variant(
                 vrs_id,
                 variant_urn=variant_urn,
+                hgvs=hgvs,
+                gene=gene,
                 only_current=only_current,
                 enrich=enrich,
                 limit=limit,
@@ -113,7 +140,12 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             call,
             context=McpErrorContext(
                 "find_variant",
-                arguments={"vrs_id": vrs_id, "variant_urn": variant_urn},
+                arguments={
+                    "vrs_id": vrs_id,
+                    "variant_urn": variant_urn,
+                    "hgvs": hgvs,
+                    "gene": gene,
+                },
                 response_mode=response_mode,
             ),
         )
