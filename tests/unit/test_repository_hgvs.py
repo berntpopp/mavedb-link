@@ -34,7 +34,9 @@ def repo() -> MirrorRepository:
 
 def test_resolve_hgvs_scoped_by_gene(repo: MirrorRepository) -> None:
     rows = repo.resolve_hgvs("p.asp2723his", gene="BRCA1")
-    assert [(r["variant_urn"], r["vrs_id"]) for r in rows] == [("urn:mavedb:1-a-1#1", "ga4gh:VA.brca")]
+    assert [(r["variant_urn"], r["vrs_id"]) for r in rows] == [
+        ("urn:mavedb:1-a-1#1", "ga4gh:VA.brca")
+    ]
 
 
 def test_resolve_hgvs_unscoped_spans_genes(repo: MirrorRepository) -> None:
@@ -43,8 +45,11 @@ def test_resolve_hgvs_unscoped_spans_genes(repo: MirrorRepository) -> None:
 
 
 def test_resolve_hgvs_genomic_postmapped(repo: MirrorRepository) -> None:
-    rows = repo.resolve_hgvs("nc_000017.11:g.1a>g")
+    # The genomic path matches the FULL accessioned form (post_mapped columns keep
+    # the accession); the core body alone must NOT match the full stored value.
+    rows = repo.resolve_hgvs("g.1a>g", "nc_000017.11:g.1a>g")
     assert [r["vrs_id"] for r in rows] == ["ga4gh:VA.brca"]
+    assert repo.resolve_hgvs("g.1a>g") == []  # core-only: no genomic match
 
 
 def test_gene_identity(repo: MirrorRepository) -> None:

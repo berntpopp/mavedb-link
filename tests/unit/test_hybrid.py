@@ -253,7 +253,7 @@ async def test_vrs_for_hgvs_served_from_mirror(hybrid: HybridClient) -> None:
 
 
 async def test_vrs_for_hgvs_genomic_served_from_mirror(hybrid: HybridClient) -> None:
-    rows = hybrid.vrs_for_hgvs("nc_000013.11:g.32316461a>t")
+    rows = hybrid.vrs_for_hgvs("g.32316461a>t", "nc_000013.11:g.32316461a>t")
     assert [r["vrs_id"] for r in rows] == ["ga4gh:VA.MINI_digest1"]
 
 
@@ -264,6 +264,26 @@ async def test_vrs_for_hgvs_miss_returns_empty(hybrid: HybridClient) -> None:
 async def test_gene_identity_thin_from_mirror(hybrid: HybridClient) -> None:
     assert hybrid.gene_identity("BRCA2") == {"symbol": "BRCA2", "organism": "Homo sapiens"}
     assert hybrid.gene_identity("NOPE") is None
+
+
+async def test_find_variant_by_genomic_hgvs_end_to_end(hybrid: HybridClient) -> None:
+    # Full stack: a genomic HGVS resolves to VRS via the post-mapped columns (the
+    # core/full split) and rolls up from the mirror, no live call, enrich off.
+    provenance.begin()
+    out = await MaveDBService(hybrid).find_variant(hgvs="NC_000013.11:g.32316461A>T", enrich=False)
+    assert out["resolved_by"] == "hgvs"
+    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
+    assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
+    assert provenance.snapshot()["data_source"] == "mirror"
+
+
+async def test_find_variant_by_target_hgvs_end_to_end(hybrid: HybridClient) -> None:
+    # Target-relative HGVS (p.Met1Leu) scoped by gene resolves via hgvs_index.
+    provenance.begin()
+    out = await MaveDBService(hybrid).find_variant(hgvs="p.Met1Leu", gene="BRCA2", enrich=False)
+    assert out["resolved_by"] == "hgvs"
+    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
+    assert provenance.snapshot()["data_source"] == "mirror"
 
 
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:

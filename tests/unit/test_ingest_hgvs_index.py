@@ -8,7 +8,7 @@ from mavedb_link.constants import MIRROR_SCHEMA_VERSION
 from mavedb_link.data.repository import MirrorRepository
 from mavedb_link.ingest.builder import build_database
 from mavedb_link.ingest.parsing import extract_hgvs_rows
-from tests.dump_fixture import CALIBRATED_URN, write_mini_dump
+from tests.dump_fixture import write_mini_dump
 
 
 def test_schema_version_is_two() -> None:

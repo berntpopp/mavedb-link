@@ -298,7 +298,7 @@ def shape_gene(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     return payload if response_mode in ("standard", "full") else _drop_empty(payload)
 
 
-def _summarize_vrs(post: dict[str, Any]) -> dict[str, Any]:
+def _summarize_vrs(post: Any) -> dict[str, Any]:
     """Flatten a post-mapped VRS allele to its genomic coordinates (defensive).
 
     Tolerates VRS 1.x/2.x shape differences and returns only the keys it can parse
@@ -350,7 +350,7 @@ def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         )
         return payload
     if response_mode == "standard":
-        summary = _summarize_vrs(post if isinstance(post, dict) else {})
+        summary = _summarize_vrs(post)
         if summary:
             payload["post_mapped"] = summary
         post_hgvs = raw.get("postMappedHgvs") or raw.get("post_mapped_hgvs")

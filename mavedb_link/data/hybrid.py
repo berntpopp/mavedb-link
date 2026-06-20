@@ -109,14 +109,16 @@ class HybridClient(MaveDBClient):
                 return str(vrs)
         return None
 
-    def vrs_for_hgvs(self, hgvs_core_value: str, *, gene: str | None = None) -> list[dict[str, Any]]:
-        """Resolve a normalised HGVS core to mapped-variant rows from the mirror.
+    def vrs_for_hgvs(
+        self, core: str, full: str | None = None, *, gene: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Resolve an HGVS (``core`` body + ``full`` accessioned form) to rows.
 
         Lets find_variant(hgvs=) resolve VRS without probing the live API. Returns
         ``[]`` on miss (no mirror coverage) so the caller falls through to the live
         probe. Records mirror provenance only when it actually answers.
         """
-        rows = self._repo.resolve_hgvs(hgvs_core_value, gene=gene)
+        rows = self._repo.resolve_hgvs(core, full, gene=gene)
         if rows:
             provenance.record("mirror", mirror_as_of=self._mirror_as_of)
         return rows

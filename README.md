@@ -35,7 +35,7 @@ uninterpretable float.
 | `get_variant_score` | ONE variant's score **+ per-calibration classification** (by variant URN, or score-set URN + hgvs) |
 | `get_classified_variants` | Every variant in a calibrated functional class (e.g. all `abnormal`/PS3), with scores |
 | `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile + class |
-| `find_variant` | One GA4GH VRS allele's score + class across **every** score set (cross-dataset) |
+| `find_variant` | One variant's score + class across **every** score set (cross-dataset) — anchor by GA4GH VRS id, `variant_urn`, or a bare `hgvs=` (+ optional `gene=`) resolved to VRS internally |
 | `get_hgvs_validation` | Validate an HGVS string and surface *why* it's invalid (reference mismatch, missing accession) |
 | `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol (lean listing: `has_calibrations` flag, not the inlined ladder — open `get_score_set` for thresholds) |
 | `get_experiment` | Experiment record + child score-set URNs |
@@ -97,10 +97,13 @@ make data-refresh   # rebuild only if Zenodo has a newer dump version
 ```
 
 Score-set/experiment records, the scores/counts tables, full-text search, the
-score distribution, the cross-dataset VRS rollup, and the per-set mapped-variant
-enumeration (current-only, compact/minimal) are served from the local index; the
-richer mapped-variant reads (full VRS objects), HGVS validation (memoised), and the
-calibration-by-class listing stay live. Each response's `_meta.data_source` reports
+score distribution, the cross-dataset VRS rollup, the per-set mapped-variant
+enumeration (current-only, compact/minimal), HGVS→VRS resolution for
+`find_variant(hgvs=)`, and the `get_gene_score_sets` score-set listing are served
+from the local index; rich gene identity is fetched live but memoised + time-boxed
+(degrading to a thin mirror identity), and the richer mapped-variant reads (full
+VRS objects), HGVS validation (memoised), and the calibration-by-class listing stay
+live. Each response's `_meta.data_source` reports
 `mirror` | `live` | `mixed`, with `mirror_as_of` (the snapshot date);
 `get_diagnostics.mirror` reports live status.
 In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
