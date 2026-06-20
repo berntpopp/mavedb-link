@@ -273,7 +273,11 @@ def build_capabilities() -> dict[str, Any]:
             "get_gene_score_sets": "score_sets[].has_calibrations (presence flag; ladder via get_score_set)",
             "get_score_set": "score_calibrations (thresholds, ACMG, OddsPath, baseline)",
             "get_variant_score": "variants[].classifications + top-level calibrations",
-            "get_variant_scores": "rows[].classification + top-level calibrations",
+            "get_variant_scores": (
+                "rows[].classification on every page + top-level calibrations ladder "
+                "on the first page (start=0) or full only (it is record-level data, "
+                "not re-shipped per page)"
+            ),
             "find_variant": "hits[].classifications",
             "get_classified_variants": "variants[].classification (+ acmg)",
             "get_score_distribution": "query.classifications + calibrations",
@@ -291,6 +295,9 @@ def build_capabilities() -> dict[str, Any]:
                 "A full ~1000-row page at standard can exceed the 25k token budget "
                 "(_meta.budget_exceeded) -- use response_mode='minimal' or page via start=.",
                 "Rows carry variant_index; JOIN get_mapped_variants on it, never zip.",
+                "The top-level calibrations ladder ships once (the first page, start=0) "
+                "or at full; forward pages carry only the per-row classification. Open "
+                "get_score_set for the full ladder if you started past page 0.",
             ],
             "find_variant": [
                 "Pass variant_urn to roll a variant up across every score set without "

@@ -33,7 +33,6 @@ from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import (
     looks_like_gene_symbol,
     validate_score_set_urn,
-    variant_index_of,
 )
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
 from mavedb_link.services.calibration import (
@@ -47,58 +46,18 @@ from mavedb_link.services.search import (
     rank_by_target_match,
     rank_experiments_by_target,
 )
-
-
-def _clamp(value: int, lo: int, hi: int) -> int:
-    """Clamp ``value`` into ``[lo, hi]``."""
-    return max(lo, min(value, hi))
-
-
-def _extract_items(
-    resp: Any, item_keys: tuple[str, ...], total_keys: tuple[str, ...]
-) -> tuple[list[Any], int | None]:
-    """Pull ``(items, total)`` from a search response (list or wrapper dict)."""
-    if isinstance(resp, list):
-        return resp, len(resp)
-    if isinstance(resp, dict):
-        for key in item_keys:
-            if isinstance(resp.get(key), list):
-                items = resp[key]
-                total = next((resp[t] for t in total_keys if isinstance(resp.get(t), int)), None)
-                return items, total
-    return [], 0
-
-
-def _mapped_variant_urn(item: Any) -> str:
-    """A mapped-variant record's source variant URN (or empty)."""
-    if not isinstance(item, dict):
-        return ""
-    return item.get("variantUrn") or (item.get("variant") or {}).get("urn") or ""
-
-
-def _mapped_sort_key(item: Any) -> tuple[int, str]:
-    """Numeric sort key (``#index``, urn) so rows order #1,#2,…,#10 — not #1,#10,#2.
-
-    Lexical sort of the variant URN string mispairs rows when zipped against the
-    numerically-ordered scores table (F1). Variants with no parseable index sort
-    last (deterministically, by URN string).
-    """
-    urn = _mapped_variant_urn(item)
-    index = variant_index_of(urn)
-    return (index if index is not None else 2**62, urn)
-
-
-def _page_block(*, total: int | None, returned: int, limit: int, offset: int) -> dict[str, Any]:
-    """Build the uniform pagination block for a list payload."""
-    truncated = offset + returned < total if total is not None else returned >= limit
-    return {
-        "total": total,
-        "returned": returned,
-        "limit": limit,
-        "offset": offset,
-        "truncated": truncated,
-        "next_offset": offset + returned if truncated else None,
-    }
+from mavedb_link.services.support import (
+    clamp as _clamp,
+)
+from mavedb_link.services.support import (
+    extract_items as _extract_items,
+)
+from mavedb_link.services.support import (
+    mapped_sort_key as _mapped_sort_key,
+)
+from mavedb_link.services.support import (
+    page_block as _page_block,
+)
 
 
 class MaveDBService:
@@ -227,9 +186,15 @@ class MaveDBService:
                 verdict = primary_classification(row.get("score"), raw_calibrations)
                 if verdict:
                     row["classification"] = verdict
-            payload["calibrations"] = shape_calibrations(
-                raw_calibrations, full=response_mode in ("standard", "full")
-            )
+            # GAP-D: the threshold ladder is record-level data identical on every
+            # page, so re-shipping it per page wastes ~95% of a small page's tokens.
+            # Emit it once (the first page, start=0) -- or whenever the caller asks
+            # for everything via full -- while the per-row matched classification
+            # rides on every page so the score column stays interpretable.
+            if start == 0 or response_mode == "full":
+                payload["calibrations"] = shape_calibrations(
+                    raw_calibrations, full=response_mode in ("standard", "full")
+                )
         return payload
 
     async def get_variant_score(
