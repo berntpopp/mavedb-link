@@ -82,6 +82,27 @@ Variants carry HGVS (`hgvs_nt`/`hgvs_pro`/`hgvs_splice`) and a quantitative
 optional ClinGen Allele IDs. Scores download as CSV. Dataset licenses are per
 score set (CC0 1.0 / CC BY 4.0 / CC BY-SA 4.0).
 
+## Local mirror (primary) + live API (backup)
+
+To make lookups fast and offline, `mavedb-link` can serve from a **local SQLite
+mirror** built from the CC0 [MaveDB Zenodo bulk dump](https://zenodo.org/records/15653325)
+(concept DOI `10.5281/zenodo.11201736`), falling back to the live REST API on any
+mirror-miss (e.g. a record newer than the snapshot). Without a mirror it runs
+pure-live — no setup required.
+
+```bash
+make data-build     # download the latest Zenodo dump + build data/mavedb.sqlite
+make data-status    # show snapshot date, Zenodo record, counts
+make data-refresh   # rebuild only if Zenodo has a newer dump version
+```
+
+Each response's `_meta.data_source` reports `mirror` | `live` | `mixed`, with
+`mirror_as_of` (the snapshot date); `get_diagnostics.mirror` reports live status.
+In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
+artifact → build, else live-only) and persists the mirror on a volume; prebuilt
+`mavedb.sqlite.zst` artifacts are published to GitHub Releases by
+`.github/workflows/data.yml`. Disable with `MAVEDB_LINK_MIRROR__ENABLED=false`.
+
 ## Conventions
 
 Mirrors the canonical `*-link` template: a thin data plane (`api/` httpx client +

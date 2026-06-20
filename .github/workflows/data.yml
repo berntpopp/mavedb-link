@@ -1,0 +1,76 @@
+name: Build & publish mirror
+
+# Build the local SQLite mirror from the latest CC0 MaveDB Zenodo bulk dump and
+# publish it as a prebuilt artifact (mavedb.sqlite.zst + .sha256) on a GitHub
+# Release, tagged by the dump's snapshot date. Deployments then pull this instead
+# of rebuilding the ~1.8 GB dump on every start. Runs monthly and on demand.
+#
+# Triggered by maintainers (or the schedule) after merge -- it is not invoked
+# automatically by code changes. Requires no secrets beyond the default
+# GITHUB_TOKEN (contents: write).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Override release tag (default: data-<dump snapshot date>)"
+        required: false
+        type: string
+  schedule:
+    - cron: "0 4 1 * *" # 04:00 UTC on the 1st of each month
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-publish
+  cancel-in-progress: false
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MAVEDB_LINK_MIRROR__DATA_DIR: data
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install runtime dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Build mirror from the latest Zenodo dump
+        run: uv run mavedb-link-data build
+
+      - name: Report mirror provenance
+        run: uv run mavedb-link-data status
+
+      - name: Derive release tag from the dump snapshot date
+        id: meta
+        run: |
+          as_of=$(uv run python -c "from mavedb_link.data.repository import MirrorRepository as R; print((R.open('data/mavedb.sqlite').meta().get('dump_as_of') or 'unknown')[:10])")
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag="data-${as_of}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${tag}"
+
+      - name: Pack the artifact (zstd + sha256 sidecar)
+        run: uv run mavedb-link-data pack
+
+      - name: Publish to GitHub Releases
+        run: |
+          gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1 \
+            || gh release create "${{ steps.meta.outputs.tag }}" \
+                 --title "${{ steps.meta.outputs.tag }}" \
+                 --notes "Prebuilt MaveDB SQLite mirror built from the CC0 Zenodo bulk dump (snapshot ${{ steps.meta.outputs.tag }}). CC0 1.0."
+          gh release upload "${{ steps.meta.outputs.tag }}" \
+            data/mavedb.sqlite.zst data/mavedb.sqlite.zst.sha256 --clobber

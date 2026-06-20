@@ -4,13 +4,20 @@ Shared instructions for AI coding agents working in this repository.
 
 ## What this project is
 
-`mavedb-link` is a **read-only FastMCP 3.x server** that wraps the public MaveDB
-REST API (`https://api.mavedb.org/api/v1`) for variant-effect / multiplexed-assay
-data. It is a member of the GeneFoundry `*-link` fleet and federates into
-`genefoundry-router` under the `mavedb` namespace. It is a *server* to MCP hosts
-and a *client* to the MaveDB API.
+`mavedb-link` is a **read-only FastMCP 3.x server** for variant-effect /
+multiplexed-assay data from MaveDB. It is a member of the GeneFoundry `*-link`
+fleet and federates into `genefoundry-router` under the `mavedb` namespace. It is
+a *server* to MCP hosts and a *client* to the MaveDB API.
+
+It is **mirror-primary, live-backup**: a local SQLite mirror built from the CC0
+MaveDB Zenodo bulk dump (concept DOI `10.5281/zenodo.11201736`) serves reads
+first; a mirror-miss (e.g. a record newer than the snapshot) transparently falls
+back to the live REST API (`https://api.mavedb.org/api/v1`). When no mirror is
+built, the server runs pure-live (no regression). See **Local mirror** below.
 
 - Primary code area: `mavedb_link/`
+- Mirror code: `mavedb_link/ingest/` (acquire+build), `mavedb_link/data/`
+  (schema, repository, hybrid client), CLI `mavedb-link-data`
 - Design spec: `docs/specs/2026-06-19-mavedb-link-design.md`
 - Implementation plan: `docs/plans/2026-06-19-mavedb-link-implementation.md`
 
@@ -34,6 +41,31 @@ its baseline with `make eval-baseline` after an intentional surface change.
   `success`/`_meta` and converts exceptions into **returned** (never raised)
   structured errors. Tool bodies attach `_meta.next_commands` and return
   `run_mcp_tool(name, call, context=...)`.
+
+## Local mirror (mirror-primary, live-backup)
+
+- **Source**: the CC0 Zenodo bulk dump — `main.json` (camelCase records, incl.
+  `scoreCalibrations`) + per-set `csv/<urn-dashed>.{scores,counts,annotations}.csv`.
+  Built by `mavedb.scripts.export_public_data` upstream.
+- **Build** (`ingest/builder.py`): streams the dump zip into SQLite atomically
+  (`os.replace`), one CSV member at a time (peak memory ≈ one CSV). Dump CSV
+  headers are denamespaced back to the live shape (`scores.score` → `score`,
+  preserving dotted columns like `exp.score`). Per-set distributions are
+  precomputed; the annotations layer (VRS digest + ClinGen) is indexed for
+  cross-dataset `find_variant`. Schema in `data/schema.sql`; bump
+  `MIRROR_SCHEMA_VERSION` (in `constants.py`) on any shape change.
+- **Serve** (`data/hybrid.py`): `HybridClient` subclasses `MaveDBClient` and
+  overrides `get_json`/`get_text`/`post_json` to answer from the mirror, else
+  `super()` (live). The whole service/shaping/calibration stack consumes it
+  unchanged. `_meta.data_source` (`mirror`|`live`|`mixed`) + `mirror_as_of`
+  report provenance per call; `get_diagnostics.mirror` reports snapshot status.
+- **Acquire/refresh** (`mavedb-link-data` CLI): `bootstrap` (reuse → pull
+  prebuilt artifact → build, else degrade to live-only), `build`, `refresh`,
+  `status`, `pull`, `pack`, `publish`. Prebuilt `mavedb.sqlite.zst` artifacts are
+  published to GitHub Releases by `.github/workflows/data.yml` (monthly + manual).
+- **Invariant**: the mirror only changes latency/provenance, never the output
+  *shape* — mirror-served and live-served payloads must be interchangeable
+  (verify both in `tests/unit/test_hybrid.py`).
 
 ## Coding standards
 
