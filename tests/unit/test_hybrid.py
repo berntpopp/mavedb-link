@@ -100,3 +100,31 @@ async def test_envelope_reports_mixed_when_one_read_is_live(hybrid: HybridClient
         env = await run_mcp_tool("get_gene_score_sets", lambda: svc.get_gene_score_sets("UBE2I"))
     assert env["success"] is True
     assert env["_meta"]["data_source"] == "mixed"
+
+
+async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
+    svc = MaveDBService(hybrid)
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.get("/api/version").mock(
+            return_value=httpx.Response(200, json={"name": "mavedb-api", "version": "x"})
+        )
+        diag = await svc.get_diagnostics()
+    assert diag["mirror"]["present"] is True
+    assert diag["mirror"]["as_of"] == DUMP_AS_OF
+    assert diag["mirror"]["score_set_count"] == 2
+    assert diag["mirror"]["zenodo_record"] == "18511521"
+
+
+async def test_diagnostics_live_only_reports_no_mirror() -> None:
+    from mavedb_link.api.client import MaveDBClient
+
+    svc = MaveDBService(MaveDBClient(MaveDBApiConfig(base_url=BASE_URL, max_retries=0)))
+    try:
+        with respx.mock(base_url=BASE_URL) as mock:
+            mock.get("/api/version").mock(
+                return_value=httpx.Response(200, json={"name": "x", "version": "y"})
+            )
+            diag = await svc.get_diagnostics()
+        assert diag["mirror"] == {"present": False}
+    finally:
+        await svc.aclose()

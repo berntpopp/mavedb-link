@@ -21,15 +21,13 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
 from mavedb_link.ingest.parsing import (
     compute_distribution,
     denamespace_csv,
     extract_scores,
     parse_annotations,
 )
-
-#: Bump when the schema or stored shapes change (invalidates old artifacts).
-SCHEMA_VERSION = 1
 
 
 def _schema_sql() -> str:

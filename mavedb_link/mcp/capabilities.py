@@ -77,6 +77,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "response_modes",
     "default_response_mode",
     "response_token_budget",
+    "mirror",
     "latency_profile",
     "recommended_workflows",
     "calibration_surface",
@@ -146,6 +147,8 @@ def build_capabilities() -> dict[str, Any]:
             "elapsed_ms",
             "truncated",
             "token_estimate",
+            "data_source",
+            "mirror_as_of",
             "capabilities_version",
             "next_commands",
         ],
@@ -153,21 +156,35 @@ def build_capabilities() -> dict[str, Any]:
             "Every response's _meta carries uniform observability scalars -- tool, "
             "request_id, elapsed_ms, truncated (a machine-readable completeness "
             "signal), and token_estimate (~chars/4) -- at EVERY response_mode, so a "
-            "caller always has a reliable latency + completeness signal. compact/"
-            "standard/full additionally carry next_commands + capabilities_version; "
-            "minimal is the guidance opt-out (observability scalars only). A response "
-            "whose token_estimate exceeds response_token_budget also carries "
+            "caller always has a reliable latency + completeness signal. When a local "
+            "mirror is active, _meta also reports data_source (mirror|live|mixed) and "
+            "mirror_as_of (the snapshot date) for served calls. compact/standard/full "
+            "additionally carry next_commands + capabilities_version; minimal is the "
+            "guidance opt-out (observability scalars only). A response whose "
+            "token_estimate exceeds response_token_budget also carries "
             "_meta.budget_exceeded + _meta.steer with a leaner re-call."
         ),
         "response_token_budget": RESPONSE_TOKEN_BUDGET,
+        "mirror": (
+            "A local SQLite mirror built from the CC0 MaveDB Zenodo bulk dump is the "
+            "PRIMARY source when present; the live API is the backup. Score-set/"
+            "experiment records, the scores/counts tables, full-text search, the "
+            "score distribution, and the cross-dataset VRS rollup are served from a "
+            "local index; a mirror-miss (e.g. a record newer than the snapshot) "
+            "transparently falls back to the live API. _meta.data_source "
+            "(mirror|live|mixed) + mirror_as_of report provenance per call; "
+            "get_diagnostics.mirror reports the live snapshot status."
+        ),
         "latency_profile": (
-            "get_variant_score (by hgvs) and get_score_distribution scan a score "
-            "set's full scores table in one upstream read; latency scales with table "
-            "size (the largest sets are ~tens of thousands of rows, ~1-3s cold). The "
-            "table is cached per set and SHARED across both tools, so repeat lookups "
-            "and the distribution call on the same set are served warm (O(1)). For a "
-            "known variant URN, get_variant_score resolves directly (one record read, "
-            "no scan). Read _meta.elapsed_ms for the realised per-call latency."
+            "With a local mirror active (get_diagnostics.mirror.present=true), "
+            "get_score_set/get_variant_score/get_variant_scores/get_score_distribution "
+            "and search are served from a local SQLite index -- sub-ms and offline, no "
+            "network scan. Without a mirror (live-only), get_variant_score (by hgvs) "
+            "and get_score_distribution read a score set's full scores table in one "
+            "upstream read (~1-3s cold for the largest sets), cached per set and shared "
+            "across both tools so repeats are warm; a known variant URN resolves "
+            "directly (one record read). Read _meta.elapsed_ms + _meta.data_source for "
+            "the realised per-call latency and which backend answered."
         ),
         "capabilities_version_semantics": (
             "_meta.capabilities_version is a content hash of this discovery "
