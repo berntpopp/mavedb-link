@@ -23,6 +23,14 @@ ZENODO_CONCEPT_ID = "11201736"
 #: so the repository can read it without importing the ingest chain.
 MIRROR_SCHEMA_VERSION = 2
 
+#: On-disk mapped-variant cache version. The cache key is (score_set_urn,
+#: data_version) where data_version = f"{MAPPED_CACHE_VERSION}:{mirror_token}"; bump
+#: this to invalidate every cached row after a cache-shape change (see
+#: data/mapped_cache.py, following the metadome-link ResultCache convention).
+MAPPED_CACHE_VERSION = "1"
+#: In-memory LRU capacity (number of score sets) in front of the on-disk cache.
+MAPPED_CACHE_LRU_SETS = 64
+
 #: Primary citation for the MaveDB platform. Callers must ALSO cite the specific
 #: score-set URN and its primary publication (surfaced on each record).
 RECOMMENDED_CITATION = (

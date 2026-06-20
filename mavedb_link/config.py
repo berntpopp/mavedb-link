@@ -14,7 +14,11 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mavedb_link import __version__
-from mavedb_link.constants import DEFAULT_API_BASE_URL, ZENODO_CONCEPT_ID
+from mavedb_link.constants import (
+    DEFAULT_API_BASE_URL,
+    MAPPED_CACHE_LRU_SETS,
+    ZENODO_CONCEPT_ID,
+)
 
 
 class MaveDBApiConfig(BaseModel):
@@ -107,6 +111,28 @@ class MirrorConfig(BaseModel):
         return self.data_dir / self.db_filename
 
 
+class CacheSettings(BaseModel):
+    """On-disk mapped-variant cache (lazy live-API backfill of the VRS layer).
+
+    The Zenodo dump omits the per-set annotations CSVs, so the VRS/ClinGen layer
+    is backfilled on demand: the first tool call that touches a score set fetches
+    its mapped variants from the live API and writes them here, then repeats serve
+    locally. Follows the fleet ``metadome-link`` ResultCache convention (SQLite +
+    in-memory LRU front). Disabling it falls back to the live API on every call.
+    """
+
+    enabled: bool = Field(default=True, description="Persist lazy mapped-variant enrichment.")
+    db_path: Path = Field(
+        default=Path("data/mavedb_cache.sqlite"),
+        description="Path to the on-disk cache SQLite (parent dir auto-created).",
+    )
+    lru_sets: int = Field(
+        default=MAPPED_CACHE_LRU_SETS,
+        ge=0,
+        description="In-memory LRU size (score sets) in front of the on-disk cache.",
+    )
+
+
 class ServerSettings(BaseSettings):
     """Top-level server settings."""
 
@@ -151,6 +177,11 @@ class ServerSettings(BaseSettings):
     mirror: MirrorConfig = Field(
         default_factory=MirrorConfig,
         description="Local SQLite mirror configuration (primary source; live API backup).",
+    )
+
+    cache: CacheSettings = Field(
+        default_factory=CacheSettings,
+        description="On-disk mapped-variant cache (lazy live-API VRS backfill).",
     )
 
     @field_validator("mcp_path")
