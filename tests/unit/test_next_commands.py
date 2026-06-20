@@ -98,3 +98,32 @@ def test_after_gene_widen_respects_gene_limit_ceiling() -> None:
     assert widen, "expected a widen step for a truncated gene result"
     for step in widen:
         assert step["arguments"]["limit"] <= 100
+
+
+def test_after_find_variant_opens_first_hit_set_and_variant() -> None:
+    payload = {
+        "vrs_id": "ga4gh:VA.x",
+        "hits": [
+            {"score_set_urn": "urn:mavedb:00000001-a-1", "variant_urn": "urn:mavedb:00000001-a-1#2"}
+        ],
+    }
+    steps = nc.after_find_variant(payload)
+    tools = [s["tool"] for s in steps]
+    assert tools[:2] == ["get_score_set", "get_variant_score"]
+
+
+def test_after_hgvs_validation_valid_searches() -> None:
+    assert nc.after_get_hgvs_validation({"valid": True})[0]["tool"] == "search_score_sets"
+    assert nc.after_get_hgvs_validation({"valid": False})[0]["tool"] == "get_server_capabilities"
+
+
+def test_after_classified_variants_opens_variant_and_set() -> None:
+    payload = {
+        "urn": "urn:mavedb:00000001-a-1",
+        "classification": "abnormal",
+        "variants": [{"variant_urn": "urn:mavedb:00000001-a-1#2"}],
+    }
+    steps = nc.after_get_classified_variants(payload)
+    tools = [s["tool"] for s in steps]
+    assert "get_variant_score" in tools
+    assert "get_score_set" in tools

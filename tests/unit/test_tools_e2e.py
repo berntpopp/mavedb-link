@@ -19,7 +19,7 @@ def _mock_all(router: respx.Router) -> None:
         return_value=httpx.Response(200, json=fixtures.SCORE_SETS_SEARCH_RESPONSE)
     )
     router.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
-        return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
     )
     router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
@@ -42,6 +42,17 @@ def _mock_all(router: respx.Router) -> None:
     )
     router.get("/api/version").mock(
         return_value=httpx.Response(200, json=fixtures.API_VERSION_RESPONSE)
+    )
+    # P1 resolver routes (single-hit VRS so enrichment stays within mocked routes).
+    router.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW[:1])
+    )
+    router.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    router.get(f"/score-calibrations/score-set/{fixtures.SCORE_SET_URN}/primary").mock(
+        return_value=httpx.Response(200, json=fixtures.PRIMARY_CALIBRATION_RAW)
+    )
+    router.get(f"/score-calibrations/{fixtures.CALIBRATION_URN}/variants").mock(
+        return_value=httpx.Response(200, json=fixtures.CALIBRATION_VARIANTS_RAW)
     )
 
 
@@ -170,6 +181,47 @@ async def test_get_mapped_variants_and_collection(
     assert payload["truncated"] is True
     res2 = await facade.call_tool("get_collection", {"urn": fixtures.COLLECTION_URN})
     assert structured(res2)["name"] == "UBE2I datasets"
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_find_variant_enriches_and_chains(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
+    res = await facade.call_tool("find_variant", {"vrs_id": fixtures.VRS_ID})
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    hit = payload["hits"][0]
+    assert hit["score_set_urn"] == fixtures.SCORE_SET_URN
+    assert hit["score"] == -1.2  # enriched
+    assert hit["classifications"][0]["classification"] == "abnormal"
+    tools = [s["tool"] for s in payload["_meta"]["next_commands"]]
+    assert "get_score_set" in tools
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_valid(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
+    res = await facade.call_tool("get_hgvs_validation", {"variant": "NM_000059.4:c.8167G>A"})
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert payload["valid"] is True
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_classified_variants_abnormal(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
+    res = await facade.call_tool(
+        "get_classified_variants", {"urn": fixtures.SCORE_SET_URN, "classification": "abnormal"}
+    )
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert payload["total"] == 1
+    assert payload["variants"][0]["classification"] == "abnormal"
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)

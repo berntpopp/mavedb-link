@@ -12,6 +12,8 @@ from typing import Any
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.constants import (
+    DEFAULT_CLASSIFIED_LIMIT,
+    DEFAULT_FIND_LIMIT,
     DEFAULT_GENE_LIMIT,
     DEFAULT_MAPPED_LIMIT,
     DEFAULT_SCORES_LIMIT,
@@ -25,7 +27,7 @@ from mavedb_link.constants import (
 )
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
 from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn
-from mavedb_link.services import shaping
+from mavedb_link.services import resolvers, shaping
 from mavedb_link.services.calibration import (
     classify_score,
     primary_classification,
@@ -473,6 +475,51 @@ class MaveDBService:
             "ordering": "variant_urn",
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
+
+    async def find_variant(
+        self,
+        vrs_id: str,
+        *,
+        only_current: bool = True,
+        enrich: bool = True,
+        limit: int = DEFAULT_FIND_LIMIT,
+        offset: int = 0,
+        response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
+    ) -> dict[str, Any]:
+        """Find a GA4GH VRS allele across every score set (delegated to resolvers)."""
+        return await resolvers.find_variant(
+            self._client,
+            vrs_id,
+            only_current=only_current,
+            enrich=enrich,
+            limit=limit,
+            offset=offset,
+            response_mode=response_mode,
+        )
+
+    async def get_hgvs_validation(self, variant: str) -> dict[str, Any]:
+        """Validate an HGVS string upstream (delegated to resolvers)."""
+        return await resolvers.get_hgvs_validation(self._client, variant)
+
+    async def get_classified_variants(
+        self,
+        urn: str,
+        *,
+        classification: str | None = None,
+        calibration_urn: str | None = None,
+        limit: int = DEFAULT_CLASSIFIED_LIMIT,
+        offset: int = 0,
+        response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
+    ) -> dict[str, Any]:
+        """Return a score set's variants in a functional class (delegated)."""
+        return await resolvers.get_classified_variants(
+            self._client,
+            urn,
+            classification=classification,
+            calibration_urn=calibration_urn,
+            limit=limit,
+            offset=offset,
+        )
 
     async def get_collection(
         self, urn: str, *, response_mode: str = shaping.DEFAULT_RESPONSE_MODE

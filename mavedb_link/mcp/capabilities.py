@@ -48,6 +48,9 @@ TOOLS: list[str] = [
     "search_experiments",
     "get_mapped_variants",
     "get_collection",
+    "find_variant",
+    "get_hgvs_validation",
+    "get_classified_variants",
 ]
 
 _SUMMARY_KEYS: tuple[str, ...] = (

@@ -285,3 +285,58 @@ SCORE_SET_WITH_CALIBRATIONS_RAW: dict[str, Any] = {
     **SCORE_SET_RAW,
     "scoreCalibrations": [CALIBRATION_POS, CALIBRATION_NEG_GAPPED],
 }
+
+#: Cross-dataset VRS lookup: one allele present in two score sets, as
+#: GET /mapped-variants/vrs/{identifier} returns it (a bare list).
+VRS_ID = "ga4gh:VA.KJ_post2"
+VRS_ID_ENCODED = "ga4gh%3AVA.KJ_post2"
+VRS_CROSS_DATASET_RAW: list[dict[str, Any]] = [
+    {
+        "variantUrn": VARIANT_URN,  # urn:mavedb:00000001-a-1#2
+        "postMapped": {"id": VRS_ID},
+        "clingenAlleleId": "CA000002",
+        "current": True,
+    },
+    {
+        "variantUrn": f"{SCORE_SET_URN_2}#5",
+        "postMapped": {"id": VRS_ID},
+        "clingenAlleleId": "CA000002",
+        "current": True,
+    },
+]
+
+#: A primary calibration record (urn + classification ids) as
+#: GET /score-calibrations/score-set/{urn}/primary returns it.
+CALIBRATION_URN = "urn:mavedb:calibration-test"
+PRIMARY_CALIBRATION_RAW: dict[str, Any] = {
+    **CALIBRATION_POS,
+    "urn": CALIBRATION_URN,
+    "scoreSetUrn": SCORE_SET_URN,
+}
+
+#: Variants grouped by functional-classification id, as
+#: GET /score-calibrations/{urn}/variants returns them (249=abnormal, 250=normal).
+CALIBRATION_VARIANTS_RAW: list[dict[str, Any]] = [
+    {
+        "functionalClassificationId": 249,
+        "variants": [
+            {
+                "urn": f"{SCORE_SET_URN}#2",
+                "hgvsNt": "c.2T>G",
+                "hgvsPro": "p.Met1Arg",
+                "data": {"score_data": {"score": 0.94}},
+            }
+        ],
+    },
+    {
+        "functionalClassificationId": 250,
+        "variants": [
+            {
+                "urn": f"{SCORE_SET_URN}#9",
+                "hgvsNt": "c.9A>G",
+                "hgvsPro": "p.Lys3Arg",
+                "data": {"score_data": {"score": 3.5}},
+            }
+        ],
+    },
+]

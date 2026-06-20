@@ -31,6 +31,9 @@ _CALLS: dict[str, dict[str, Any]] = {
     "search_experiments": {"text": "UBE2I"},
     "get_mapped_variants": {"urn": fixtures.SCORE_SET_URN},
     "get_collection": {"urn": fixtures.COLLECTION_URN},
+    "find_variant": {"vrs_id": fixtures.VRS_ID},
+    "get_hgvs_validation": {"variant": "NM_000059.4:c.8167G>A"},
+    "get_classified_variants": {"urn": fixtures.SCORE_SET_URN},
 }
 
 

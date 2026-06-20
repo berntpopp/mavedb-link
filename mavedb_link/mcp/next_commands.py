@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from mavedb_link.constants import (
+    MAX_CLASSIFIED_LIMIT,
+    MAX_FIND_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -180,3 +182,41 @@ def after_get_collection(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if score_sets:
         return [cmd("get_score_set", urn=score_sets[0])]
     return [cmd("search_score_sets"), cmd("get_server_capabilities")]
+
+
+def after_find_variant(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """After find_variant: open the first hit's score set + score; page if truncated."""
+    hits = payload.get("hits") or []
+    steps: list[dict[str, Any]] = []
+    if hits and isinstance(hits[0], dict):
+        first = hits[0]
+        if first.get("score_set_urn"):
+            steps.append(cmd("get_score_set", urn=first["score_set_urn"]))
+        if first.get("variant_urn"):
+            steps.append(cmd("get_variant_score", urn=first["variant_urn"]))
+    vrs = payload.get("vrs_id")
+    steps += _more_offset("find_variant", {"vrs_id": vrs} if vrs else {}, payload, MAX_FIND_LIMIT)
+    return steps or [cmd("get_server_capabilities")]
+
+
+def after_get_hgvs_validation(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """After get_hgvs_validation: search for a relevant score set when valid."""
+    if payload.get("valid"):
+        return [cmd("search_score_sets"), cmd("get_server_capabilities")]
+    return [cmd("get_server_capabilities")]
+
+
+def after_get_classified_variants(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """After get_classified_variants: open the first variant + the score set; page on."""
+    urn = payload.get("urn")
+    steps: list[dict[str, Any]] = []
+    variants = payload.get("variants") or []
+    if variants and isinstance(variants[0], dict) and variants[0].get("variant_urn"):
+        steps.append(cmd("get_variant_score", urn=variants[0]["variant_urn"]))
+    if urn:
+        steps.append(cmd("get_score_set", urn=urn))
+        base = {"urn": urn}
+        if payload.get("classification"):
+            base["classification"] = payload["classification"]
+        steps += _more_offset("get_classified_variants", base, payload, MAX_CLASSIFIED_LIMIT)
+    return steps or [cmd("get_server_capabilities")]

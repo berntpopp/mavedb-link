@@ -166,3 +166,25 @@ COLLECTION_SCHEMA = _envelope(
     experiment_urns=_ARR_NULL,
     score_set_urns=_ARR_NULL,
 )
+
+FIND_VARIANT_SCHEMA = _envelope(
+    vrs_id=_STR,
+    hits=_ARR,  # each: {score_set_urn, variant_urn, vrs_id, clingen_allele_id, score?, classifications?}
+    enriched=_BOOL,
+    **_PAGE,
+)
+
+HGVS_VALIDATION_SCHEMA = _envelope(
+    variant=_STR_NULL,
+    valid=_BOOL,
+    # `message` carries the upstream reason on valid=False (declared on the envelope).
+)
+
+CLASSIFIED_VARIANTS_SCHEMA = _envelope(
+    urn=_STR,
+    calibration_urn=_STR_NULL,
+    calibration_title=_STR_NULL,
+    classification=_STR_NULL,
+    variants=_ARR,
+    **_PAGE,
+)

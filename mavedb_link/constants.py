@@ -56,6 +56,13 @@ MAX_MAPPED_LIMIT = 500
 DEFAULT_MAPPED_LIMIT = 50
 MAX_GENE_LIMIT = 100
 DEFAULT_GENE_LIMIT = 20
+MAX_FIND_LIMIT = 100
+DEFAULT_FIND_LIMIT = 25
+MAX_CLASSIFIED_LIMIT = 1000
+DEFAULT_CLASSIFIED_LIMIT = 100
+
+#: Functional-classification enum values MaveDB assigns to calibrated bins.
+FUNCTIONAL_CLASSES: list[str] = ["abnormal", "normal", "not_specified"]
 
 #: Upstream caps a search at 100 results/request (422 above that), so the service
 #: fetches the top page (= MAX_SEARCH_LIMIT) to rank/facet/page client-side. This

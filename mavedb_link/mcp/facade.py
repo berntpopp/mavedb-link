@@ -12,6 +12,7 @@ from mavedb_link.mcp.tools import (
     register_discovery_tools,
     register_experiment_tools,
     register_gene_tools,
+    register_resolver_tools,
     register_score_set_tools,
     register_variant_tools,
 )
@@ -31,6 +32,7 @@ def create_mavedb_mcp() -> FastMCP:
     register_gene_tools(mcp)
     register_experiment_tools(mcp)
     register_collection_tools(mcp)
+    register_resolver_tools(mcp)
     register_capability_resources(mcp)
     mcp.add_middleware(ArgValidationMiddleware())
 
