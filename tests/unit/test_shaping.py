@@ -28,6 +28,16 @@ def test_shape_single_variant_compact_has_score_and_hgvs() -> None:
     assert "mapped_variants" not in out
 
 
+def test_shape_single_variant_coerces_string_score() -> None:
+    # GAP-2: the variant-record score can arrive as a string; shaping must coerce it
+    # to a float so the output is numeric and the classifier never sees a string.
+    from tests.fixtures import VARIANT_RAW_STR_SCORE
+
+    out = shaping.shape_single_variant(VARIANT_RAW_STR_SCORE, "compact")
+    assert out["score"] == -1.2
+    assert isinstance(out["score"], float)
+
+
 def test_shape_single_variant_full_has_blocks() -> None:
     out = shaping.shape_single_variant(VARIANT_RAW, "full")
     assert out["count_data"] == {"c_0": 10, "c_1": 5}

@@ -68,6 +68,21 @@ def test_classify_none_score_is_empty() -> None:
     assert classify_score(None, [CALIBRATION_POS]) == []
 
 
+def test_classify_coerces_numeric_string_score() -> None:
+    # GAP-2: some variant records serialise score as a string; the classifier must
+    # coerce it rather than crash on `str <= float`.
+    out = classify_score("0.94", [CALIBRATION_POS])
+    assert out[0]["classification"] == "abnormal"
+    assert primary_classification("0.94", [CALIBRATION_POS]) == "abnormal"
+
+
+def test_classify_non_numeric_string_is_empty() -> None:
+    # A truly non-numeric score cannot be classified -> [] (never a crash).
+    assert classify_score("NA", [CALIBRATION_POS]) == []
+    assert classify_score("", [CALIBRATION_POS]) == []
+    assert primary_classification("oops", [CALIBRATION_POS]) is None
+
+
 def test_classify_inclusive_upper_bound_includes_boundary() -> None:
     calib = {
         "title": "inc",

@@ -204,6 +204,28 @@ PREFIXED_SCORES_CSV = (
     "urn:mavedb:00000001-a-1#1,ENST00000380152.8:c.8168A>G,NA,NA,0.94\n"
 )
 
+#: A variant record whose score serialises as a STRING (verified live on
+#: urn:mavedb:00001242-a-1): the scores-CSV path coerces to float but the
+#: variant-record path did not, so classify_score crashed on `str <= float` at
+#: standard/full (GAP-2). The fixture locks the coercion fix.
+VARIANT_RAW_STR_SCORE: dict[str, Any] = {
+    **{k: v for k, v in {
+        "urn": VARIANT_URN,
+        "hgvsNt": "c.2T>G",
+        "hgvsPro": "p.Met1Arg",
+        "scoreSet": {"urn": SCORE_SET_URN},
+        "mappedVariants": [
+            {
+                "variantUrn": VARIANT_URN,
+                "postMapped": {"type": "Allele", "id": "ga4gh:VA.KJ_post2"},
+                "clingenAlleleId": "CA000002",
+                "current": True,
+            }
+        ],
+    }.items()},
+    "data": {"score_data": {"score": "-1.2", "sd": "0.2"}, "count_data": None},
+}
+
 #: A variant record that ALSO carries a superseded (current:false) mapping, to
 #: prove get_variant_score drops historical rows except at full (F2).
 VARIANT_RAW_WITH_HISTORY: dict[str, Any] = {

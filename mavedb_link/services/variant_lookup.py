@@ -112,11 +112,13 @@ async def _view_from_record(
 ) -> dict[str, Any] | None:
     """Fetch a variant record and shape it (carries mapped_variants at standard/full)."""
     # The '#<index>' must be percent-encoded or httpx drops it as a URL fragment.
+    # Shaping + classification stay inside the guard so a malformed record degrades
+    # to the row view instead of failing the whole lookup (GAP-2 defense in depth).
     try:
         raw = await client.get_json(f"/variants/{variant_urn.replace('#', '%23')}")
+        return _classified(shape_single_variant(raw, response_mode), calibrations)
     except Exception:  # best-effort: fall back to the row view
         return None
-    return _classified(shape_single_variant(raw, response_mode), calibrations)
 
 
 async def _resolve_by_urn(

@@ -22,6 +22,27 @@ from typing import Any
 INDETERMINATE = "indeterminate"
 
 
+def coerce_score(value: Any) -> float | None:
+    """Coerce a score to ``float``, or ``None`` if it cannot be (never raises).
+
+    The scores-CSV path coerces numeric cells to float, but the variant-record
+    path (``GET /variants/{urn}``) can serialise ``score`` as a *string* for some
+    sets (verified live on urn:mavedb:00001242-a-1). Routing every score through
+    this coercion keeps the range comparisons numeric so the classifier never
+    crashes on ``str <= float`` (GAP-2). A non-numeric token yields ``None``.
+    """
+    if isinstance(value, bool):  # bool is an int subclass; never a score
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``payload`` with ``None`` values removed."""
     return {k: v for k, v in payload.items() if v is not None}
@@ -66,15 +87,17 @@ def _acmg(fc: dict[str, Any] | None) -> tuple[str | None, str | None]:
 
 
 def classify_score(
-    score: float | None, calibrations: list[dict[str, Any]] | None
+    score: float | str | None, calibrations: list[dict[str, Any]] | None
 ) -> list[dict[str, Any]]:
     """Classify ``score`` under each calibration (one result entry per calibration).
 
-    Returns ``[]`` when there are no calibrations or ``score`` is ``None``. A
-    score in no bin yields ``classification="indeterminate"``.
+    Returns ``[]`` when there are no calibrations or ``score`` is missing/
+    non-numeric. A score in no bin yields ``classification="indeterminate"``.
     """
-    if score is None or not calibrations:
+    numeric = coerce_score(score)
+    if numeric is None or not calibrations:
         return []
+    score = numeric
     results: list[dict[str, Any]] = []
     for calibration in calibrations:
         fc = _match_classification(score, calibration)
@@ -104,14 +127,16 @@ def _primary_calibration(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def primary_classification(
-    score: float | None, calibrations: list[dict[str, Any]] | None
+    score: float | str | None, calibrations: list[dict[str, Any]] | None
 ) -> str | None:
     """The single functional class from the primary calibration (for per-row tags).
 
-    ``None`` when there are no calibrations or ``score`` is ``None``.
+    ``None`` when there are no calibrations or ``score`` is missing/non-numeric.
     """
-    if score is None or not calibrations:
+    numeric = coerce_score(score)
+    if numeric is None or not calibrations:
         return None
+    score = numeric
     calibration = _primary_calibration(calibrations)
     fc = _match_classification(score, calibration)
     return fc.get("functionalClassification") if fc else INDETERMINATE

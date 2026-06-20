@@ -208,6 +208,48 @@ async def test_get_variant_score_bare_hgvs_resolves_accession_prefixed_row(
     assert out["variants"][0]["hgvs_nt"] == "ENST00000380152.8:c.8168A>G"
 
 
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_string_score_classifies_at_standard(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # GAP-2 regression: a variant record whose score is a STRING used to crash the
+    # standard/full path (classify_score: str <= float). It must now coerce and
+    # classify, returning the correct class at every tier.
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW_STR_SCORE)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    for mode in ("compact", "standard", "full"):
+        out = await service.get_variant_score(fixtures.VARIANT_URN, response_mode=mode)
+        v = out["variants"][0]
+        assert v["score"] == -1.2, mode  # coerced to float in the output
+        assert v["classifications"][0]["classification"] == "abnormal", mode
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_by_hgvs_string_score_classifies_at_full(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # The by-hgvs path at full fetches each matched record (string score) — the
+    # exact path reproduced live on urn:mavedb:00001242-a-1.
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW_STR_SCORE)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    out = await service.get_variant_score(
+        fixtures.SCORE_SET_URN, hgvs="c.2T>G", response_mode="full"
+    )
+    assert out["variants"][0]["score"] == -1.2
+    assert out["variants"][0]["classifications"][0]["classification"] == "abnormal"
+
+
 async def test_get_variant_score_requires_hgvs_for_score_set(service: MaveDBService) -> None:
     with pytest.raises(InvalidInputError):
         await service.get_variant_score(fixtures.SCORE_SET_URN)

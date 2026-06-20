@@ -19,7 +19,7 @@ from typing import Any
 
 from mavedb_link.constants import MAVEDB_WEB_URL
 from mavedb_link.identifiers import score_set_urn_of_variant, variant_index_of
-from mavedb_link.services.calibration import shape_calibrations
+from mavedb_link.services.calibration import coerce_score, shape_calibrations
 
 RESPONSE_MODES: tuple[str, ...] = ("minimal", "compact", "standard", "full")
 DEFAULT_RESPONSE_MODE = "compact"
@@ -311,7 +311,9 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         "score_set_urn": score_set_urn,
         "hgvs_nt": raw.get("hgvsNt"),
         "hgvs_pro": raw.get("hgvsPro"),
-        "score": score_data.get("score"),
+        # Coerce to float: the variant record can serialise score as a string for
+        # some sets, which would otherwise crash the classifier (GAP-2).
+        "score": coerce_score(score_data.get("score")),
     }
     if response_mode in ("standard", "full"):
         # Embedded mappings are current-only except at full -- the by-URN path used

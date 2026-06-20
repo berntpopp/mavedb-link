@@ -26,7 +26,7 @@ from mavedb_link.identifiers import (
     validate_score_set_urn,
     variant_index_of,
 )
-from mavedb_link.services.calibration import classify_score
+from mavedb_link.services.calibration import classify_score, coerce_score
 from mavedb_link.services.shaping import shape_mapped_variant, shape_single_variant
 
 #: GA4GH VRS allele ids start with this scheme; the upstream endpoint enforces it.
@@ -174,7 +174,7 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
 
 def _shape_classified_variant(variant: dict[str, Any], fc: dict[str, Any]) -> dict[str, Any]:
     """Project one calibrated variant (+ its functional-class metadata)."""
-    score = ((variant.get("data") or {}).get("score_data") or {}).get("score")
+    score = coerce_score(((variant.get("data") or {}).get("score_data") or {}).get("score"))
     acmg = fc.get("acmgClassification") or {}
     out: dict[str, Any] = {
         "variant_urn": variant.get("urn"),
