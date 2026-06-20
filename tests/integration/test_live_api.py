@@ -196,3 +196,41 @@ async def test_diagnostics_advertises_interpretation(live_service: MaveDBService
     diag = await live_service.get_diagnostics()
     assert diag["interpretation"]["calibration_supported"] is True
     assert "get_variant_scores" in diag["interpretation"]["surfaced_by"]
+
+
+# --- consumer-review contracts (this session) ----------------------------------
+
+
+@pytest.mark.parametrize("mode", ["standard", "full"])
+async def test_variant_score_string_score_does_not_crash_live(
+    live_service: MaveDBService, mode: str
+) -> None:
+    # GAP-2: 00001242 serialises the variant-record score as a STRING; standard/full
+    # used to raise an opaque internal_error. They must now coerce, score, and classify.
+    out = await live_service.get_variant_score(SGE_SCORE_SET, hgvs="c.8168A>G", response_mode=mode)
+    v = out["variants"][0]
+    assert isinstance(v["score"], float)
+    assert v.get("classifications"), "a calibrated set should classify the coerced score"
+
+
+async def test_variant_score_gates_full_ladder_to_full_live(live_service: MaveDBService) -> None:
+    # GAP-1: the heavy top-level threshold ladder is gated to full; compact relies on
+    # the inline matched band.
+    compact = await live_service.get_variant_score(SGE_SCORE_SET, hgvs="c.8168A>G")
+    full = await live_service.get_variant_score(
+        SGE_SCORE_SET, hgvs="c.8168A>G", response_mode="full"
+    )
+    assert "calibrations" not in compact
+    assert full.get("calibrations")
+
+
+async def test_find_variant_by_variant_urn_live(live_service: MaveDBService) -> None:
+    # GAP-3/2.2: a variant URN rolls up across every score set in one hop, with the
+    # VRS resolved internally (no map-first round-trip).
+    one = await live_service.get_variant_score(SGE_SCORE_SET, hgvs="c.8168A>G")
+    variant_urn = one["variants"][0]["variant_urn"]
+    out = await live_service.find_variant(variant_urn=variant_urn, enrich=False)
+    assert out["resolved_by"] == "variant_urn"
+    assert out["vrs_id"].startswith("ga4gh:")
+    assert out["total"] >= 1
+    assert all(h.get("score_set_urn") for h in out["hits"])
