@@ -69,3 +69,22 @@ def test_calibration_surface_advertised() -> None:
     assert "classifications" in surface["get_variant_score"]
     # and it is part of the default summary projection
     assert "calibration_surface" in project_capabilities("summary")
+
+
+def test_tool_hints_machine_readable() -> None:
+    # 4.3: the hard-won usage rules are exposed as a machine-readable per-tool block,
+    # not just buried in prose. Every hinted tool is a real registered tool.
+    caps = build_capabilities()
+    hints = caps["tool_hints"]
+    assert set(hints).issubset(set(TOOLS))
+    # The single tip that made the consumer's first lookup succeed (SGE null hgvs_pro).
+    assert any("hgvs_pro" in h for h in hints["get_variant_score"])
+    assert "tool_hints" in project_capabilities("summary")
+
+
+def test_response_token_budget_advertised() -> None:
+    from mavedb_link.constants import RESPONSE_TOKEN_BUDGET
+
+    caps = build_capabilities()
+    assert caps["response_token_budget"] == RESPONSE_TOKEN_BUDGET
+    assert "response_token_budget" in project_capabilities("summary")

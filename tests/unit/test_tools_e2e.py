@@ -237,6 +237,21 @@ async def test_get_hgvs_validation_valid(
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
+async def test_classification_enum_is_validated_at_the_boundary(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    # 4.4 / G3: classification is a declared enum, so a bad value is rejected at the
+    # schema boundary (invalid_input + allowed_values), not silently passed through.
+    _mock_all(respx_mock)
+    res = await facade.call_tool(
+        "get_classified_variants", {"urn": fixtures.SCORE_SET_URN, "classification": "pathogenic"}
+    )
+    payload = structured(res)
+    assert payload["success"] is False
+    assert payload["error_code"] == "invalid_input"
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
 async def test_get_classified_variants_abnormal(
     respx_mock: respx.Router, facade: Any, structured: Any
 ) -> None:

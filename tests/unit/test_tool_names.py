@@ -51,3 +51,17 @@ def test_no_forbidden_names(tool_names: list[str]) -> None:
 def test_combined_router_name_under_64_chars(tool_names: list[str]) -> None:
     for name in tool_names:
         assert len(f"mavedb_{name}") <= 64
+
+
+def test_every_tool_is_annotated_read_only() -> None:
+    # 4.2: this is an entirely read-only server -- every tool advertises
+    # readOnlyHint so hosts can surface safety without parsing prose.
+    import asyncio
+
+    mcp = create_mavedb_mcp()
+    tools = asyncio.run(mcp.list_tools())
+    assert tools
+    for tool in tools:
+        ann = getattr(tool, "annotations", None)
+        read_only = getattr(ann, "readOnlyHint", None) if ann is not None else None
+        assert read_only is True, f"{tool.name} is missing readOnlyHint"

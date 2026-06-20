@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
@@ -50,7 +50,7 @@ def register_score_set_tools(mcp: FastMCP) -> None:
         target_types: StringList = None,
         authors: StringList = None,
         facet_mode: Annotated[
-            str,
+            Literal["inclusive", "strict"],
             Field(
                 description="'inclusive' (default; keep unknown-metadata records) or "
                 "'strict' (drop them).",

@@ -79,6 +79,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "response_token_budget",
     "recommended_workflows",
     "calibration_surface",
+    "tool_hints",
     "calibration_semantics",
     "identifier_scheme",
     "search_semantics",
@@ -239,6 +240,47 @@ def build_capabilities() -> dict[str, Any]:
             "find_variant": "hits[].classifications",
             "get_classified_variants": "variants[].classification (+ acmg)",
             "get_score_distribution": "query.classifications + calibrations",
+        },
+        "tool_hints": {
+            "get_variant_score": [
+                "SGE/saturation sets often leave hgvs_pro null -- match on the c. "
+                "(nucleotide) form, not p., or the lookup 404s.",
+                "hgvs matching is accession-prefix-insensitive: a bare 'c.8168A>G' "
+                "resolves a stored 'ENST00000380152.8:c.8168A>G' and vice-versa.",
+                "The full threshold ladder is gated to response_mode='full'; compact/"
+                "standard carry the per-variant matched band inline (classifications).",
+            ],
+            "get_variant_scores": [
+                "A full ~1000-row page at standard can exceed the 25k token budget "
+                "(_meta.budget_exceeded) -- use response_mode='minimal' or page via start=.",
+                "Rows carry variant_index; JOIN get_mapped_variants on it, never zip.",
+            ],
+            "find_variant": [
+                "Pass variant_urn to roll a variant up across every score set without "
+                "mapping it first (the VRS is resolved internally).",
+                "ClinGen Allele IDs are not accepted upstream -- pass the variant_urn.",
+            ],
+            "get_mapped_variants": [
+                "Some variants are unmapped, so this list and get_variant_scores can "
+                "differ in length -- JOIN on variant_urn/variant_index, never by row.",
+            ],
+            "get_score_set": [
+                "score_calibrations is present only for the MINORITY of sets MaveDB "
+                "has curated; it is absent (not empty) otherwise.",
+            ],
+            "search_score_sets": [
+                "A gene-symbol query is re-ranked so target-gene matches outrank "
+                "name/abstract namesakes; use facet_mode='strict' to drop "
+                "unknown-metadata records.",
+            ],
+            "get_score_distribution": [
+                "Server-side summary (MaveDB has no stats endpoint); pass score= for a "
+                "value's percentile + class. The full ladder is gated to 'full'.",
+            ],
+            "get_classified_variants": [
+                "Resolves the primary calibration unless calibration_urn is given; a "
+                "set with no calibration yields not_found.",
+            ],
         },
         "calibration_semantics": (
             "get_score_set surfaces score_calibrations (MaveDB's curated "

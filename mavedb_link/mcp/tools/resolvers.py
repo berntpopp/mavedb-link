@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
 
@@ -176,10 +176,10 @@ def register_resolver_tools(mcp: FastMCP) -> None:
     async def get_classified_variants(
         urn: ScoreSetUrnStr,
         classification: Annotated[
-            str | None,
+            Literal["abnormal", "normal", "not_specified"] | None,
             Field(
                 default=None,
-                description="Filter to one class: abnormal | normal | not_specified.",
+                description="Filter to one functional class (omit for all).",
                 examples=["abnormal", "normal"],
             ),
         ] = None,
