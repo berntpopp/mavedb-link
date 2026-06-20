@@ -36,7 +36,9 @@ def _sha256_file(path: Path) -> str:
 def pack(db_path: Path, out_path: Path | None = None, *, level: int = 19) -> tuple[Path, Path]:
     """Compress ``db_path`` to ``.zst`` + write a ``.sha256`` sidecar; return both."""
     out = out_path or db_path.with_name(db_path.name + ".zst")
-    compressor = zstandard.ZstdCompressor(level=level)
+    # threads=-1 uses all cores -- packing a ~1-2 GB mirror single-threaded at high
+    # levels is the slow step locally and in CI.
+    compressor = zstandard.ZstdCompressor(level=level, threads=-1)
     with open(db_path, "rb") as src, open(out, "wb") as dst:
         compressor.copy_stream(src, dst, read_size=_CHUNK, write_size=_CHUNK)
     sha = _sha256_file(out)
