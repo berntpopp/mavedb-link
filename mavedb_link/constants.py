@@ -66,6 +66,16 @@ DEFAULT_COLLECTION_LIMIT = 100
 #: Functional-classification enum values MaveDB assigns to calibrated bins.
 FUNCTIONAL_CLASSES: list[str] = ["abnormal", "normal", "not_specified"]
 
+#: Tools that surface MaveDB's calibration interpretation layer (for discovery; A4).
+CALIBRATION_TOOLS: list[str] = [
+    "get_score_set",
+    "get_variant_score",
+    "get_variant_scores",
+    "find_variant",
+    "get_classified_variants",
+    "get_score_distribution",
+]
+
 #: Upstream caps a search at 100 results/request (422 above that), so the service
 #: fetches the top page (= MAX_SEARCH_LIMIT) to rank/facet/page client-side. This
 #: covers every realistic gene/concept search (BRCA1, the largest, is ~62 sets).

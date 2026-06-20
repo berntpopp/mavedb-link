@@ -76,6 +76,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "response_modes",
     "default_response_mode",
     "recommended_workflows",
+    "calibration_surface",
     "calibration_semantics",
     "identifier_scheme",
     "search_semantics",
@@ -209,6 +210,21 @@ def build_capabilities() -> dict[str, Any]:
             "score set -> get_mapped_variants (VRS alleles + ClinGen Allele IDs)",
             "score set -> get_experiment (parent context) -> get_score_set (siblings)",
         ],
+        "calibration_surface": {
+            "note": (
+                "MaveDB curates functional-classification calibrations for a MINORITY "
+                "of score sets; there is NO upstream aggregate/count endpoint, so "
+                "coverage is discovered per record (the field below is absent when a "
+                "set carries no calibrations). get_diagnostics reports the upstream "
+                "api_version and confirms the interpretation layer is supported."
+            ),
+            "get_score_set": "score_calibrations (thresholds, ACMG, OddsPath, baseline)",
+            "get_variant_score": "variants[].classifications + top-level calibrations",
+            "get_variant_scores": "rows[].classification + top-level calibrations",
+            "find_variant": "hits[].classifications",
+            "get_classified_variants": "variants[].classification (+ acmg)",
+            "get_score_distribution": "query.classifications + calibrations",
+        },
         "calibration_semantics": (
             "get_score_set surfaces score_calibrations (MaveDB's curated "
             "functional-classification thresholds); get_variant_score, every "

@@ -58,3 +58,14 @@ def test_limits_advertised() -> None:
     assert caps["limits"]["max_search_limit"] == 100
     assert caps["read_only"] is True
     assert caps["research_use_only"] is True
+
+
+def test_calibration_surface_advertised() -> None:
+    # A4: discovery names WHICH response field carries calibrations on each tool.
+    caps = build_capabilities()
+    surface = caps["calibration_surface"]
+    assert "score_calibrations" in surface["get_score_set"]
+    assert "classification" in surface["get_variant_scores"]
+    assert "classifications" in surface["get_variant_score"]
+    # and it is part of the default summary projection
+    assert "calibration_surface" in project_capabilities("summary")

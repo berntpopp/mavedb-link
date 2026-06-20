@@ -556,6 +556,10 @@ async def test_diagnostics_reachable(respx_mock: respx.Router, service: MaveDBSe
     out = await service.get_diagnostics()
     assert out["api_reachable"] is True
     assert out["api_version"] == "2026.2.4"
+    # A4: diagnostics advertises the interpretation surface honestly.
+    interp = out["interpretation"]
+    assert interp["calibration_supported"] is True
+    assert "get_score_set" in interp["surfaced_by"]
 
 
 @respx.mock(base_url=BASE)

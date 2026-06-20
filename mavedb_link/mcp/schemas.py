@@ -69,6 +69,7 @@ DIAGNOSTICS_SCHEMA = _envelope(
     error=_STR,
     build=_OBJ,
     runtime=_OBJ,
+    interpretation=_OBJ,  # A4: calibration support + surfacing tools
 )
 
 SEARCH_SCORE_SETS_SCHEMA = _envelope(

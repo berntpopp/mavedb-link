@@ -12,6 +12,7 @@ from typing import Any
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.constants import (
+    CALIBRATION_TOOLS,
     DEFAULT_CLASSIFIED_LIMIT,
     DEFAULT_COLLECTION_LIMIT,
     DEFAULT_FIND_LIMIT,
@@ -19,6 +20,7 @@ from mavedb_link.constants import (
     DEFAULT_MAPPED_LIMIT,
     DEFAULT_SCORES_LIMIT,
     DEFAULT_SEARCH_LIMIT,
+    FUNCTIONAL_CLASSES,
     MAX_COLLECTION_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
@@ -33,7 +35,11 @@ from mavedb_link.identifiers import (
     variant_index_of,
 )
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
-from mavedb_link.services.calibration import primary_classification, shape_calibrations
+from mavedb_link.services.calibration import (
+    INDETERMINATE,
+    primary_classification,
+    shape_calibrations,
+)
 from mavedb_link.services.scores import shape_scores
 from mavedb_link.services.search import (
     apply_sparse_facets,
@@ -554,7 +560,10 @@ class MaveDBService:
         return shaping.shape_collection(raw, response_mode, limit=capped, offset=offset)
 
     async def get_diagnostics(self) -> dict[str, Any]:
-        """Report upstream reachability + version (never raises on upstream-down)."""
+        """Report upstream reachability + version + interpretation surface (A4).
+
+        Never raises on upstream-down: an unreachable API is reported, not thrown.
+        """
         diag: dict[str, Any] = {"base_url": self._client.base_url}
         try:
             version = await self._client.get_version()
@@ -566,4 +575,16 @@ class MaveDBService:
             diag["api_name"] = version.get("name")
             diag["api_version"] = version.get("version")
         diag["api_reachable"] = True
+        diag["interpretation"] = {
+            "calibration_supported": True,
+            "surfaced_by": list(CALIBRATION_TOOLS),
+            "functional_classes": [*FUNCTIONAL_CLASSES, INDETERMINATE],
+            "note": (
+                "Functional-classification calibrations (ACMG PS3/BS3, OddsPath, "
+                "thresholds) are curated per score set and exist for a MINORITY of "
+                "them. MaveDB exposes NO aggregate/coverage endpoint, so a population "
+                "coverage count cannot be reported cheaply; discover per record via "
+                "get_score_set. Classification is range-driven and direction-agnostic."
+            ),
+        }
         return diag
