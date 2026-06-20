@@ -298,8 +298,35 @@ def shape_gene(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     return payload if response_mode in ("standard", "full") else _drop_empty(payload)
 
 
+def _summarize_vrs(post: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a post-mapped VRS allele to its genomic coordinates (defensive).
+
+    Tolerates VRS 1.x/2.x shape differences and returns only the keys it can parse
+    (never raises). Keys: assembly, sequence_id, start, end, ref, alt.
+    """
+    if not isinstance(post, dict):
+        return {}
+    loc = post.get("location") or {}
+    ref_seq = loc.get("sequenceReference") or {}
+    interval = loc.get("interval") or {}
+    state = post.get("state") or {}
+    summary: dict[str, Any] = {
+        "assembly": ref_seq.get("assembly"),
+        "sequence_id": ref_seq.get("refgetAccession") or loc.get("sequence_id"),
+        "start": loc.get("start") if "start" in loc else interval.get("start"),
+        "end": loc.get("end") if "end" in loc else interval.get("end"),
+        "ref": state.get("referenceSequence"),
+        "alt": state.get("sequence"),
+    }
+    return {k: v for k, v in summary.items() if v is not None}
+
+
 def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
-    """Project a mapped-variant (VRS allele) record."""
+    """Project a mapped-variant (VRS allele) record.
+
+    standard returns a FLAT post_mapped genomic summary (dropping the verbose
+    pre_mapped/post_mapped VRS objects); full keeps the complete objects.
+    """
     post = raw.get("postMapped") or {}
     variant_urn = raw.get("variantUrn") or (raw.get("variant") or {}).get("urn")
     payload: dict[str, Any] = {
@@ -311,7 +338,7 @@ def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         "clingen_allele_id": raw.get("clingenAlleleId"),
         "current": raw.get("current"),
     }
-    if response_mode in ("standard", "full"):
+    if response_mode == "full":
         payload.update(
             {
                 "pre_mapped": raw.get("preMapped"),
@@ -321,6 +348,20 @@ def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
                 "alignment_level": raw.get("alignmentLevel"),
             }
         )
+        return payload
+    if response_mode == "standard":
+        summary = _summarize_vrs(post if isinstance(post, dict) else {})
+        if summary:
+            payload["post_mapped"] = summary
+        post_hgvs = raw.get("postMappedHgvs") or raw.get("post_mapped_hgvs")
+        if post_hgvs:
+            payload["post_mapped_hgvs"] = post_hgvs
+        for key, value in (
+            ("vrs_version", raw.get("vrsVersion")),
+            ("alignment_level", raw.get("alignmentLevel")),
+        ):
+            if value is not None:
+                payload[key] = value
         return payload
     return _drop_empty(payload)
 
