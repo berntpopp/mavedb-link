@@ -10,10 +10,11 @@ Intercepted from the mirror: ``GET /score-sets/{urn}``, ``GET /experiments/{urn}
 ``GET /score-sets/{urn}/scores`` + ``/counts``, ``GET /mapped-variants/vrs/{id}``,
 and ``POST /score-sets/search``; the per-set mapped-variant enumeration is served
 via :meth:`score_set_mapped_variants` (current-only compact/minimal) from the same
-annotation index. Genes (rich HGNC identity), single ``/variants`` records, the
-standard/full or current_only=False mapped-variant reads, hgvs validation and
-calibration listings fall through to live, so a snapshot newer than the dump is
-always reachable.
+annotation index. HGVS-first resolution is served via :meth:`vrs_for_hgvs` (the
+hgvs_index) and a thin gene identity via :meth:`gene_identity`. Rich HGNC gene
+identity, single ``/variants`` records, the standard/full or current_only=False
+mapped-variant reads, hgvs validation and calibration listings fall through to
+live, so a snapshot newer than the dump is always reachable.
 """
 
 from __future__ import annotations
@@ -107,6 +108,25 @@ class HybridClient(MaveDBClient):
                 provenance.record("mirror", mirror_as_of=self._mirror_as_of)
                 return str(vrs)
         return None
+
+    def vrs_for_hgvs(self, hgvs_core_value: str, *, gene: str | None = None) -> list[dict[str, Any]]:
+        """Resolve a normalised HGVS core to mapped-variant rows from the mirror.
+
+        Lets find_variant(hgvs=) resolve VRS without probing the live API. Returns
+        ``[]`` on miss (no mirror coverage) so the caller falls through to the live
+        probe. Records mirror provenance only when it actually answers.
+        """
+        rows = self._repo.resolve_hgvs(hgvs_core_value, gene=gene)
+        if rows:
+            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+        return rows
+
+    def gene_identity(self, symbol: str) -> dict[str, Any] | None:
+        """Thin gene identity (symbol + organism) from the mirror index, or None."""
+        ident = self._repo.gene_identity(symbol)
+        if ident is not None:
+            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+        return ident
 
     async def aclose(self) -> None:
         """Close the live client and the mirror connection."""

@@ -222,6 +222,28 @@ async def test_find_variant_resolves_vrs_and_rollup_from_mirror(hybrid: HybridCl
     assert provenance.snapshot()["data_source"] == "mirror"
 
 
+async def test_vrs_for_hgvs_served_from_mirror(hybrid: HybridClient) -> None:
+    # The calibrated (BRCA2) set carries hgvs_pro p.Met1Leu -> VRS digest1.
+    provenance.begin()
+    rows = hybrid.vrs_for_hgvs("p.met1leu", gene="BRCA2")
+    assert any(r["vrs_id"] == "ga4gh:VA.MINI_digest1" for r in rows)
+    assert provenance.snapshot()["data_source"] == "mirror"
+
+
+async def test_vrs_for_hgvs_genomic_served_from_mirror(hybrid: HybridClient) -> None:
+    rows = hybrid.vrs_for_hgvs("nc_000013.11:g.32316461a>t")
+    assert [r["vrs_id"] for r in rows] == ["ga4gh:VA.MINI_digest1"]
+
+
+async def test_vrs_for_hgvs_miss_returns_empty(hybrid: HybridClient) -> None:
+    assert hybrid.vrs_for_hgvs("p.nonexistent999x", gene="BRCA2") == []
+
+
+async def test_gene_identity_thin_from_mirror(hybrid: HybridClient) -> None:
+    assert hybrid.gene_identity("BRCA2") == {"symbol": "BRCA2", "organism": "Homo sapiens"}
+    assert hybrid.gene_identity("NOPE") is None
+
+
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
     svc = MaveDBService(hybrid)
     with respx.mock(base_url=BASE_URL) as mock:
