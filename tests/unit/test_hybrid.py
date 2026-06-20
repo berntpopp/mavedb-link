@@ -102,6 +102,25 @@ async def test_envelope_reports_mixed_when_one_read_is_live(hybrid: HybridClient
     assert env["_meta"]["data_source"] == "mixed"
 
 
+async def test_mirror_and_live_score_set_are_shape_identical(hybrid: HybridClient) -> None:
+    # The invariant: a mirror-served payload is interchangeable with the live one.
+    from mavedb_link.api.client import MaveDBClient
+
+    mirror_out = await MaveDBService(hybrid).get_score_set(SCORE_SET_URN, response_mode="standard")
+    live = MaveDBClient(MaveDBApiConfig(base_url=BASE_URL, max_retries=0))
+    try:
+        with respx.mock(base_url=BASE_URL) as mock:
+            mock.get(f"/score-sets/{SCORE_SET_URN}").mock(
+                return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+            )
+            live_out = await MaveDBService(live).get_score_set(
+                SCORE_SET_URN, response_mode="standard"
+            )
+    finally:
+        await live.aclose()
+    assert mirror_out == live_out
+
+
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
     svc = MaveDBService(hybrid)
     with respx.mock(base_url=BASE_URL) as mock:

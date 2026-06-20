@@ -74,7 +74,10 @@ def _fts_fields(score_set: dict[str, Any]) -> tuple[str, str]:
 
 
 def _insert_score_set(
-    con: sqlite3.Connection, zip_names: set[str], score_set: dict[str, Any]
+    con: sqlite3.Connection,
+    zf: zipfile.ZipFile,
+    zip_names: set[str],
+    score_set: dict[str, Any],
 ) -> int:
     """Insert one score set + its CSV blobs/derived rows. Returns mapped-variant count."""
     urn = score_set["urn"]
@@ -117,9 +120,9 @@ def _insert_score_set(
             gene_rows,
         )
 
-    scores_csv = _read_member(zip_names, urn, "scores")
-    counts_csv = _read_member(zip_names, urn, "counts")
-    annotations_csv = _read_member(zip_names, urn, "annotations")
+    scores_csv = _read_member(zf, zip_names, urn, "scores")
+    counts_csv = _read_member(zf, zip_names, urn, "counts")
+    annotations_csv = _read_member(zf, zip_names, urn, "annotations")
     if scores_csv is not None or counts_csv is not None or annotations_csv is not None:
         con.execute(
             "INSERT INTO score_set_data (urn, scores_csv, counts_csv, annotations_csv) "
@@ -156,17 +159,16 @@ def _insert_score_set(
     return mapped_count
 
 
-def _read_member(zip_names: set[str], urn: str, suffix: str) -> str | None:
-    """Return a CSV member's text (denamespaced), or None if absent."""
+def _read_member(zf: zipfile.ZipFile, zip_names: set[str], urn: str, suffix: str) -> str | None:
+    """Read one CSV member on demand (denamespaced), or None if absent.
+
+    Read per-member rather than caching the whole dump, so peak memory stays at
+    one CSV -- the real dump is ~1.8 GB uncompressed across thousands of files.
+    """
     name = _csv_member(urn, suffix)
     if name not in zip_names:
         return None
-    return _MEMBER_CACHE[name]
-
-
-# Populated per-build inside build_database; module-global only as a read cache for
-# _read_member to avoid threading the ZipFile through every helper.
-_MEMBER_CACHE: dict[str, str] = {}
+    return denamespace_csv(zf.read(name).decode("utf-8"))
 
 
 def build_database(
@@ -184,17 +186,11 @@ def build_database(
     fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
     os.close(fd)
     tmp_path = Path(tmp_name)
-    global _MEMBER_CACHE
-    _MEMBER_CACHE = {}
     try:
         with zipfile.ZipFile(dump_path) as zf:
             zip_names = set(zf.namelist())
             main = json.loads(zf.read("main.json"))
-            # Cache only the CSV members (main.json is parsed above).
-            for name in zip_names:
-                if name.startswith("csv/") and name.endswith(".csv"):
-                    _MEMBER_CACHE[name] = denamespace_csv(zf.read(name).decode("utf-8"))
-            summary = _populate(tmp_path, main, zip_names, started)
+            summary = _populate(tmp_path, main, zf, zip_names, started)
         _write_meta(
             tmp_path, summary, source_md5, source_url, zenodo_record, zenodo_version, started
         )
@@ -203,12 +199,14 @@ def build_database(
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-    finally:
-        _MEMBER_CACHE = {}
 
 
 def _populate(
-    tmp_path: Path, main: dict[str, Any], zip_names: set[str], started: float
+    tmp_path: Path,
+    main: dict[str, Any],
+    zf: zipfile.ZipFile,
+    zip_names: set[str],
+    started: float,
 ) -> dict[str, Any]:
     """Create the schema and insert every record; return the counts summary."""
     con = sqlite3.connect(tmp_path)
@@ -244,7 +242,7 @@ def _populate(
                         "experiment": {"urn": exp.get("urn")},
                         "experimentSetUrn": es.get("urn"),
                     }
-                    mapped_count += _insert_score_set(con, zip_names, enriched)
+                    mapped_count += _insert_score_set(con, zf, zip_names, enriched)
         con.commit()
         con.execute("INSERT INTO score_set_fts (score_set_fts) VALUES ('optimize')")
         con.commit()
