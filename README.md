@@ -20,14 +20,23 @@ GeneFoundry `*-link` fleet; federates into
 ## What it does
 
 Wraps the public MaveDB REST API (`https://api.mavedb.org/api/v1`) as a small,
-agent-ergonomic tool surface: **resolve/search → record → quantitative scores**,
-cross-linked to genes, publications, and genome-mapped (GA4GH VRS) alleles.
+agent-ergonomic tool surface: **resolve/search → record → quantitative scores →
+calibrated interpretation**, cross-linked to genes, publications, and
+genome-mapped (GA4GH VRS) alleles. Crucially, it surfaces MaveDB's *curated
+interpretation layer* — functional-classification thresholds with ACMG PS3/BS3
+evidence strength and OddsPath ratios — so a score is never returned as a bare,
+uninterpretable float.
 
 | Tool | Purpose |
 |------|---------|
 | `search_score_sets` ⭐ | Full-text + faceted search of score sets (gene, organism, author, journal, keyword) |
-| `get_score_set` | Full score-set record (targets, publications, license, dataset columns) |
-| `get_variant_scores` | The quantitative variant × score table (CSV → parsed rows), paged |
+| `get_score_set` | Score-set record (targets, publications, license) **+ `score_calibrations`: ACMG/OddsPath thresholds** |
+| `get_variant_scores` | The quantitative variant × score table (paged); **each row carries its calibrated functional class** |
+| `get_variant_score` | ONE variant's score **+ per-calibration classification** (by variant URN, or score-set URN + hgvs) |
+| `get_classified_variants` | Every variant in a calibrated functional class (e.g. all `abnormal`/PS3), with scores |
+| `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile + class |
+| `find_variant` | One GA4GH VRS allele's score + class across **every** score set (cross-dataset) |
+| `get_hgvs_validation` | Validate an HGVS string and surface *why* it's invalid (reference mismatch, missing accession) |
 | `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol |
 | `get_experiment` | Experiment record + child score-set URNs |
 | `search_experiments` | Full-text experiment search |

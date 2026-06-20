@@ -17,6 +17,8 @@ pytestmark = pytest.mark.integration
 
 KNOWN_SCORE_SET = "urn:mavedb:00000001-a-1"
 KNOWN_EXPERIMENT = "urn:mavedb:00000001-a"
+#: A score set with curated calibrations (BRCA2 HDR, IGVF controls).
+CALIBRATED_SCORE_SET = "urn:mavedb:00001224-a-1"
 
 
 @pytest.fixture
@@ -80,3 +82,54 @@ async def test_search_experiments_paging_honoured(live_service: MaveDBService) -
     assert out["returned"] <= 2
     assert out["total"] >= out["returned"]
     assert all(r.get("urn") for r in out["results"])
+
+
+# --- interpretation layer (validates the calibration shapes still hold) --------
+
+
+async def test_get_score_set_surfaces_calibrations(live_service: MaveDBService) -> None:
+    out = await live_service.get_score_set(CALIBRATED_SCORE_SET, response_mode="standard")
+    calibrations = out.get("score_calibrations")
+    assert calibrations, "expected curated calibrations on a calibrated score set"
+    classes = calibrations[0]["classifications"]
+    assert any(c.get("acmg") in ("PS3", "BS3") for c in classes)
+
+
+async def test_get_variant_scores_classifies_rows(live_service: MaveDBService) -> None:
+    out = await live_service.get_variant_scores(CALIBRATED_SCORE_SET, start=0, limit=50)
+    assert out.get("calibrations")
+    assert any("classification" in r for r in out["rows"])
+
+
+async def test_get_classified_variants_live(live_service: MaveDBService) -> None:
+    out = await live_service.get_classified_variants(
+        CALIBRATED_SCORE_SET, classification="abnormal", limit=5
+    )
+    assert out["calibration_urn"]
+    assert out["returned"] >= 1
+    assert all(v["classification"] == "abnormal" for v in out["variants"])
+
+
+async def test_get_score_distribution_live(live_service: MaveDBService) -> None:
+    out = await live_service.get_score_distribution(CALIBRATED_SCORE_SET, score=1.0)
+    assert out["n"] > 0
+    assert out["histogram"]
+    assert 0.0 <= out["query"]["percentile"] <= 100.0
+
+
+async def test_find_variant_live(live_service: MaveDBService) -> None:
+    mapped = await live_service.get_mapped_variants(CALIBRATED_SCORE_SET, limit=5)
+    vrs = next((m["vrs_id"] for m in mapped["mapped_variants"] if m.get("vrs_id")), None)
+    if not vrs:
+        pytest.skip("no VRS id available to drive the cross-dataset lookup")
+    out = await live_service.find_variant(vrs, enrich=False)
+    assert out["total"] >= 1
+    assert all(h.get("score_set_urn") for h in out["hits"])
+
+
+async def test_get_hgvs_validation_live(live_service: MaveDBService) -> None:
+    valid = await live_service.get_hgvs_validation("NM_000059.4:c.8167G>A")
+    assert valid["valid"] is True
+    invalid = await live_service.get_hgvs_validation("NM_000059.4:c.8167A>G")
+    assert invalid["valid"] is False
+    assert invalid["message"]

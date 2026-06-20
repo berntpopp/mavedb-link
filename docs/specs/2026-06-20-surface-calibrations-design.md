@@ -1,9 +1,10 @@
 # Surface MaveDB's Interpretation & Resolution Layers
 
-- **Status:** approved (session goal: implement end to end)
+- **Status:** implemented (P0+P1+P2; `make ci-local` + live integration green)
 - **Date:** 2026-06-20
 - **Area:** `mavedb_link/` (services + mcp planes)
-- **Companion plan:** `docs/plans/2026-06-20-surface-calibrations-implementation.md`
+- **Delivery:** built directly via TDD, one commit per wave (P0/P1/P2); tool
+  surface 11 → 15. No separate plan doc — the wave commits are the record.
 
 ## Problem
 

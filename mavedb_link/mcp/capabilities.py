@@ -10,12 +10,17 @@ from mavedb_link import __version__
 from mavedb_link.buildinfo import build_info
 from mavedb_link.config import settings
 from mavedb_link.constants import (
+    DEFAULT_CLASSIFIED_LIMIT,
+    DEFAULT_FIND_LIMIT,
     DEFAULT_GENE_LIMIT,
     DEFAULT_MAPPED_LIMIT,
     DEFAULT_SCORES_LIMIT,
     DEFAULT_SEARCH_LIMIT,
     ERROR_CODES,
+    FUNCTIONAL_CLASSES,
     MAVEDB_LICENSE,
+    MAX_CLASSIFIED_LIMIT,
+    MAX_FIND_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
     MAX_SCORES_LIMIT,
@@ -69,6 +74,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "response_modes",
     "default_response_mode",
     "recommended_workflows",
+    "calibration_semantics",
     "identifier_scheme",
     "search_semantics",
     "facet_honesty",
@@ -185,10 +191,24 @@ def build_capabilities() -> dict[str, Any]:
         "recommended_workflows": [
             "gene -> get_gene_score_sets -> get_score_set -> get_variant_scores",
             "text -> search_score_sets -> get_score_set -> get_variant_scores",
-            "score set + hgvs -> get_variant_score (one variant's score, no paging)",
+            "score set + hgvs -> get_variant_score (score + calibrated class, no paging)",
+            "score set -> get_classified_variants(classification=abnormal) (all PS3 variants)",
+            "VRS allele -> find_variant (same variant's score/class across ALL score sets)",
+            "score set -> get_score_distribution(score=) (summary stats + a score's percentile)",
             "score set -> get_mapped_variants (VRS alleles + ClinGen Allele IDs)",
             "score set -> get_experiment (parent context) -> get_score_set (siblings)",
         ],
+        "calibration_semantics": (
+            "get_score_set surfaces score_calibrations (MaveDB's curated "
+            "functional-classification thresholds); get_variant_score, every "
+            "get_variant_scores row, find_variant hits, and get_score_distribution "
+            f"queries carry the derived class ({' | '.join(FUNCTIONAL_CLASSES)} | "
+            "indeterminate). Classification is range-driven and direction-agnostic "
+            "(a set's scale may run either way); a score in an inter-bin gap is "
+            "'indeterminate', never snapped to the nearest class. A set may carry "
+            "0, 1, or several calibrations, each yielding its own classification "
+            "with an ACMG criterion (PS3/BS3) + evidence strength and OddsPath ratio."
+        ),
         "citation_contract": (
             "Cite the score-set URN, its per-record license (license field), and "
             "its primary publication, alongside the MaveDB platform reference in "
@@ -204,6 +224,10 @@ def build_capabilities() -> dict[str, Any]:
             "default_mapped_limit": DEFAULT_MAPPED_LIMIT,
             "max_gene_limit": MAX_GENE_LIMIT,
             "default_gene_limit": DEFAULT_GENE_LIMIT,
+            "max_find_limit": MAX_FIND_LIMIT,
+            "default_find_limit": DEFAULT_FIND_LIMIT,
+            "max_classified_limit": MAX_CLASSIFIED_LIMIT,
+            "default_classified_limit": DEFAULT_CLASSIFIED_LIMIT,
         },
         "read_only": True,
         "notes": MAVEDB_REFERENCE_NOTES,
