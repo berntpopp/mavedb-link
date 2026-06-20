@@ -62,6 +62,28 @@ def test_score_set_all_modes_have_identity(mode: str) -> None:
     assert out["title"]
 
 
+def test_score_set_surfaces_supersession_chain_at_standard() -> None:
+    # GAP-F (verified faithful, not a bug): an experiment lists only its CURRENT
+    # score sets, so the superseded prior version is reached via the current set's
+    # superseded/superseding chain -- which must be surfaced at standard/full.
+    raw = {
+        **SCORE_SET_RAW,
+        "supersededScoreSet": {"urn": "urn:mavedb:00001222-a-1"},
+        "supersedingScoreSet": None,
+    }
+    out = shaping.shape_score_set(raw, "standard")
+    assert out["superseded_score_set_urn"] == "urn:mavedb:00001222-a-1"
+
+
+def test_experiment_score_set_urns_are_a_faithful_passthrough() -> None:
+    # The experiment -> score-set join must pass upstream scoreSetUrns through
+    # verbatim (current-only); never synthesise/backfill superseded versions here.
+    raw = {**EXPERIMENT_RAW, "scoreSetUrns": ["urn:mavedb:00001222-a-2"], "numScoreSets": 1}
+    out = shaping.shape_experiment(raw, "standard")
+    assert out["score_set_urns"] == ["urn:mavedb:00001222-a-2"]
+    assert out["num_score_sets"] == 1
+
+
 def test_score_set_minimal_is_anchors_only() -> None:
     out = shaping.shape_score_set(SCORE_SET_RAW, "minimal")
     assert set(out.keys()) == {"urn", "title"}

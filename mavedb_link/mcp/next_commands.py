@@ -123,6 +123,12 @@ def after_get_score_set(payload: dict[str, Any]) -> list[dict[str, Any]]:
     exp = payload.get("experiment_urn")
     if exp:
         steps.append(cmd("get_experiment", urn=exp))
+    # GAP-E: a member set's official_collections is the in-surface discovery route to
+    # get_collection (MaveDB exposes no collection search/list endpoint), so a valid
+    # collection URN reaches the agent here rather than being unreachable.
+    collections = payload.get("official_collections") or []
+    if collections:
+        steps.append(cmd("get_collection", urn=collections[0]))
     return steps
 
 

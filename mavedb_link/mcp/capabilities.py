@@ -263,6 +263,8 @@ def build_capabilities() -> dict[str, Any]:
             "score set -> get_score_distribution(score=) (summary stats + a score's percentile)",
             "score set -> get_mapped_variants (VRS alleles + ClinGen Allele IDs)",
             "score set -> get_experiment (parent context) -> get_score_set (siblings)",
+            "score set -> get_score_set (official_collections) -> get_collection "
+            "(curated multi-dataset collection; no collection search endpoint exists)",
         ],
         "calibration_surface": {
             "note": (
@@ -342,6 +344,19 @@ def build_capabilities() -> dict[str, Any]:
             "get_classified_variants": [
                 "Resolves the primary calibration unless calibration_urn is given; a "
                 "set with no calibration yields not_found.",
+            ],
+            "get_collection": [
+                "MaveDB exposes NO collection search/list endpoint. Obtain a valid "
+                "collection URN from a member score set's official_collections "
+                "(get_score_set at standard/full; after_get_score_set also steers here "
+                "when a set is a collection member), or browse mavedb.org. Example: "
+                "urn:mavedb:collection-603dafbf-4a3f-4d70-ab8c-aafb226fbff4 (MaveMD).",
+            ],
+            "get_experiment": [
+                "score_set_urns lists only the CURRENT (non-superseded) score sets, so "
+                "an experiment whose -a-1 was replaced reports just -a-2 (num_score_sets "
+                "counts current only). Reach a superseded version via the current set's "
+                "superseded_score_set_urn (get_score_set at standard/full).",
             ],
         },
         "calibration_semantics": (
