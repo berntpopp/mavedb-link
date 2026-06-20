@@ -29,7 +29,7 @@ def _mock_core(router: respx.Router) -> None:
     router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
     )
-    router.get(f"/variants/{fixtures.VARIANT_URN}").mock(
+    router.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
     )
     router.get("/api/version").mock(
