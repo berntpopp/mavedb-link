@@ -14,6 +14,10 @@ DEFAULT_API_BASE_URL = "https://api.mavedb.org/api/v1"
 #: The MaveDB web application (record permalinks: ``{WEB}/score-sets/{urn}``).
 MAVEDB_WEB_URL = "https://www.mavedb.org"
 
+#: Zenodo concept record id for the CC0 "MaveDB Bulk Download" (resolves to the
+#: latest versioned dump: main.json + per-set scores/counts/annotations CSVs).
+ZENODO_CONCEPT_ID = "11201736"
+
 #: Primary citation for the MaveDB platform. Callers must ALSO cite the specific
 #: score-set URN and its primary publication (surfaced on each record).
 RECOMMENDED_CITATION = (

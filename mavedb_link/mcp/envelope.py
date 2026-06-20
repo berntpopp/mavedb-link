@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 
 from mavedb_link.constants import RESPONSE_TOKEN_BUDGET, TOKEN_ESTIMATE_CHARS_PER_TOKEN
+from mavedb_link.data import provenance
 from mavedb_link.exceptions import (
     AmbiguousQueryError,
     DataUnavailableError,
@@ -240,7 +241,15 @@ def _stamp_capabilities_version(meta: dict[str, Any]) -> None:
 
 
 #: Observability scalars present in EVERY response's _meta, at every tier (GAP-5).
-_OBSERVABILITY_KEYS = ("tool", "request_id", "elapsed_ms", "truncated")
+#: ``data_source``/``mirror_as_of`` are present only when the mirror is active.
+_OBSERVABILITY_KEYS = (
+    "tool",
+    "request_id",
+    "elapsed_ms",
+    "truncated",
+    "data_source",
+    "mirror_as_of",
+)
 
 
 def _shape_meta(meta: dict[str, Any], response_mode: str) -> dict[str, Any]:
@@ -297,6 +306,7 @@ async def run_mcp_tool(
 ) -> dict[str, Any]:
     """Execute a tool body, returning the result dict or a structured error dict."""
     ctx = context or McpErrorContext(tool_name=tool_name)
+    provenance.begin()
     start = time.perf_counter()
     try:
         result = await call()
@@ -311,6 +321,8 @@ async def run_mcp_tool(
                 "elapsed_ms": elapsed,
                 # Hoist a uniform completeness signal from the body (GAP-5/G7).
                 "truncated": bool(result.get("truncated")),
+                # Honest mirror-vs-live provenance for this call (empty if no mirror).
+                **provenance.snapshot(),
             }
             _stamp_capabilities_version(meta)
             result["_meta"] = _shape_meta(meta, ctx.response_mode)
@@ -325,6 +337,7 @@ async def run_mcp_tool(
         envelope = _error_envelope(exc, ctx)
         envelope["_meta"]["elapsed_ms"] = elapsed
         envelope["_meta"]["truncated"] = False
+        envelope["_meta"].update(provenance.snapshot())
         _stamp_capabilities_version(envelope["_meta"])
         envelope["_meta"] = _shape_meta(envelope["_meta"], ctx.response_mode)
         envelope["_meta"]["token_estimate"] = _estimate_tokens(envelope)

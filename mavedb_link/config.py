@@ -7,13 +7,14 @@ and an optional ``.env`` file. The only data source is the live MaveDB REST API.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mavedb_link import __version__
-from mavedb_link.constants import DEFAULT_API_BASE_URL
+from mavedb_link.constants import DEFAULT_API_BASE_URL, ZENODO_CONCEPT_ID
 
 
 class MaveDBApiConfig(BaseModel):
@@ -64,6 +65,48 @@ class MaveDBApiConfig(BaseModel):
         return v.rstrip("/")
 
 
+class MirrorConfig(BaseModel):
+    """Local SQLite mirror (primary source; the live API is the backup).
+
+    When ``enabled`` and a built database exists at ``db_path``, reads are served
+    from the mirror first and fall through to the live API on a miss. The ingest
+    keys configure how the database is acquired (Zenodo bulk dump or a prebuilt
+    GitHub Release artifact) and refreshed.
+    """
+
+    enabled: bool = Field(default=True, description="Use the mirror when a built DB exists.")
+    data_dir: Path = Field(default=Path("data"), description="Directory holding the mirror DB.")
+    db_filename: str = Field(default="mavedb.sqlite", description="Mirror SQLite filename.")
+    zenodo_concept_id: str = Field(
+        default=ZENODO_CONCEPT_ID,
+        description="Zenodo concept record id for the MaveDB bulk dump (resolves 'latest').",
+    )
+    source_url: str | None = Field(
+        default=None, description="Explicit dump-zip URL override (else resolved from Zenodo)."
+    )
+    refresh_ttl_days: int = Field(
+        default=30, ge=0, description="Age beyond which the mirror is considered stale."
+    )
+    github_repo: str = Field(
+        default="berntpopp/mavedb-link", description="Repo hosting prebuilt artifact releases."
+    )
+    bundle_url: str = Field(
+        default="latest",
+        description="Prebuilt artifact: 'latest', an explicit URL, or '' (disabled).",
+    )
+    bundle_asset_name: str = Field(
+        default="mavedb.sqlite.zst", description="Release asset name for the prebuilt mirror."
+    )
+    build_local: bool = Field(
+        default=False, description="Fall back to a local build if the prebuilt pull fails."
+    )
+
+    @property
+    def db_path(self) -> Path:
+        """Full path to the mirror SQLite file."""
+        return self.data_dir / self.db_filename
+
+
 class ServerSettings(BaseSettings):
     """Top-level server settings."""
 
@@ -103,6 +146,11 @@ class ServerSettings(BaseSettings):
     api: MaveDBApiConfig = Field(
         default_factory=MaveDBApiConfig,
         description="Upstream MaveDB API configuration.",
+    )
+
+    mirror: MirrorConfig = Field(
+        default_factory=MirrorConfig,
+        description="Local SQLite mirror configuration (primary source; live API backup).",
     )
 
     @field_validator("mcp_path")
