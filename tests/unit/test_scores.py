@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mavedb_link.services.scores import parse_scores_csv, shape_scores
+from mavedb_link.services.scores import hgvs_matches, parse_scores_csv, shape_scores
 from tests.fixtures import SCORES_CSV
 
 
@@ -50,3 +50,34 @@ def test_shape_scores_partial_page_not_truncated() -> None:
     payload = shape_scores(SCORES_CSV, start=0, limit=100)
     assert payload["returned"] == 3
     assert payload["truncated"] is False
+
+
+# --- F5: accession-prefix-insensitive hgvs matching ---------------------------
+# Live-verified: BRCA2 SGE sets store hgvs_nt accession-prefixed
+# (ENST00000380152.8:c.8168A>G) so a bare 'c.8168A>G' used to 404.
+
+_PREFIXED_ROW = {"hgvs_nt": "ENST00000380152.8:c.8168A>G", "hgvs_pro": None, "accession": "u#1"}
+_BARE_ROW = {"hgvs_nt": "c.2T>G", "hgvs_pro": "p.Met1Arg", "accession": "u#2"}
+
+
+def test_hgvs_matches_bare_query_against_prefixed_row() -> None:
+    # the high-value win: a bare c. form resolves the accession-prefixed stored value
+    assert hgvs_matches(_PREFIXED_ROW, "c.8168a>g")
+
+
+def test_hgvs_matches_prefixed_query_against_bare_row() -> None:
+    # symmetric: a fully-prefixed query resolves a bare stored value
+    assert hgvs_matches(_BARE_ROW, "enst00000380152.8:c.2t>g")
+
+
+def test_hgvs_matches_full_prefixed_equality_still_works() -> None:
+    assert hgvs_matches(_PREFIXED_ROW, "enst00000380152.8:c.8168a>g")
+
+
+def test_hgvs_matches_does_not_false_positive_on_accession() -> None:
+    # a bare c. query must NOT spuriously match the accession (variant URN) column
+    assert not hgvs_matches({"accession": "urn:mavedb:00000001-a-1#2"}, "c.8168a>g")
+
+
+def test_hgvs_matches_distinct_variants_do_not_match() -> None:
+    assert not hgvs_matches(_PREFIXED_ROW, "c.9999g>a")

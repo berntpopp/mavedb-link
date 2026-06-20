@@ -144,10 +144,18 @@ async def _resolve_by_hgvs(
     query = hgvs.lower()
     matched = [r for r in rows if hgvs_matches(r, query)]
     if not matched:
+        protein = query.startswith("p.") or ":p." in query
+        hint = (
+            "Many SGE sets leave hgvs_pro null, so a p. form cannot be matched there "
+            "-- try the c. (nucleotide) form instead."
+            if protein
+            else "Matching is accession-prefix-insensitive (bare 'c.8168A>G' resolves "
+            "'ENST...:c.8168A>G'); confirm the variant exists via get_variant_scores "
+            "or validate the string with get_hgvs_validation."
+        )
         raise NotFoundError(
             f"No variant matching hgvs '{hgvs}' in {score_set_urn} (scanned {len(rows)} "
-            "rows). Check the hgvs string against get_variant_scores or "
-            "get_hgvs_validation, or pass a variant URN."
+            f"rows). {hint} Or pass a full variant URN ('{score_set_urn}#<index>')."
         )
     calibrations = await _raw_calibrations(client, score_set_urn)
     if response_mode in _FULL_MODES:

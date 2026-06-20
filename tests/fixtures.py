@@ -197,6 +197,13 @@ SCORES_CSV = (
     "urn:mavedb:00000001-a-1#3,c.3G>A,NA,NA,NA,NA\n"
 )
 
+#: A scores CSV whose hgvs_nt is accession-prefixed (BRCA2 SGE style: hgvs_pro
+#: left NA), so a bare c. query must resolve it (F5).
+PREFIXED_SCORES_CSV = (
+    "accession,hgvs_nt,hgvs_splice,hgvs_pro,score\n"
+    "urn:mavedb:00000001-a-1#1,ENST00000380152.8:c.8168A>G,NA,NA,0.94\n"
+)
+
 #: A variant record that ALSO carries a superseded (current:false) mapping, to
 #: prove get_variant_score drops historical rows except at full (F2).
 VARIANT_RAW_WITH_HISTORY: dict[str, Any] = {

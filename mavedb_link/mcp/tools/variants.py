@@ -114,8 +114,11 @@ def register_variant_tools(mcp: FastMCP) -> None:
             Field(
                 default=None,
                 description="HGVS string (hgvs_nt or hgvs_pro) to match when urn is a "
-                "score-set URN; omit when urn is a full variant URN.",
-                examples=["c.8168A>G", "p.Arg1699Trp"],
+                "score-set URN; omit when urn is a full variant URN. Accession-prefix "
+                "insensitive: a bare 'c.8168A>G' resolves a stored "
+                "'ENST00000380152.8:c.8168A>G' and vice-versa. Note: many SGE sets "
+                "leave hgvs_pro null, so a p. form may not match there — use the c. form.",
+                examples=["c.8168A>G", "ENST00000380152.8:c.8168A>G", "p.Arg1699Trp"],
             ),
         ] = None,
         response_mode: ResponseMode = "compact",

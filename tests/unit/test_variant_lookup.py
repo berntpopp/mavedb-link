@@ -191,6 +191,23 @@ async def test_get_variant_score_by_hgvs_standard_fetches_record_for_mapped(
     assert out["variants"][0]["mapped_variants"][0]["clingen_allele_id"] == "CA000002"
 
 
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_bare_hgvs_resolves_accession_prefixed_row(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F5: a bare 'c.8168A>G' resolves a stored 'ENST...:c.8168A>G' (used to 404).
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.PREFIXED_SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+    )
+    out = await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs="c.8168A>G")
+    assert out["match_count"] == 1
+    assert out["variants"][0]["score"] == 0.94
+    assert out["variants"][0]["hgvs_nt"] == "ENST00000380152.8:c.8168A>G"
+
+
 async def test_get_variant_score_requires_hgvs_for_score_set(service: MaveDBService) -> None:
     with pytest.raises(InvalidInputError):
         await service.get_variant_score(fixtures.SCORE_SET_URN)

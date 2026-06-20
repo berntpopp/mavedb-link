@@ -58,19 +58,36 @@ def parse_scores_csv(text: str) -> tuple[list[str], list[dict[str, Any]]]:
     return columns, parsed
 
 
-#: Columns a single-variant hgvs lookup matches against (case-insensitive, exact).
-_HGVS_MATCH_COLUMNS = ("hgvs_nt", "hgvs_pro", "accession")
+def _hgvs_core(value: str) -> str:
+    """The HGVS body without an accession prefix (the part after the last ``:``).
+
+    MaveDB stores hgvs_nt accession-prefixed in many sets
+    (``ENST00000380152.8:c.8168A>G``), so comparing the prefix-stripped body lets a
+    bare ``c.8168A>G`` resolve the prefixed stored value, and vice-versa (F5).
+    """
+    return value.rsplit(":", 1)[-1].strip()
 
 
 def hgvs_matches(row: dict[str, Any], query_lower: str) -> bool:
     """Whether a parsed score row identifies the variant named by ``query_lower``.
 
-    ``query_lower`` is the caller's hgvs (or variant URN) lower-cased; a row matches
-    on an exact, case-insensitive equality with its hgvs_nt/hgvs_pro/accession cell.
+    ``query_lower`` is the caller's hgvs (or variant URN), lower-cased. The
+    ``accession`` (variant URN) is matched exactly; ``hgvs_nt`` / ``hgvs_pro`` match
+    on the full string OR the accession-prefix-stripped body, so a bare
+    ``c.8168A>G`` resolves a stored ``ENST...:c.8168A>G`` (F5). Protein queries can
+    only match rows whose ``hgvs_pro`` is populated (many SGE sets leave it null).
     """
-    for column in _HGVS_MATCH_COLUMNS:
+    query = query_lower.strip()
+    accession = row.get("accession")
+    if isinstance(accession, str) and accession.strip().lower() == query:
+        return True
+    query_core = _hgvs_core(query)
+    for column in ("hgvs_nt", "hgvs_pro"):
         value = row.get(column)
-        if isinstance(value, str) and value.strip().lower() == query_lower:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().lower()
+        if normalized == query or _hgvs_core(normalized) == query_core:
             return True
     return False
 
