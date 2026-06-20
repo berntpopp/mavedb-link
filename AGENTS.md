@@ -45,15 +45,19 @@ its baseline with `make eval-baseline` after an intentional surface change.
 ## Local mirror (mirror-primary, live-backup)
 
 - **Source**: the CC0 Zenodo bulk dump — `main.json` (camelCase records, incl.
-  `scoreCalibrations`) + per-set `csv/<urn-dashed>.{scores,counts,annotations}.csv`.
+  `scoreCalibrations`) + per-set `csv/<urn-dashed>.{scores,counts}.csv`. The
+  schema still accepts `annotations` CSVs if a future export restores them, but
+  the verified Zenodo v4 zip member listing omits `csv/*.annotations.csv`.
   Built by `mavedb.scripts.export_public_data` upstream.
 - **Build** (`ingest/builder.py`): streams the dump zip into SQLite atomically
   (`os.replace`), one CSV member at a time (peak memory ≈ one CSV). Dump CSV
   headers are denamespaced back to the live shape (`scores.score` → `score`,
   preserving dotted columns like `exp.score`). Per-set distributions are
-  precomputed; the annotations layer (VRS digest + ClinGen) is indexed for
-  cross-dataset `find_variant`. Schema in `data/schema.sql`; bump
-  `MIRROR_SCHEMA_VERSION` (in `constants.py`) on any shape change.
+  precomputed; when annotations CSVs are present, their VRS digest + ClinGen
+  layer is indexed for cross-dataset `find_variant`. Current v4 mirrors have an
+  empty annotations layer and rely on lazy live backfill into the mapped-variant
+  cache. Schema in `data/schema.sql`; bump `MIRROR_SCHEMA_VERSION` (in
+  `constants.py`) on any shape change.
 - **Serve** (`data/hybrid.py`): `HybridClient` subclasses `MaveDBClient` and
   overrides `get_json`/`get_text`/`post_json` to answer from the mirror, else
   `super()` (live). It also exposes duck-typed helpers the services prefer when
@@ -61,13 +65,17 @@ its baseline with `make eval-baseline` after an intentional surface change.
   and `gene_identity` (thin symbol+organism fallback for `get_gene_score_sets`,
   whose score-set listing is mirror-served while rich `/genes` identity is
   memoised + time-boxed in `services/resolvers`). The whole
-  service/shaping/calibration stack consumes it unchanged. `_meta.data_source`
-  (`mirror`|`live`|`mixed`) + `mirror_as_of` report provenance per call;
-  `get_diagnostics.mirror` reports snapshot status.
+  service/shaping/calibration stack consumes it unchanged. `ensure_mapped_variants`
+  lazily fetches per-set mapped variants from live, writes them through to the
+  on-disk cache, and makes repeat VRS/ClinGen reads mirror-fast while preserving
+  live authority/provenance. `_meta.data_source` (`mirror`|`live`|`mixed`) +
+  `mirror_as_of` report provenance per call; `get_diagnostics.mirror` reports
+  snapshot status and `get_diagnostics.cache` reports mapped-cache state.
 - **Acquire/refresh** (`mavedb-link-data` CLI): `bootstrap` (reuse → pull
   prebuilt artifact → build, else degrade to live-only), `build`, `refresh`,
   `status`, `pull`, `pack`, `publish`. Prebuilt `mavedb.sqlite.zst` artifacts are
   published to GitHub Releases by `.github/workflows/data.yml` (monthly + manual).
+- **Mapped-cache ops** (`mavedb-link-cache` CLI): `status`, `clear --yes`.
 - **Invariant**: the mirror only changes latency/provenance, never the output
   *shape* — mirror-served and live-served payloads must be interchangeable
   (verify both in `tests/unit/test_hybrid.py`).

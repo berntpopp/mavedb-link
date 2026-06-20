@@ -230,9 +230,7 @@ class HybridClient(MaveDBClient):
         except Exception:
             return
 
-    def _cached_vrs_for_hgvs(
-        self, core: str, *, gene: str | None = None
-    ) -> list[dict[str, Any]]:
+    def _cached_vrs_for_hgvs(self, core: str, *, gene: str | None = None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for candidate in self._repo.hgvs_variant_urns(core, gene=gene):
             variant_urn = str(candidate.get("variant_urn") or "")

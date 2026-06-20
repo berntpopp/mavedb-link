@@ -94,18 +94,22 @@ pure-live — no setup required.
 make data-build     # download the latest Zenodo dump + build data/mavedb.sqlite
 make data-status    # show snapshot date, Zenodo record, counts
 make data-refresh   # rebuild only if Zenodo has a newer dump version
+mavedb-link-cache status   # inspect lazy mapped-variant cache state
 ```
 
 Score-set/experiment records, the scores/counts tables, full-text search, the
-score distribution, the cross-dataset VRS rollup, the per-set mapped-variant
-enumeration (current-only, compact/minimal), HGVS→VRS resolution for
-`find_variant(hgvs=)`, and the `get_gene_score_sets` score-set listing are served
-from the local index; rich gene identity is fetched live but memoised + time-boxed
-(degrading to a thin mirror identity), and the richer mapped-variant reads (full
-VRS objects), HGVS validation (memoised), and the calibration-by-class listing stay
+score distribution, and the `get_gene_score_sets` score-set listing are served
+from the local index. The verified Zenodo v4 zip member listing omits
+`csv/*.annotations.csv`, so the VRS/ClinGen mapped-variant layer is backfilled
+lazily from the live API per score set into an on-disk cache; repeat
+`get_mapped_variants`, `find_variant(variant_urn=)`, and target-relative
+`find_variant(hgvs=, gene_symbol=)` reads then reuse that cache. Rich gene
+identity is fetched live but memoised + time-boxed (degrading to a thin mirror
+identity), HGVS validation is memoised, and the calibration-by-class listing stays
 live. Each response's `_meta.data_source` reports
 `mirror` | `live` | `mixed`, with `mirror_as_of` (the snapshot date);
-`get_diagnostics.mirror` reports live status.
+`get_diagnostics.mirror` reports snapshot status and `get_diagnostics.cache`
+reports the mapped-variant cache state.
 In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
 artifact → build, else live-only) and persists the mirror on a volume; prebuilt
 `mavedb.sqlite.zst` artifacts are published to GitHub Releases by

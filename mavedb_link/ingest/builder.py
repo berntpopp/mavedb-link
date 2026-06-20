@@ -6,6 +6,11 @@ into place (``os.replace``) so readers never observe a half-built file. Records
 are stored as the upstream camelCase JSON (the shapers consume them unchanged);
 nested score sets/experiments are enriched with their parent URNs to match the
 live record shape.
+
+The schema still accepts ``annotations`` CSV members when present, but the current
+Zenodo v4 dump's verified zip listing omits them. In that case the mirror's
+mapped-variant index is empty and HybridClient lazily backfills VRS/ClinGen rows
+from the live API into the mapped-variant cache.
 """
 
 from __future__ import annotations
