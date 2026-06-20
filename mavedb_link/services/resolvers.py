@@ -17,17 +17,21 @@ from mavedb_link.constants import (
     DEFAULT_CLASSIFIED_LIMIT,
     DEFAULT_FIND_LIMIT,
     FUNCTIONAL_CLASSES,
+    HGVS_PROBE_CAP,
     MAX_CLASSIFIED_LIMIT,
     MAX_FIND_LIMIT,
+    MAX_GENE_LIMIT,
 )
-from mavedb_link.exceptions import InvalidInputError, NotFoundError
+from mavedb_link.exceptions import AmbiguousQueryError, InvalidInputError, NotFoundError
 from mavedb_link.identifiers import (
     is_variant_urn,
     score_set_urn_of_variant,
     validate_score_set_urn,
     variant_index_of,
 )
+from mavedb_link.services import variant_lookup
 from mavedb_link.services.calibration import classify_score, coerce_score
+from mavedb_link.services.scores import hgvs_core
 from mavedb_link.services.shaping import shape_mapped_variant, shape_single_variant
 
 #: GA4GH VRS allele ids start with this scheme; the upstream endpoint enforces it.
@@ -159,11 +163,107 @@ async def _resolve_cross_dataset_ident(
     )
 
 
+def _distinct_vrs(rows: list[dict[str, Any]]) -> list[str]:
+    """Distinct, ordered VRS ids from mapped-variant rows (drops unmapped)."""
+    return sorted({r["vrs_id"] for r in rows if r.get("vrs_id")})
+
+
+def _hgvs_candidates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Candidate descriptors for an ambiguous-HGVS error."""
+    return [
+        {"score_set_urn": r.get("score_set_urn") or "", "vrs_id": r.get("vrs_id") or ""}
+        for r in rows
+        if r.get("vrs_id")
+    ]
+
+
+async def _live_probe_hgvs(client: MaveDBClient, hgvs: str, gene: str) -> tuple[list[str], bool]:
+    """Resolve HGVS->VRS by probing a gene's score sets live (mirror-miss fallback).
+
+    Replicates the manual probe a caller would otherwise do by hand: list the gene's
+    score sets, then get_variant_score(by hgvs) on each (capped at HGVS_PROBE_CAP),
+    collecting the genome-mapped VRS of every match. Returns ``(distinct_vrs,
+    truncated)``.
+    """
+    gene_raw = await client.get_json(
+        f"/genes/{gene}", params={"limit": MAX_GENE_LIMIT, "offset": 0}
+    )
+    score_sets = gene_raw.get("scoreSets") if isinstance(gene_raw, dict) else None
+    urns = [
+        s.get("urn") for s in (score_sets or []) if isinstance(s, dict) and s.get("urn")
+    ]
+    truncated = len(urns) > HGVS_PROBE_CAP
+    probes = await asyncio.gather(
+        *(
+            variant_lookup.get_variant_score(client, urn, hgvs=hgvs, response_mode="standard")
+            for urn in urns[:HGVS_PROBE_CAP]
+        ),
+        return_exceptions=True,
+    )
+    found: set[str] = set()
+    for probe in probes:
+        if isinstance(probe, BaseException) or not isinstance(probe, dict):
+            continue
+        for variant in probe.get("variants") or []:
+            for mapping in variant.get("mapped_variants") or []:
+                vrs = mapping.get("vrs_id")
+                if vrs:
+                    found.add(str(vrs))
+    if not found:
+        raise NotFoundError(
+            f"No variant matching HGVS '{hgvs}' (with a genome-mapped VRS) was found in "
+            f"the first {min(len(urns), HGVS_PROBE_CAP)} score set(s) for {gene}. Confirm "
+            "the HGVS spelling, or call get_gene_score_sets(symbol) and probe "
+            "get_variant_score(urn, hgvs=) directly."
+        )
+    return sorted(found), truncated
+
+
+async def _vrs_from_hgvs(
+    client: MaveDBClient, hgvs: str, gene: str | None
+) -> tuple[list[str], bool]:
+    """Resolve an HGVS string to VRS id(s): mirror first, then a capped live probe.
+
+    Returns ``(vrs_ids, probe_truncated)``. Raises AmbiguousQueryError when the mirror
+    finds the variant in multiple genes and no ``gene`` was given; InvalidInputError
+    when a mirror miss needs ``gene`` for the live probe.
+    """
+    candidate = hgvs.strip()
+    if not candidate:
+        raise InvalidInputError(
+            "Provide an HGVS string (e.g. 'p.Asp2723His' or 'NM_000059.4:c.8167G>A').",
+            field="hgvs",
+        )
+    core = hgvs_core(candidate)
+    from_mirror = getattr(client, "vrs_for_hgvs", None)
+    if callable(from_mirror):
+        rows = from_mirror(core, gene=gene)
+        vrs = _distinct_vrs(rows)
+        if vrs:
+            if len(vrs) > 1 and not (gene and gene.strip()):
+                raise AmbiguousQueryError(
+                    f"HGVS '{candidate}' maps to {len(vrs)} distinct variants across score "
+                    "sets. Re-run with gene= to disambiguate.",
+                    candidates=_hgvs_candidates(rows),
+                )
+            return vrs, False
+    if not (gene and gene.strip()):
+        raise InvalidInputError(
+            f"HGVS '{candidate}' is not in the local mirror; resolving it live needs gene= "
+            "(to scope which score sets to probe).",
+            field="gene",
+            hint="Pass gene='BRCA1' (the HGNC symbol the variant belongs to).",
+        )
+    return await _live_probe_hgvs(client, candidate, gene.strip())
+
+
 async def find_variant(
     client: MaveDBClient,
     vrs_id: str | None = None,
     *,
     variant_urn: str | None = None,
+    hgvs: str | None = None,
+    gene: str | None = None,
     only_current: bool = True,
     enrich: bool = True,
     limit: int = DEFAULT_FIND_LIMIT,
@@ -172,20 +272,31 @@ async def find_variant(
 ) -> dict[str, Any]:
     """Find one variant across every MaveDB score set (cross-dataset rollup).
 
-    Accepts a GA4GH VRS allele id OR a ``variant_urn`` (resolved to its VRS via the
-    variant record, so no map-first round-trip). Wraps ``GET /mapped-variants/vrs/
-    {id}``: the same allele's measurements wherever it was assayed. With ``enrich``
+    Anchor on a GA4GH VRS allele id, a ``variant_urn`` (resolved to its VRS via the
+    variant record), OR a bare ``hgvs`` string (resolved via the mirror's hgvs_index,
+    falling back to a capped live probe of ``gene``'s score sets). With ``enrich``
     (default), each hit also carries the variant's ``score`` + calibrated
     ``classifications``.
     """
-    ident, resolved_by = await _resolve_cross_dataset_ident(client, vrs_id, variant_urn)
+    extra: dict[str, Any] = {}
+    if hgvs and hgvs.strip():
+        idents, truncated = await _vrs_from_hgvs(client, hgvs, gene)
+        resolved_by = "hgvs"
+        extra = {"hgvs_input": hgvs.strip(), "probe_truncated": truncated}
+    else:
+        ident, resolved_by = await _resolve_cross_dataset_ident(client, vrs_id, variant_urn)
+        idents = [ident]
     capped = _clamp(limit, 1, MAX_FIND_LIMIT)
-    raw = await client.get_json(
-        f"/mapped-variants/vrs/{quote(ident, safe='')}",
-        params={"only_current": only_current},
-    )
-    items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
-    items = sorted(items, key=_cross_dataset_sort_key)
+    merged: dict[Any, Any] = {}
+    for ident in idents:
+        raw = await client.get_json(
+            f"/mapped-variants/vrs/{quote(ident, safe='')}",
+            params={"only_current": only_current},
+        )
+        rows = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
+        for row in rows:
+            merged.setdefault(_mapped_variant_urn(row) or id(row), row)
+    items = sorted(merged.values(), key=_cross_dataset_sort_key)
     total = len(items)
     page = items[offset : offset + capped]
     hits: list[dict[str, Any]] = []
@@ -199,10 +310,12 @@ async def find_variant(
     if enrich:
         await asyncio.gather(*(_enrich_hit(client, h) for h in hits))
     return {
-        "vrs_id": ident,
+        "vrs_id": idents[0],
+        "resolved_vrs": idents,
         "resolved_by": resolved_by,
         "hits": hits,
         "enriched": enrich,
+        **extra,
         **_page_block(total=total, returned=len(hits), limit=capped, offset=offset),
     }
 
