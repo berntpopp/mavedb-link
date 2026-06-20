@@ -58,14 +58,15 @@ def parse_scores_csv(text: str) -> tuple[list[str], list[dict[str, Any]]]:
     return columns, parsed
 
 
-def _hgvs_core(value: str) -> str:
-    """The HGVS body without an accession prefix (the part after the last ``:``).
+def hgvs_core(value: str) -> str:
+    """The lowercased HGVS body without an accession prefix (part after the last ``:``).
 
     MaveDB stores hgvs_nt accession-prefixed in many sets
-    (``ENST00000380152.8:c.8168A>G``), so comparing the prefix-stripped body lets a
-    bare ``c.8168A>G`` resolve the prefixed stored value, and vice-versa (F5).
+    (``ENST00000380152.8:c.8168A>G``), so comparing the prefix-stripped, lowercased
+    body lets a bare ``c.8168A>G`` resolve the prefixed stored value and vice-versa
+    (F5). Used by both the live by-hgvs scan and the mirror hgvs_index build/lookup.
     """
-    return value.rsplit(":", 1)[-1].strip()
+    return value.rsplit(":", 1)[-1].strip().lower()
 
 
 def hgvs_matches(row: dict[str, Any], query_lower: str) -> bool:
@@ -81,13 +82,12 @@ def hgvs_matches(row: dict[str, Any], query_lower: str) -> bool:
     accession = row.get("accession")
     if isinstance(accession, str) and accession.strip().lower() == query:
         return True
-    query_core = _hgvs_core(query)
+    query_core = hgvs_core(query)
     for column in ("hgvs_nt", "hgvs_pro"):
         value = row.get(column)
         if not isinstance(value, str):
             continue
-        normalized = value.strip().lower()
-        if normalized == query or _hgvs_core(normalized) == query_core:
+        if value.strip().lower() == query or hgvs_core(value) == query_core:
             return True
     return False
 

@@ -21,7 +21,7 @@ ZENODO_CONCEPT_ID = "11201736"
 #: Local mirror SQLite schema version. Bump when the schema or stored shapes
 #: change (invalidates older prebuilt artifacts). Lives here (not in the builder)
 #: so the repository can read it without importing the ingest chain.
-MIRROR_SCHEMA_VERSION = 1
+MIRROR_SCHEMA_VERSION = 2
 
 #: Primary citation for the MaveDB platform. Callers must ALSO cite the specific
 #: score-set URN and its primary publication (surfaced on each record).

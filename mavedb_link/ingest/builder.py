@@ -25,6 +25,7 @@ from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
 from mavedb_link.ingest.parsing import (
     compute_distribution,
     denamespace_csv,
+    extract_hgvs_rows,
     extract_scores,
     parse_annotations,
 )
@@ -144,6 +145,14 @@ def _insert_score_set(
                 json.dumps(dist["quantiles"]),
             ),
         )
+        hgvs_rows = extract_hgvs_rows(scores_csv, urn)
+        if hgvs_rows:
+            con.executemany(
+                "INSERT INTO hgvs_index (score_set_urn, variant_urn, hgvs_nt, hgvs_pro, "
+                "hgvs_splice) VALUES (:score_set_urn, :variant_urn, :hgvs_nt, :hgvs_pro, "
+                ":hgvs_splice)",
+                hgvs_rows,
+            )
     mapped_count = 0
     if annotations_csv is not None:
         mapped = parse_annotations(annotations_csv, urn)

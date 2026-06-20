@@ -170,6 +170,61 @@ class MirrorRepository:
         """Full score-set records targeting a gene symbol, ordered by URN."""
         return self._records_for(self.gene_score_set_urns(symbol))
 
+    def gene_identity(self, symbol: str) -> dict[str, Any] | None:
+        """Thin gene identity from the index (symbol + organism), or None if absent."""
+        row = self._con.execute(
+            "SELECT gene_symbol, organism FROM gene_index WHERE gene_symbol_upper = ? LIMIT 1",
+            (symbol.strip().upper(),),
+        ).fetchone()
+        if row is None:
+            return None
+        out: dict[str, Any] = {"symbol": row["gene_symbol"]}
+        if row["organism"]:
+            out["organism"] = row["organism"]
+        return out
+
+    def resolve_hgvs(self, hgvs_core_value: str, *, gene: str | None = None) -> list[dict[str, Any]]:
+        """Resolve a normalised HGVS core to (variant_urn, score_set_urn, vrs_id) rows.
+
+        Two paths, unioned: target-relative HGVS via ``hgvs_index`` (scoped by
+        ``gene`` when given), and genomic/accessioned HGVS via the post-mapped HGVS
+        columns on ``mapped_variant`` (case-insensitive). ``hgvs_core_value`` is the
+        caller's :func:`scores.hgvs_core` of the input.
+        """
+        value = hgvs_core_value.strip()
+        if not value:
+            return []
+        out: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+        if gene and gene.strip():  # target-relative: hgvs_index -> mapped_variant VRS
+            sql = (
+                "SELECT h.variant_urn, h.score_set_urn, m.vrs_id FROM hgvs_index h "
+                "JOIN gene_index g ON g.score_set_urn = h.score_set_urn "
+                "LEFT JOIN mapped_variant m ON m.variant_urn = h.variant_urn "
+                "WHERE g.gene_symbol_upper = ? AND (h.hgvs_nt = ? OR h.hgvs_pro = ? "
+                "OR h.hgvs_splice = ?)"
+            )
+            params: tuple[Any, ...] = (gene.strip().upper(), value, value, value)
+        else:
+            sql = (
+                "SELECT h.variant_urn, h.score_set_urn, m.vrs_id FROM hgvs_index h "
+                "LEFT JOIN mapped_variant m ON m.variant_urn = h.variant_urn "
+                "WHERE h.hgvs_nt = ? OR h.hgvs_pro = ? OR h.hgvs_splice = ?"
+            )
+            params = (value, value, value)
+        for r in self._con.execute(sql, params).fetchall():
+            out[(r["variant_urn"], r["vrs_id"])] = dict(r)
+        for r in self._con.execute(  # genomic/accessioned: post-mapped HGVS columns
+            "SELECT variant_urn, score_set_urn, vrs_id FROM mapped_variant WHERE "
+            "post_mapped_hgvs_g = ? COLLATE NOCASE OR post_mapped_hgvs_c = ? COLLATE NOCASE "
+            "OR post_mapped_hgvs_p = ? COLLATE NOCASE",
+            (value, value, value),
+        ).fetchall():
+            out.setdefault((r["variant_urn"], r["vrs_id"]), dict(r))
+        return sorted(
+            out.values(),
+            key=lambda d: (d.get("score_set_urn") or "", d.get("variant_urn") or ""),
+        )
+
     def search_score_sets(
         self,
         text: str | None,
