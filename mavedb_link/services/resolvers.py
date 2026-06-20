@@ -22,6 +22,7 @@ from mavedb_link.constants import (
 )
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
 from mavedb_link.identifiers import (
+    is_variant_urn,
     score_set_urn_of_variant,
     validate_score_set_urn,
     variant_index_of,
@@ -80,31 +81,84 @@ async def _enrich_hit(client: MaveDBClient, hit: dict[str, Any]) -> None:
         hit["classifications"] = classified
 
 
+async def _vrs_from_variant(client: MaveDBClient, variant_urn: str) -> str:
+    """Resolve a variant URN to its genome-mapped VRS allele id (2.2 consolidation).
+
+    The variant record carries its own ``mappedVariants``, so a caller who has a
+    variant (by URN, or via get_variant_score) need not map it first to fan out
+    cross-dataset. A variant with no mapping cannot be matched -> ``NotFoundError``.
+    """
+    candidate = variant_urn.strip()
+    if not is_variant_urn(candidate):
+        raise InvalidInputError(
+            "variant_urn must be a full variant URN ('urn:mavedb:00000001-a-1#2').",
+            field="variant_urn",
+            hint="It is the 'variant_urn'/'accession' from get_variant_scores or "
+            "get_variant_score.",
+        )
+    raw = await client.get_json(f"/variants/{candidate.replace('#', '%23')}")
+    shaped = shape_single_variant(raw, "standard")  # standard carries current mappings
+    for mapping in shaped.get("mapped_variants") or []:
+        vrs = mapping.get("vrs_id")
+        if vrs:
+            return str(vrs)
+    raise NotFoundError(
+        f"{candidate} has no genome-mapped VRS allele, so it cannot be matched across "
+        "score sets. It may be unmapped upstream — call get_mapped_variants on its "
+        "score set to confirm."
+    )
+
+
+async def _resolve_cross_dataset_ident(
+    client: MaveDBClient, vrs_id: str | None, variant_urn: str | None
+) -> tuple[str, str]:
+    """Return ``(vrs_allele_id, resolved_by)`` from a VRS id OR a variant URN.
+
+    A variant URN (explicit, or auto-detected when passed as ``vrs_id``) is
+    resolved to its VRS internally; a ClinGen Allele ID is rejected with a remedy.
+    """
+    if variant_urn and variant_urn.strip():
+        return await _vrs_from_variant(client, variant_urn), "variant_urn"
+    candidate = (vrs_id or "").strip()
+    if not candidate:
+        raise InvalidInputError(
+            "Provide vrs_id (a GA4GH 'ga4gh:' allele id) or variant_urn ('urn:mavedb:...-a-1#2').",
+            field="vrs_id",
+            hint="Get a VRS id from get_mapped_variants/get_variant_score, or pass a "
+            "variant_urn to resolve it internally.",
+        )
+    if candidate.startswith(_VRS_PREFIX):
+        return candidate, "vrs_id"
+    if is_variant_urn(candidate):  # friendly: a variant URN where a VRS id would go
+        return await _vrs_from_variant(client, candidate), "variant_urn"
+    raise InvalidInputError(
+        "find_variant needs a GA4GH VRS allele id (starts 'ga4gh:') or a variant URN.",
+        field="vrs_id",
+        hint="ClinGen Allele IDs are not accepted upstream — get the VRS via "
+        "get_mapped_variants, or pass the variant_urn to resolve it internally.",
+    )
+
+
 async def find_variant(
     client: MaveDBClient,
-    vrs_id: str,
+    vrs_id: str | None = None,
     *,
+    variant_urn: str | None = None,
     only_current: bool = True,
     enrich: bool = True,
     limit: int = DEFAULT_FIND_LIMIT,
     offset: int = 0,
     response_mode: str = "compact",
 ) -> dict[str, Any]:
-    """Find one GA4GH VRS allele across every MaveDB score set (cross-dataset).
+    """Find one variant across every MaveDB score set (cross-dataset rollup).
 
-    Wraps ``GET /mapped-variants/vrs/{id}``: the same allele's measurements
-    wherever it was assayed. With ``enrich`` (default), each hit also carries the
-    variant's ``score`` + calibrated ``classifications``. ClinGen Allele IDs are
-    not accepted by the upstream endpoint (use ``get_mapped_variants`` to map).
+    Accepts a GA4GH VRS allele id OR a ``variant_urn`` (resolved to its VRS via the
+    variant record, so no map-first round-trip). Wraps ``GET /mapped-variants/vrs/
+    {id}``: the same allele's measurements wherever it was assayed. With ``enrich``
+    (default), each hit also carries the variant's ``score`` + calibrated
+    ``classifications``.
     """
-    ident = vrs_id.strip()
-    if not ident.startswith(_VRS_PREFIX):
-        raise InvalidInputError(
-            "find_variant needs a GA4GH VRS allele id (starts 'ga4gh:').",
-            field="vrs_id",
-            hint="Get one from get_mapped_variants (vrs_id) or get_variant_score; "
-            "ClinGen Allele IDs are not accepted here.",
-        )
+    ident, resolved_by = await _resolve_cross_dataset_ident(client, vrs_id, variant_urn)
     capped = _clamp(limit, 1, MAX_FIND_LIMIT)
     raw = await client.get_json(
         f"/mapped-variants/vrs/{quote(ident, safe='')}",
@@ -117,13 +171,16 @@ async def find_variant(
     hits: list[dict[str, Any]] = []
     for row in page:
         hit = shape_mapped_variant(row, response_mode)
-        variant_urn = hit.get("variant_urn")
-        hit["score_set_urn"] = score_set_urn_of_variant(variant_urn) if variant_urn else None
+        variant_urn_hit = hit.get("variant_urn")
+        hit["score_set_urn"] = (
+            score_set_urn_of_variant(variant_urn_hit) if variant_urn_hit else None
+        )
         hits.append(hit)
     if enrich:
         await asyncio.gather(*(_enrich_hit(client, h) for h in hits))
     return {
         "vrs_id": ident,
+        "resolved_by": resolved_by,
         "hits": hits,
         "enriched": enrich,
         **_page_block(total=total, returned=len(hits), limit=capped, offset=offset),

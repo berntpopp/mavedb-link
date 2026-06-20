@@ -138,11 +138,21 @@ def after_get_variant_scores(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def after_get_variant_score(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """After get_variant_score: open the parent score set and its genome mapping."""
+    """After get_variant_score: roll the variant up across score sets, then context.
+
+    The cross-dataset rollup (find_variant by variant_urn) is offered first: it
+    answers "every assay that measured this variant" in one hop, with no map-first
+    step (the consolidation win, 2.2).
+    """
+    steps: list[dict[str, Any]] = []
+    variants = payload.get("variants") or []
+    if variants and isinstance(variants[0], dict) and variants[0].get("variant_urn"):
+        steps.append(cmd("find_variant", variant_urn=variants[0]["variant_urn"]))
     score_set = payload.get("score_set_urn") or payload.get("urn")
-    if not score_set:
-        return [cmd("get_server_capabilities")]
-    return [cmd("get_score_set", urn=score_set), cmd("get_mapped_variants", urn=score_set)]
+    if score_set:
+        steps.append(cmd("get_score_set", urn=score_set))
+        steps.append(cmd("get_mapped_variants", urn=score_set))
+    return steps or [cmd("get_server_capabilities")]
 
 
 def after_get_mapped_variants(payload: dict[str, Any]) -> list[dict[str, Any]]:

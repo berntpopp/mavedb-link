@@ -200,6 +200,32 @@ async def test_find_variant_enriches_and_chains(
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
+async def test_find_variant_by_variant_urn_resolves_and_rolls_up(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    # 2.2: pass a variant URN; the server resolves its VRS and fans out — no
+    # map-first round-trip needed.
+    _mock_all(respx_mock)
+    res = await facade.call_tool("find_variant", {"variant_urn": fixtures.VARIANT_URN})
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert payload["resolved_by"] == "variant_urn"
+    assert payload["vrs_id"] == fixtures.VRS_ID
+    assert payload["hits"][0]["score_set_urn"] == fixtures.SCORE_SET_URN
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_variant_score_chains_to_find_variant(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    # The consolidation chain is handed to the agent: get_variant_score -> find_variant.
+    _mock_all(respx_mock)
+    res = await facade.call_tool("get_variant_score", {"urn": fixtures.VARIANT_URN})
+    steps = structured(res)["_meta"]["next_commands"]
+    assert steps[0] == {"tool": "find_variant", "arguments": {"variant_urn": fixtures.VARIANT_URN}}
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
 async def test_get_hgvs_validation_valid(
     respx_mock: respx.Router, facade: Any, structured: Any
 ) -> None:

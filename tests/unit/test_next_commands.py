@@ -53,9 +53,9 @@ def test_after_variant_scores_pages_by_start() -> None:
     assert any(s["arguments"].get("start") == 100 for s in steps)
 
 
-def test_after_variant_score_opens_score_set() -> None:
-    # The unified payload carries the score-set URN at top level (urn) for BOTH
-    # resolution paths (F2).
+def test_after_variant_score_rolls_up_then_opens_score_set() -> None:
+    # 2.2 consolidation: the cross-dataset rollup (find_variant by variant_urn) is
+    # offered first, then the parent score set + its genome mapping.
     steps = nc.after_get_variant_score(
         {
             "urn": "urn:mavedb:00000001-a-1",
@@ -63,11 +63,12 @@ def test_after_variant_score_opens_score_set() -> None:
             "variants": [{"variant_urn": "urn:mavedb:00000001-a-1#2"}],
         }
     )
-    assert steps[0] == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1")
+    assert steps[0] == nc.cmd("find_variant", variant_urn="urn:mavedb:00000001-a-1#2")
+    assert any(s == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1") for s in steps)
     assert any(s["tool"] == "get_mapped_variants" for s in steps)
 
 
-def test_after_variant_score_hgvs_form_uses_urn() -> None:
+def test_after_variant_score_no_variants_uses_score_set() -> None:
     steps = nc.after_get_variant_score({"urn": "urn:mavedb:00000001-a-1"})
     assert steps[0] == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1")
 

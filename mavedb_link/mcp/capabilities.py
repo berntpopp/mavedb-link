@@ -179,7 +179,9 @@ def build_capabilities() -> dict[str, Any]:
             "rank first; reranked_by='target_gene'). get_gene_score_sets resolves an "
             "HGNC symbol to the COMPLETE dataset set (HGNC union target-name, deduped). "
             "get_variant_score returns ONE variant's score by variant URN or by "
-            "score-set URN + hgvs."
+            "score-set URN + hgvs. find_variant rolls a variant up across EVERY "
+            "score set by VRS id OR variant_urn (the variant URN is resolved to its "
+            "VRS internally, so no map-first step is needed)."
         ),
         "facet_honesty": (
             "target_organism_names / target_types are applied client-side. The "
@@ -214,8 +216,11 @@ def build_capabilities() -> dict[str, Any]:
             "gene -> get_gene_score_sets -> get_score_set -> get_variant_scores",
             "text -> search_score_sets -> get_score_set -> get_variant_scores",
             "score set + hgvs -> get_variant_score (score + calibrated class, no paging)",
+            "variant -> get_variant_score -> find_variant(variant_urn=) "
+            "(every assay that measured this variant, in one hop)",
             "score set -> get_classified_variants(classification=abnormal) (all PS3 variants)",
-            "VRS allele -> find_variant (same variant's score/class across ALL score sets)",
+            "VRS allele OR variant_urn -> find_variant (same variant's score/class "
+            "across ALL score sets)",
             "score set -> get_score_distribution(score=) (summary stats + a score's percentile)",
             "score set -> get_mapped_variants (VRS alleles + ClinGen Allele IDs)",
             "score set -> get_experiment (parent context) -> get_score_set (siblings)",

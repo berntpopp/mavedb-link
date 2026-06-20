@@ -17,9 +17,69 @@ BASE = fixtures.BASE_URL
 
 
 async def test_find_variant_rejects_non_vrs_id(service: MaveDBService) -> None:
+    # A ClinGen Allele ID is still rejected (not accepted upstream) -- but the hint
+    # now points at the in-repo remedy (pass the variant_urn).
     with pytest.raises(InvalidInputError) as exc:
         await service.find_variant("CA000002")
     assert exc.value.field == "vrs_id"
+    assert "variant_urn" in (exc.value.hint or "")
+
+
+async def test_find_variant_requires_an_identifier(service: MaveDBService) -> None:
+    with pytest.raises(InvalidInputError):
+        await service.find_variant()
+
+
+@respx.mock(base_url=BASE)
+async def test_find_variant_by_variant_urn_resolves_vrs_internally(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # GAP-3 / 2.2: pass a variant URN; the server resolves its VRS via the variant
+    # record (no map-first round-trip) then fans out across every score set.
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
+    )
+    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW)
+    )
+    out = await service.find_variant(variant_urn=fixtures.VARIANT_URN, enrich=False)
+    assert out["resolved_by"] == "variant_urn"
+    assert out["vrs_id"] == fixtures.VRS_ID
+    assert {h["score_set_urn"] for h in out["hits"]} == {
+        fixtures.SCORE_SET_URN,
+        fixtures.SCORE_SET_URN_2,
+    }
+
+
+@respx.mock(base_url=BASE)
+async def test_find_variant_auto_detects_variant_urn_in_first_arg(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # A variant URN passed positionally (where a VRS id would go) is auto-detected.
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
+    )
+    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW[:1])
+    )
+    out = await service.find_variant(fixtures.VARIANT_URN, enrich=False)
+    assert out["resolved_by"] == "variant_urn"
+    assert out["vrs_id"] == fixtures.VRS_ID
+
+
+@respx.mock(base_url=BASE)
+async def test_find_variant_unmapped_variant_is_not_found(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # A variant with no genome mapping cannot be matched cross-dataset -> not_found
+    # with a steering hint (rather than an empty/confusing result).
+    unmapped = {**fixtures.VARIANT_RAW, "mappedVariants": []}
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=unmapped)
+    )
+    with pytest.raises(NotFoundError) as exc:
+        await service.find_variant(variant_urn=fixtures.VARIANT_URN)
+    assert "get_mapped_variants" in str(exc.value)
 
 
 @respx.mock(base_url=BASE)

@@ -31,11 +31,23 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 _VrsId = Annotated[
-    str,
+    str | None,
     Field(
+        default=None,
         description="A GA4GH VRS allele id (starts 'ga4gh:'). Get one from "
-        "get_mapped_variants (vrs_id) or get_variant_score.",
+        "get_mapped_variants (vrs_id) or get_variant_score. A variant URN passed "
+        "here is auto-detected and resolved to its VRS. Omit when using variant_urn=.",
         examples=["ga4gh:VA.ZkAN2DOM70rwo9uvpOkCtlM8qVb-gYYw"],
+    ),
+]
+_VariantUrn = Annotated[
+    str | None,
+    Field(
+        default=None,
+        description="A full variant URN ('urn:mavedb:00000001-a-1#2'). Resolved to "
+        "its genome-mapped VRS internally (no map-first round-trip), then matched "
+        "across every score set. Pass this OR vrs_id.",
+        examples=["urn:mavedb:00000001-a-1#2"],
     ),
 ]
 _FindLimit = Annotated[
@@ -57,17 +69,22 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         output_schema=FIND_VARIANT_SCHEMA,
         tags={"mave", "variant", "vrs", "cross-dataset"},
         description=(
-            "Find ONE GA4GH VRS allele across EVERY MaveDB score set — the same "
-            "variant's functional measurements wherever it was assayed. Pass a VRS "
-            "id (ga4gh:VA…); each hit carries its score_set_urn, variant_urn, "
-            "ClinGen Allele ID, and (when enrich=true, default) the score + "
-            "calibrated classifications. ClinGen IDs are not accepted upstream — "
-            "map them first via get_mapped_variants. Paged via offset/limit. "
-            "Signature: find_variant(vrs_id, only_current=, enrich=, limit=, offset=, response_mode=)."
+            "Find ONE variant across EVERY MaveDB score set — the same variant's "
+            "functional measurements wherever it was assayed (the cross-dataset "
+            "rollup for 'every assay that measured this variant'). Pass a VRS id "
+            "(ga4gh:VA…) OR a variant_urn ('urn:mavedb:…-a-1#2'): a variant URN is "
+            "resolved to its VRS internally, so you do NOT need to map it first — "
+            "chain straight from get_variant_score. Each hit carries its "
+            "score_set_urn, variant_urn, ClinGen Allele ID, and (when enrich=true, "
+            "default) the score + calibrated classifications. ClinGen Allele IDs are "
+            "not accepted upstream; pass the variant_urn instead. Paged via "
+            "offset/limit. Signature: find_variant(vrs_id=, variant_urn=, "
+            "only_current=, enrich=, limit=, offset=, response_mode=)."
         ),
     )
     async def find_variant(
-        vrs_id: _VrsId,
+        vrs_id: _VrsId = None,
+        variant_urn: _VariantUrn = None,
         only_current: Annotated[
             bool, Field(description="Keep only current genome mappings (default true).")
         ] = True,
@@ -81,6 +98,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().find_variant(
                 vrs_id,
+                variant_urn=variant_urn,
                 only_current=only_current,
                 enrich=enrich,
                 limit=limit,
@@ -94,7 +112,9 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             "find_variant",
             call,
             context=McpErrorContext(
-                "find_variant", arguments={"vrs_id": vrs_id}, response_mode=response_mode
+                "find_variant",
+                arguments={"vrs_id": vrs_id, "variant_urn": variant_urn},
+                response_mode=response_mode,
             ),
         )
 

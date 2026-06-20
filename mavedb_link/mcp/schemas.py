@@ -170,7 +170,8 @@ COLLECTION_SCHEMA = _envelope(
 )
 
 FIND_VARIANT_SCHEMA = _envelope(
-    vrs_id=_STR,
+    vrs_id=_STR,  # the resolved GA4GH allele id (resolved from variant_urn when given)
+    resolved_by=_STR,  # "vrs_id" | "variant_urn"
     hits=_ARR,  # each: {score_set_urn, variant_urn, vrs_id, clingen_allele_id, score?, classifications?}
     enriched=_BOOL,
     **_PAGE,

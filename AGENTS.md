@@ -49,6 +49,12 @@ Other targets: `make test`, `make test-integration` (live API), `make test-cov`
   (`test_tool_names.py`) enforces this and the frozen `capabilities.TOOLS` list.
 - **`capabilities.TOOLS` must equal the registered tool set** — update both when
   adding a tool.
+- **Consolidation bias (do not proliferate tools).** The surface is ~15 tools —
+  inside Google's 10–20 guidance, and progressive disclosure mitigates the count —
+  but the bias going forward is *consolidation*: prefer extending an existing tool
+  with a parameter (e.g. `find_variant` accepts a `variant_urn` and resolves its
+  VRS internally) over adding a new thin tool, and resolve identifiers internally
+  where MaveDB supports it rather than forcing a map-first round-trip on the caller.
 - MaveDB reads are **public**: no auth, and the router never forwards caller
   tokens. Build expecting unauthenticated upstream calls.
 - Keep upstream calls in `api/client.py` (retry/backoff/semaphore); services

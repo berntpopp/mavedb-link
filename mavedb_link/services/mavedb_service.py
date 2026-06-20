@@ -493,18 +493,20 @@ class MaveDBService:
 
     async def find_variant(
         self,
-        vrs_id: str,
+        vrs_id: str | None = None,
         *,
+        variant_urn: str | None = None,
         only_current: bool = True,
         enrich: bool = True,
         limit: int = DEFAULT_FIND_LIMIT,
         offset: int = 0,
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
-        """Find a GA4GH VRS allele across every score set (delegated to resolvers)."""
+        """Find a variant across every score set by VRS id OR variant URN (delegated)."""
         return await resolvers.find_variant(
             self._client,
             vrs_id,
+            variant_urn=variant_urn,
             only_current=only_current,
             enrich=enrich,
             limit=limit,
