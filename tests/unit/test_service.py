@@ -457,6 +457,29 @@ async def test_get_collection(respx_mock: respx.Router, service: MaveDBService) 
 
 
 @respx.mock(base_url=BASE)
+async def test_get_collection_paginates_members(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F12: a collection's member score-set list is paged (large collections are
+    # heavy when dumped inline), consistent with the other list tools.
+    raw = {
+        **fixtures.COLLECTION_RAW,
+        "scoreSetUrns": [f"urn:mavedb:0000000{i}-a-1" for i in range(1, 6)],
+        "experimentUrns": ["urn:mavedb:00000001-a"],
+    }
+    respx_mock.get(f"/collections/{fixtures.COLLECTION_URN}").mock(
+        return_value=httpx.Response(200, json=raw)
+    )
+    out = await service.get_collection(fixtures.COLLECTION_URN, limit=2, offset=0)
+    assert out["num_score_sets"] == 5
+    assert out["num_experiments"] == 1
+    assert out["returned"] == 2
+    assert out["truncated"] is True
+    assert out["next_offset"] == 2
+    assert out["score_set_urns"] == ["urn:mavedb:00000001-a-1", "urn:mavedb:00000002-a-1"]
+
+
+@respx.mock(base_url=BASE)
 async def test_diagnostics_reachable(respx_mock: respx.Router, service: MaveDBService) -> None:
     respx_mock.get("/api/version").mock(
         return_value=httpx.Response(200, json=fixtures.API_VERSION_RESPONSE)

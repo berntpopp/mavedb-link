@@ -11,6 +11,7 @@ from mavedb_link.buildinfo import build_info
 from mavedb_link.config import settings
 from mavedb_link.constants import (
     DEFAULT_CLASSIFIED_LIMIT,
+    DEFAULT_COLLECTION_LIMIT,
     DEFAULT_FIND_LIMIT,
     DEFAULT_GENE_LIMIT,
     DEFAULT_MAPPED_LIMIT,
@@ -20,6 +21,7 @@ from mavedb_link.constants import (
     FUNCTIONAL_CLASSES,
     MAVEDB_LICENSE,
     MAX_CLASSIFIED_LIMIT,
+    MAX_COLLECTION_LIMIT,
     MAX_FIND_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
@@ -234,6 +236,8 @@ def build_capabilities() -> dict[str, Any]:
             "default_find_limit": DEFAULT_FIND_LIMIT,
             "max_classified_limit": MAX_CLASSIFIED_LIMIT,
             "default_classified_limit": DEFAULT_CLASSIFIED_LIMIT,
+            "max_collection_limit": MAX_COLLECTION_LIMIT,
+            "default_collection_limit": DEFAULT_COLLECTION_LIMIT,
         },
         "read_only": True,
         "notes": MAVEDB_REFERENCE_NOTES,

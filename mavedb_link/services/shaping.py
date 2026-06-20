@@ -330,17 +330,38 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
     return _drop_empty(payload)
 
 
-def shape_collection(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
-    """Project a collection record."""
+def shape_collection(
+    raw: dict[str, Any], response_mode: str, *, limit: int, offset: int
+) -> dict[str, Any]:
+    """Project a collection record, paging its member lists (F12).
+
+    The member ``score_set_urns`` (and ``experiment_urns``) are windowed by
+    ``offset``/``limit`` so a large collection is not dumped inline; the pagination
+    block describes the primary ``score_set_urns`` list. ``num_score_sets`` /
+    ``num_experiments`` carry the true totals.
+    """
     if response_mode == "minimal":
         return _drop_empty({"urn": raw.get("urn"), "name": raw.get("name")})
+    score_set_urns = raw.get("scoreSetUrns") or []
+    experiment_urns = raw.get("experimentUrns") or []
+    total = len(score_set_urns)
+    page = score_set_urns[offset : offset + limit]
+    truncated = offset + len(page) < total
     payload: dict[str, Any] = {
         "urn": raw.get("urn"),
         "name": raw.get("name"),
         "description": raw.get("description"),
         "badge_name": raw.get("badgeName"),
-        "experiment_urns": raw.get("experimentUrns"),
-        "score_set_urns": raw.get("scoreSetUrns"),
+        "num_experiments": len(experiment_urns),
+        "num_score_sets": total,
+        "experiment_urns": experiment_urns[offset : offset + limit],
+        "score_set_urns": page,
         "private": raw.get("private"),
+        "total": total,
+        "returned": len(page),
+        "limit": limit,
+        "offset": offset,
+        "truncated": truncated,
+        "next_offset": offset + len(page) if truncated else None,
     }
     return payload if response_mode in ("standard", "full") else _drop_empty(payload)

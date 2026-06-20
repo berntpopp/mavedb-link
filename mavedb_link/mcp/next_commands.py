@@ -11,6 +11,7 @@ from typing import Any
 
 from mavedb_link.constants import (
     MAX_CLASSIFIED_LIMIT,
+    MAX_COLLECTION_LIMIT,
     MAX_FIND_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
@@ -177,11 +178,16 @@ def after_get_gene_score_sets(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def after_get_collection(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """After get_collection: open the first member score set."""
+    """After get_collection: open the first member score set; page on if truncated."""
     score_sets = payload.get("score_set_urns") or []
+    steps: list[dict[str, Any]] = []
     if score_sets:
-        return [cmd("get_score_set", urn=score_sets[0])]
-    return [cmd("search_score_sets"), cmd("get_server_capabilities")]
+        steps.append(cmd("get_score_set", urn=score_sets[0]))
+    urn = payload.get("urn")
+    steps += _more_offset(
+        "get_collection", {"urn": urn} if urn else {}, payload, MAX_COLLECTION_LIMIT
+    )
+    return steps or [cmd("search_score_sets"), cmd("get_server_capabilities")]
 
 
 def after_find_variant(payload: dict[str, Any]) -> list[dict[str, Any]]:

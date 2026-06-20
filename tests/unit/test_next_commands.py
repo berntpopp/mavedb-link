@@ -78,6 +78,20 @@ def test_after_gene_opens_first_dataset() -> None:
     assert steps[0] == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1")
 
 
+def test_after_collection_pages_forward_when_truncated() -> None:
+    # F12: a truncated collection offers a forward-page (offset) next step.
+    payload = {
+        "urn": "abcdEFGH",
+        "score_set_urns": ["urn:mavedb:00000001-a-1"],
+        "truncated": True,
+        "next_offset": 100,
+        "total": 250,
+    }
+    steps = nc.after_get_collection(payload)
+    assert steps[0] == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1")
+    assert any(s["arguments"].get("offset") == 100 for s in steps)
+
+
 def test_default_error_routes_upstream_to_diagnostics() -> None:
     steps = nc.default_error_next_commands("get_score_set", "upstream_unavailable", {})
     assert steps == [nc.cmd("get_diagnostics")]

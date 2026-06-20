@@ -149,8 +149,10 @@ def test_mapped_variant_shaping() -> None:
 
 
 def test_collection_shaping() -> None:
-    out = shaping.shape_collection(COLLECTION_RAW, "compact")
+    out = shaping.shape_collection(COLLECTION_RAW, "compact", limit=100, offset=0)
     assert out["name"] == "UBE2I datasets"
     assert out["score_set_urns"] == ["urn:mavedb:00000001-a-1"]
-    minimal = shaping.shape_collection(COLLECTION_RAW, "minimal")
+    assert out["num_score_sets"] == 1  # F12 total
+    assert out["truncated"] is False
+    minimal = shaping.shape_collection(COLLECTION_RAW, "minimal", limit=100, offset=0)
     assert set(minimal.keys()) == {"urn", "name"}

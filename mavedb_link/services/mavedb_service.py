@@ -13,11 +13,13 @@ from typing import Any
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.constants import (
     DEFAULT_CLASSIFIED_LIMIT,
+    DEFAULT_COLLECTION_LIMIT,
     DEFAULT_FIND_LIMIT,
     DEFAULT_GENE_LIMIT,
     DEFAULT_MAPPED_LIMIT,
     DEFAULT_SCORES_LIMIT,
     DEFAULT_SEARCH_LIMIT,
+    MAX_COLLECTION_LIMIT,
     MAX_GENE_LIMIT,
     MAX_MAPPED_LIMIT,
     MAX_SCORES_LIMIT,
@@ -484,11 +486,17 @@ class MaveDBService:
         )
 
     async def get_collection(
-        self, urn: str, *, response_mode: str = shaping.DEFAULT_RESPONSE_MODE
+        self,
+        urn: str,
+        *,
+        limit: int = DEFAULT_COLLECTION_LIMIT,
+        offset: int = 0,
+        response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
-        """Fetch a curated collection (``GET /collections/{urn}``)."""
+        """Fetch a curated collection (``GET /collections/{urn}``), paging members (F12)."""
+        capped = _clamp(limit, 1, MAX_COLLECTION_LIMIT)
         raw = await self._client.get_json(f"/collections/{urn.strip()}")
-        return shaping.shape_collection(raw, response_mode)
+        return shaping.shape_collection(raw, response_mode, limit=capped, offset=offset)
 
     async def get_diagnostics(self) -> dict[str, Any]:
         """Report upstream reachability + version (never raises on upstream-down)."""

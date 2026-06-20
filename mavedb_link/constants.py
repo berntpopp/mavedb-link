@@ -60,6 +60,8 @@ MAX_FIND_LIMIT = 100
 DEFAULT_FIND_LIMIT = 25
 MAX_CLASSIFIED_LIMIT = 1000
 DEFAULT_CLASSIFIED_LIMIT = 100
+MAX_COLLECTION_LIMIT = 500
+DEFAULT_COLLECTION_LIMIT = 100
 
 #: Functional-classification enum values MaveDB assigns to calibrated bins.
 FUNCTIONAL_CLASSES: list[str] = ["abnormal", "normal", "not_specified"]

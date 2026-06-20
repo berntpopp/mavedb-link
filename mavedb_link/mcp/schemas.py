@@ -161,8 +161,11 @@ COLLECTION_SCHEMA = _envelope(
     urn=_STR,
     name=_STR_NULL,
     description=_STR_NULL,
+    num_experiments=_INT,
+    num_score_sets=_INT,
     experiment_urns=_ARR_NULL,
-    score_set_urns=_ARR_NULL,
+    score_set_urns=_ARR_NULL,  # paged window of the member datasets (F12)
+    **_PAGE,
 )
 
 FIND_VARIANT_SCHEMA = _envelope(
