@@ -219,25 +219,27 @@ class MaveDBService:
     ) -> dict[str, Any]:
         """Resolve a gene to the COMPLETE set of its published score sets (DEF-1).
 
-        The ``/genes/{symbol}`` endpoint (HGNC resolution) and the ``targets``
-        facet each return a *partial, divergent* view, so this unions both —
-        deduped by URN — to honour the tool's "all MAVE data for a gene" promise.
-        The two upstream reads run concurrently; the target-facet read is
-        best-effort (its failure degrades to gene-only, never raises).
+        The score-set listing is served from the mirror's target index (instant);
+        rich HGNC identity is fetched via the cached/time-boxed resolver, degrading
+        to mirror-thin identity rather than blocking. Live identity (when fetched)
+        also catches score sets newer than the snapshot via the union. Both reads run
+        concurrently; the target-facet read is best-effort (failure degrades to
+        gene-only, never raises).
         """
         capped = _clamp(limit, 1, MAX_GENE_LIMIT)
         sym = symbol.strip()
         gathered: Any = await asyncio.gather(
-            self._client.get_json(f"/genes/{sym}", params={"limit": MAX_GENE_LIMIT, "offset": 0}),
+            resolvers.resolve_gene_identity(self._client, sym),
             self._client.post_json(
                 "/score-sets/search",
                 json={"published": True, "targets": [sym], "limit": MAX_SEARCH_LIMIT},
             ),
             return_exceptions=True,
         )
-        gene_raw, target_resp = gathered[0], gathered[1]
-        if isinstance(gene_raw, BaseException):
-            raise gene_raw  # gene identity is required; propagate as the lookup error
+        identity_res, target_resp = gathered[0], gathered[1]
+        if isinstance(identity_res, BaseException):
+            raise identity_res  # gene genuinely unknown to both mirror and live
+        gene_raw, identity_source = identity_res
         gene_items, _ = _extract_items(
             gene_raw, ("scoreSets", "score_sets"), ("total", "numScoreSets")
         )
@@ -261,6 +263,7 @@ class MaveDBService:
             "gene_endpoint": len(gene_items),
             "target_search": len(target_items),
             "union": total,
+            "gene_identity_source": identity_source,
         }
         if degraded:
             coverage["degraded"] = True

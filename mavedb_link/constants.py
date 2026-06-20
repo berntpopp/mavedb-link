@@ -65,6 +65,12 @@ MAX_MAPPED_LIMIT = 500
 DEFAULT_MAPPED_LIMIT = 50
 MAX_GENE_LIMIT = 100
 DEFAULT_GENE_LIMIT = 20
+#: Degradation guard for the live /genes identity fetch behind get_gene_score_sets.
+#: Bounds the worst case before falling back to mirror-derived thin identity; the
+#: score-set listing is served from the mirror regardless, so this gates identity only.
+GENE_IDENTITY_TIMEOUT_S = 5.0
+#: Bounded FIFO size for the process-wide /genes identity memo.
+GENE_IDENTITY_CACHE_MAX = 512
 MAX_FIND_LIMIT = 100
 DEFAULT_FIND_LIMIT = 25
 #: Max score sets the live HGVS-resolution fallback probes before truncating (one
