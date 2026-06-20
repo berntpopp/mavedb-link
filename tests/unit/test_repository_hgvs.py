@@ -55,3 +55,18 @@ def test_resolve_hgvs_genomic_postmapped(repo: MirrorRepository) -> None:
 def test_gene_identity(repo: MirrorRepository) -> None:
     assert repo.gene_identity("brca1") == {"symbol": "BRCA1", "organism": "Homo sapiens"}
     assert repo.gene_identity("nope") is None
+
+
+def test_hgvs_variant_urns_scoped_by_gene(repo: MirrorRepository) -> None:
+    # The VRS-less hgvs_index lookup (VRS comes from the lazy cache, not the empty
+    # mirror mapped_variant): returns the variant URN + its score set, gene-scoped.
+    rows = repo.hgvs_variant_urns("p.asp2723his", gene="BRCA1")
+    assert [(r["variant_urn"], r["score_set_urn"]) for r in rows] == [
+        ("urn:mavedb:1-a-1#1", "urn:mavedb:1-a-1")
+    ]
+
+
+def test_hgvs_variant_urns_unscoped_spans_genes(repo: MirrorRepository) -> None:
+    urns = sorted(r["variant_urn"] for r in repo.hgvs_variant_urns("p.asp2723his"))
+    assert urns == ["urn:mavedb:1-a-1#1", "urn:mavedb:2-a-1#1"]
+    assert repo.hgvs_variant_urns("") == []

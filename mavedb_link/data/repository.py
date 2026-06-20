@@ -183,6 +183,34 @@ class MirrorRepository:
             out["organism"] = row["organism"]
         return out
 
+    def hgvs_variant_urns(self, core: str, *, gene: str | None = None) -> list[dict[str, Any]]:
+        """Variant URNs whose target-relative HGVS ``core`` matches, from hgvs_index.
+
+        The VRS-less arm of :meth:`resolve_hgvs`: returns ``(variant_urn,
+        score_set_urn)`` rows for the lazy mapped-variant cache to fill the VRS from,
+        since the dump-omitted ``mapped_variant`` table is empty. ``core`` is the
+        lowercased, prefix-stripped body (:func:`scores.hgvs_core`); scoped by gene
+        when given.
+        """
+        core_v = core.strip()
+        if not core_v:
+            return []
+        if gene and gene.strip():
+            rows = self._con.execute(
+                "SELECT DISTINCT h.variant_urn, h.score_set_urn FROM hgvs_index h "
+                "JOIN gene_index g ON g.score_set_urn = h.score_set_urn "
+                "WHERE g.gene_symbol_upper = ? AND (h.hgvs_nt = ? OR h.hgvs_pro = ? "
+                "OR h.hgvs_splice = ?)",
+                (gene.strip().upper(), core_v, core_v, core_v),
+            ).fetchall()
+        else:
+            rows = self._con.execute(
+                "SELECT DISTINCT variant_urn, score_set_urn FROM hgvs_index "
+                "WHERE hgvs_nt = ? OR hgvs_pro = ? OR hgvs_splice = ?",
+                (core_v, core_v, core_v),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def resolve_hgvs(
         self, core: str, full: str | None = None, *, gene: str | None = None
     ) -> list[dict[str, Any]]:
