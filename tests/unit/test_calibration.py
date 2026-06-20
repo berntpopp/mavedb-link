@@ -134,6 +134,50 @@ def test_shape_calibrations_empty() -> None:
     assert shape_calibrations(None, full=False) == []
 
 
+def test_shape_calibrations_rounds_noisy_threshold_floats() -> None:
+    # Token discipline: 16-significant-digit bin edges (e.g. -0.9092407272057206)
+    # are double-precision noise; ranges, oddspath and baseline round to 6 sig figs.
+    noisy = {
+        "title": "ExCALIBR",
+        "baselineScore": -0.9092407272057206,
+        "functionalClassifications": [
+            {
+                "label": "abnormal",
+                "functionalClassification": "abnormal",
+                "range": [None, -0.9092407272057206],
+                "oddspathsRatio": 18.123456789,
+                "id": 1,
+            }
+        ],
+        "thresholdSources": [],
+    }
+    out = shape_calibrations([noisy], full=False)[0]
+    assert out["baseline_score"] == -0.909241
+    cls = out["classifications"][0]
+    assert cls["range"] == [None, -0.909241]
+    assert cls["oddspath"] == 18.1235
+
+
+def test_classify_rounds_oddspath_and_baseline() -> None:
+    noisy = {
+        "title": "x",
+        "primary": True,
+        "baselineScore": 5.0000001234,
+        "functionalClassifications": [
+            {
+                "label": "abnormal",
+                "functionalClassification": "abnormal",
+                "range": [None, 1.49],
+                "oddspathsRatio": 42.2222222,
+                "id": 1,
+            }
+        ],
+    }
+    entry = classify_score(0.5, [noisy])[0]
+    assert entry["oddspath"] == 42.2222
+    assert entry["baseline_score"] == 5.0
+
+
 # --- primary_classification: single verdict for per-row tagging ----------------
 
 

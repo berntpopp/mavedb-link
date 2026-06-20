@@ -238,7 +238,11 @@ def build_capabilities() -> dict[str, Any]:
             "identity anchors only (urn + title/name). minimal is uniformly lean: "
             "get_gene_score_sets minimal returns gene id + [{urn,title}] with "
             "coverage under _meta; get_variant_scores minimal drops HGVS columns to "
-            "{accession, variant_index, score, classification}."
+            "{accession, variant_index, score, classification}. Discovery listings "
+            "(search_score_sets, get_gene_score_sets) are intentionally lighter than "
+            "the record: targets collapse to gene-name strings and the curated "
+            "calibration ladder is replaced by has_calibrations (read it via "
+            "get_score_set) regardless of response_mode."
         ),
         "recommended_workflows": [
             "gene -> get_gene_score_sets -> get_score_set -> get_variant_scores",
@@ -259,8 +263,14 @@ def build_capabilities() -> dict[str, Any]:
                 "of score sets; there is NO upstream aggregate/count endpoint, so "
                 "coverage is discovered per record (the field below is absent when a "
                 "set carries no calibrations). get_diagnostics reports the upstream "
-                "api_version and confirms the interpretation layer is supported."
+                "api_version and confirms the interpretation layer is supported. "
+                "DISCOVERY listings (search_score_sets, get_gene_score_sets) carry only "
+                "a has_calibrations:true flag, NOT the per-bin ladder — open the record "
+                "with get_score_set to read the thresholds. Emitted thresholds, OddsPath "
+                "ratios and baselines are rounded to 6 significant figures."
             ),
+            "search_score_sets": "results[].has_calibrations (presence flag; ladder via get_score_set)",
+            "get_gene_score_sets": "score_sets[].has_calibrations (presence flag; ladder via get_score_set)",
             "get_score_set": "score_calibrations (thresholds, ACMG, OddsPath, baseline)",
             "get_variant_score": "variants[].classifications + top-level calibrations",
             "get_variant_scores": "rows[].classification + top-level calibrations",
@@ -299,6 +309,14 @@ def build_capabilities() -> dict[str, Any]:
                 "A gene-symbol query is re-ranked so target-gene matches outrank "
                 "name/abstract namesakes; use facet_mode='strict' to drop "
                 "unknown-metadata records.",
+                "Listing rows are lean: targets collapse to gene-name strings and a "
+                "calibrated set shows has_calibrations:true (not the ladder) -- open "
+                "the record with get_score_set for thresholds and full target detail.",
+            ],
+            "get_gene_score_sets": [
+                "Listing rows carry has_calibrations:true when a set is calibrated; the "
+                "per-bin ACMG/OddsPath ladder is record-level -- fetch it with "
+                "get_score_set(urn=) rather than expecting it inline here.",
             ],
             "get_score_distribution": [
                 "Server-side summary (MaveDB has no stats endpoint); pass score= for a "

@@ -37,7 +37,7 @@ uninterpretable float.
 | `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile + class |
 | `find_variant` | One GA4GH VRS allele's score + class across **every** score set (cross-dataset) |
 | `get_hgvs_validation` | Validate an HGVS string and surface *why* it's invalid (reference mismatch, missing accession) |
-| `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol |
+| `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol (lean listing: `has_calibrations` flag, not the inlined ladder — open `get_score_set` for thresholds) |
 | `get_experiment` | Experiment record + child score-set URNs |
 | `search_experiments` | Full-text experiment search |
 | `get_mapped_variants` | Genome-mapped VRS alleles + ClinGen Allele IDs for a score set |

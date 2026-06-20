@@ -16,10 +16,39 @@ Pure functions over upstream dicts so they unit-test in isolation.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 #: The functional class assigned when a score falls in no calibrated bin.
 INDETERMINATE = "indeterminate"
+
+#: Significant figures retained for emitted calibration thresholds/ratios/baselines.
+#: MaveDB serialises bin edges at full double precision (e.g. -0.9092407272057206);
+#: those trailing digits are measurement noise no consumer needs, so the *output*
+#: is rounded to this many sig figs. Range MATCHING still uses the raw thresholds.
+CALIBRATION_SIG_FIGS = 6
+
+
+def round_sig(value: Any, sig: int = CALIBRATION_SIG_FIGS) -> Any:
+    """Round a float to ``sig`` significant figures; pass non-floats through.
+
+    Trims double-precision noise from calibration thresholds without touching ints,
+    ``None``, bools, or non-finite values, and guarantees a short JSON repr (via
+    ``%g``). Never raises. Only the *displayed* numbers are rounded — the classifier
+    compares against the raw, unrounded thresholds so bin membership is unchanged.
+    """
+    if isinstance(value, bool) or not isinstance(value, float):
+        return value
+    if not math.isfinite(value):
+        return value
+    return float(f"{value:.{sig}g}")
+
+
+def _round_range(bounds: Any) -> Any:
+    """Round each finite bound of a ``[lower, upper]`` range (``None`` preserved)."""
+    if not isinstance(bounds, list):
+        return bounds
+    return [round_sig(b) for b in bounds]
 
 
 def coerce_score(value: Any) -> float | None:
@@ -110,8 +139,8 @@ def classify_score(
                     "label": fc.get("label") if fc else None,
                     "acmg": criterion,
                     "acmg_strength": strength,
-                    "oddspath": fc.get("oddspathsRatio") if fc else None,
-                    "baseline_score": calibration.get("baselineScore"),
+                    "oddspath": round_sig(fc.get("oddspathsRatio")) if fc else None,
+                    "baseline_score": round_sig(calibration.get("baselineScore")),
                 }
             )
         )
@@ -159,12 +188,12 @@ def _shape_classification(fc: dict[str, Any], *, full: bool) -> dict[str, Any]:
     shaped = {
         "label": fc.get("label"),
         "classification": fc.get("functionalClassification"),
-        "range": fc.get("range"),
+        "range": _round_range(fc.get("range")),
         "inclusive_lower": fc.get("inclusiveLowerBound"),
         "inclusive_upper": fc.get("inclusiveUpperBound"),
         "acmg": criterion,
         "acmg_strength": strength,
-        "oddspath": fc.get("oddspathsRatio"),
+        "oddspath": round_sig(fc.get("oddspathsRatio")),
         "variant_count": fc.get("variantCount"),
     }
     if full:
@@ -187,7 +216,7 @@ def shape_calibrations(
             "title": calibration.get("title"),
             "primary": calibration.get("primary"),
             "research_use_only": calibration.get("researchUseOnly"),
-            "baseline_score": calibration.get("baselineScore"),
+            "baseline_score": round_sig(calibration.get("baselineScore")),
             "classifications": [
                 _shape_classification(fc, full=full)
                 for fc in calibration.get("functionalClassifications") or []

@@ -156,7 +156,7 @@ class MaveDBService:
         ranked = rank_by_target_match(kept, text)
         total = len(ranked)
         page = ranked[offset : offset + capped]
-        results = [shaping.shape_score_set(it, response_mode) for it in page]
+        results = [shaping.shape_score_set(it, response_mode, listing=True) for it in page]
         payload: dict[str, Any] = {
             "query": text,
             "facet_mode": facet_mode,
@@ -290,7 +290,7 @@ class MaveDBService:
         ordered = sorted(merged.values(), key=lambda it: it.get("urn") or "")
         total = len(ordered)
         page = ordered[offset : offset + capped]
-        results = [shaping.shape_score_set(it, response_mode) for it in page]
+        results = [shaping.shape_score_set(it, response_mode, listing=True) for it in page]
         coverage: dict[str, Any] = {
             "sources": ["gene_endpoint", "target_search"],
             "gene_endpoint": len(gene_items),

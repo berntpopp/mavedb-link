@@ -137,29 +137,63 @@ def _shape_target(target: dict[str, Any], *, full: bool) -> dict[str, Any]:
     return _drop_empty(base)
 
 
-def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
-    """Project a score-set record to the requested verbosity."""
+def _listing_target_names(targets: list[Any]) -> list[str]:
+    """Target gene NAMES only (the discovery-listing projection).
+
+    A listing row needs target identity, not the full per-target block — organism,
+    accession, external ids, uniprot live at the record via get_score_set. For a
+    multi-target assay (e.g. VarChAMP, 28 targets) this is the difference between 28
+    short strings and 28 nested objects per row, repeated across every dataset.
+    """
+    names: list[str] = []
+    for target in targets:
+        if isinstance(target, dict) and target.get("name"):
+            names.append(target["name"])
+    return names
+
+
+def shape_score_set(
+    raw: dict[str, Any], response_mode: str, *, listing: bool = False
+) -> dict[str, Any]:
+    """Project a score-set record to the requested verbosity.
+
+    ``listing=True`` is the discovery projection (``search_score_sets`` /
+    ``get_gene_score_sets``): the heavy curated ``score_calibrations`` ladder is
+    replaced by a lightweight ``has_calibrations`` presence flag (the full ladder is
+    record-level data, fetched via ``get_score_set``), and ``targets`` collapses to
+    gene-name strings. ``listing=False`` (the record call) keeps both in full.
+    """
     if response_mode == "minimal":
         return _drop_empty({"urn": raw.get("urn"), "title": raw.get("title")})
     full = response_mode == "full"
     rich = response_mode in ("standard", "full")
+    targets = raw.get("targetGenes") or []
     payload: dict[str, Any] = {
         "urn": raw.get("urn"),
         "title": raw.get("title"),
         "short_description": raw.get("shortDescription"),
         "num_variants": raw.get("numVariants"),
         "license": _license_short(raw),
-        "targets": [_shape_target(t, full=rich) for t in raw.get("targetGenes") or []],
+        "targets": (
+            _listing_target_names(targets)
+            if listing
+            else [_shape_target(t, full=rich) for t in targets]
+        ),
         "experiment_urn": (raw.get("experiment") or {}).get("urn") or raw.get("experimentUrn"),
         "publications": _shape_publications(raw, detail=response_mode),
-        # MaveDB's curated interpretation layer (ACMG/OddsPath/thresholds). Empty
-        # for most sets -> dropped by _drop_empty in compact; the decision-relevant
-        # field the MCP previously discarded.
-        "score_calibrations": shape_calibrations(raw.get("scoreCalibrations"), full=full),
         "processing_state": raw.get("processingState"),
         "published_date": raw.get("publishedDate"),
         "record_url": _web_url("score-sets", raw.get("urn")),
     }
+    # MaveDB's curated interpretation layer (ACMG/OddsPath/thresholds): inline the
+    # full ladder on the RECORD call; on a discovery LISTING ship only a presence
+    # flag (token discipline — the ladder is get_score_set territory). Absent for
+    # the MINORITY of sets that carry no calibrations.
+    if listing:
+        if raw.get("scoreCalibrations"):
+            payload["has_calibrations"] = True
+    else:
+        payload["score_calibrations"] = shape_calibrations(raw.get("scoreCalibrations"), full=full)
     if rich:
         # The structured record (standard+full): identifiers, lineage, dates -- not
         # the heavy free-text blobs.

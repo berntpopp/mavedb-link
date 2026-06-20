@@ -11,7 +11,7 @@
   },
   "gene_discovery": {
     "errors": 0,
-    "tokens": 1514,
+    "tokens": 1497,
     "tool_calls": 3
   },
   "single_variant_lookup": {

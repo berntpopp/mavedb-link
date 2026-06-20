@@ -135,6 +135,48 @@ def test_score_set_full_calibration_classifications_include_id() -> None:
     assert out["score_calibrations"][0]["classifications"][0]["id"] == 249
 
 
+@pytest.mark.parametrize("mode", ["compact", "standard", "full"])
+def test_score_set_listing_never_inlines_calibrations(mode: str) -> None:
+    # Token discipline: a discovery LISTING must not ship the per-bin calibration
+    # ladder (that is get_score_set territory) -- only a presence flag, every mode.
+    out = shaping.shape_score_set(SCORE_SET_WITH_CALIBRATIONS_RAW, mode, listing=True)
+    assert "score_calibrations" not in out
+    assert out["has_calibrations"] is True
+
+
+def test_score_set_listing_without_calibrations_omits_flag() -> None:
+    out = shaping.shape_score_set(SCORE_SET_RAW, "compact", listing=True)
+    assert "has_calibrations" not in out  # positive signal only; absent otherwise
+    assert "score_calibrations" not in out
+
+
+def test_score_set_record_mode_still_inlines_calibrations() -> None:
+    # The record call (get_score_set; listing defaults to False) keeps the ladder.
+    out = shaping.shape_score_set(SCORE_SET_WITH_CALIBRATIONS_RAW, "compact")
+    assert out["score_calibrations"][0]["title"] == "IGVF Controls"
+    assert "has_calibrations" not in out
+
+
+def test_score_set_listing_targets_are_names_only() -> None:
+    out = shaping.shape_score_set(SCORE_SET_RAW, "compact", listing=True)
+    assert out["targets"] == ["UBE2I"]
+
+
+def test_score_set_listing_collapses_multi_target_to_names() -> None:
+    # A multi-target assay (e.g. VarChAMP, 28 targets) must not dump a nested object
+    # per target in a listing row -- just the gene-name identities.
+    raw = {**SCORE_SET_RAW, "targetGenes": [{"name": "BRCA1"}, {"name": "BRCA2"}, {"name": "TP53"}]}
+    out = shaping.shape_score_set(raw, "standard", listing=True)
+    assert out["targets"] == ["BRCA1", "BRCA2", "TP53"]
+
+
+def test_score_set_record_targets_keep_full_objects() -> None:
+    # The record call keeps the structured target block (organism, etc.).
+    out = shaping.shape_score_set(SCORE_SET_RAW, "compact")
+    assert out["targets"][0]["name"] == "UBE2I"
+    assert out["targets"][0]["organism"] == "Homo sapiens"
+
+
 def test_experiment_shaping() -> None:
     out = shaping.shape_experiment(EXPERIMENT_RAW, "compact")
     assert out["urn"] == "urn:mavedb:00000001-a"

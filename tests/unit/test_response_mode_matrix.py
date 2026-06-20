@@ -119,6 +119,54 @@ async def test_discovery_tools_succeed(
     _assert_observability(payload)
 
 
+async def test_calibrated_listing_is_leaner_than_record(
+    respx_router: respx.Router, facade: Any, structured: Any
+) -> None:
+    # The headline token fix: listing a calibrated gene must NOT inline the per-bin
+    # calibration ladder. The gene listing stays far leaner than the record that does
+    # carry it, and surfaces has_calibrations as the drill-in signal.
+    calibrated = fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW
+    respx_router.get("/genes/BRCA1").mock(
+        return_value=httpx.Response(
+            200, json={**fixtures.GENE_RESPONSE, "symbol": "BRCA1", "scoreSets": [calibrated]}
+        )
+    )
+    respx_router.post("/score-sets/search").mock(
+        return_value=httpx.Response(200, json={"scoreSets": [], "numScoreSets": 0})
+    )
+    respx_router.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=calibrated)
+    )
+
+    listing = structured(await facade.call_tool("get_gene_score_sets", {"symbol": "BRCA1"}))
+    record = structured(await facade.call_tool("get_score_set", {"urn": fixtures.SCORE_SET_URN}))
+
+    assert listing["success"] and record["success"]
+    entry = listing["score_sets"][0]
+    assert "score_calibrations" not in entry
+    assert entry["has_calibrations"] is True
+    assert record["score_calibrations"]  # the record carries the ladder the listing dropped
+    assert listing["_meta"]["token_estimate"] < record["_meta"]["token_estimate"]
+
+
+async def test_search_listing_suppresses_calibrations(
+    respx_router: respx.Router, facade: Any, structured: Any
+) -> None:
+    # The same token discipline through search_score_sets: a calibrated hit shows the
+    # presence flag, not the inlined ladder.
+    respx_router.post("/score-sets/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"scoreSets": [fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW], "numScoreSets": 1},
+        )
+    )
+    out = structured(await facade.call_tool("search_score_sets", {"text": "BRCA1"}))
+    assert out["success"]
+    entry = out["results"][0]
+    assert "score_calibrations" not in entry
+    assert entry["has_calibrations"] is True
+
+
 async def test_string_score_variant_classifies_across_tiers(
     respx_router: respx.Router, facade: Any, structured: Any
 ) -> None:

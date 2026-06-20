@@ -143,6 +143,29 @@ grows 11 → 15. All names are canonical-verb `verb_noun`, ≤ 50 chars.
 - `make ci-local` (format-check, lint-ci, lint-loc, mypy strict, test-fast)
   green per wave; each wave is independently shippable.
 
+## Addendum (2026-06-20) — token discipline in discovery listings
+
+P0 added `score_calibrations` to `shape_score_set`, which is shared by the record
+call (`get_score_set`) **and** the discovery listings (`search_score_sets`,
+`get_gene_score_sets`). That leaked the full per-bin ACMG/OddsPath ladder into
+*every* calibrated listing row: an observed `get_gene_score_sets(BRCA1)` self-
+reported ~6.9k tokens, most of it inlined calibration tables with 16-significant-
+digit bin edges (e.g. `-0.9092407272057206`), while an uncalibrated gene listed in
+~1.6k. Calibration detail is record-level data.
+
+Fix (shape-only; no new tool, two-plane boundary held):
+
+- `shape_score_set(raw, mode, *, listing=False)`. Listings pass `listing=True`:
+  the ladder is replaced by a `has_calibrations: true` presence flag (drill into
+  `get_score_set` for the table), and `targets` collapses to gene-name strings
+  (a multi-target assay no longer dumps a nested object per target per row). The
+  record call (`listing=False`) is unchanged.
+- All emitted calibration thresholds / OddsPath ratios / baselines round to 6
+  significant figures (`calibration.round_sig`). **Range *matching* still uses the
+  raw, unrounded thresholds** — only the displayed numbers are trimmed.
+- Net: a two-calibrated-set listing drops ~71% (≈950 → ≈275 tokens); `get_score_set`
+  and the per-variant interpretation tools are unaffected.
+
 ## Non-goals
 
 - No write/auth paths (MaveDB reads are public; the router forwards no tokens).
