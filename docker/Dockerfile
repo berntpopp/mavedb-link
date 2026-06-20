@@ -37,6 +37,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MAVEDB_LINK_PORT=8000 \
     MAVEDB_LINK_TRANSPORT=unified \
     MAVEDB_LINK_MCP_PATH=/mcp \
+    MAVEDB_LINK_MIRROR__DATA_DIR=/home/app/data \
     TMPDIR=/tmp/mavedb-link
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN groupadd --system app && \
     useradd --system --gid app --home /home/app --create-home app && \
-    mkdir -p /tmp/mavedb-link && \
+    mkdir -p /tmp/mavedb-link /home/app/data && \
     chown -R app:app /tmp/mavedb-link /home/app
 
 COPY --from=builder /opt/venv /opt/venv

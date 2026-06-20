@@ -28,6 +28,7 @@ from mavedb_link.constants import (
     MAX_SEARCH_LIMIT,
     SEARCH_FETCH_LIMIT,
 )
+from mavedb_link.data.hybrid import mirror_status
 from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import (
     looks_like_gene_symbol,
@@ -569,6 +570,9 @@ class MaveDBService:
         Never raises on upstream-down: an unreachable API is reported, not thrown.
         """
         diag: dict[str, Any] = {"base_url": self._client.base_url}
+        # Mirror status first, so it is reported even when the live API is down
+        # (the mirror serves offline).
+        diag["mirror"] = mirror_status(self._client)
         try:
             version = await self._client.get_version()
         except Exception as exc:  # diagnostics REPORTS upstream failure, never raises

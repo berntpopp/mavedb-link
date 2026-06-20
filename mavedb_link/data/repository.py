@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from mavedb_link.ingest.builder import SCHEMA_VERSION
+from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
 
 #: FTS5 token pattern (alphanumerics; gene symbols, accessions, words).
 _TOKEN = re.compile(r"[A-Za-z0-9]+")

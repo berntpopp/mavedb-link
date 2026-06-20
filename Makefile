@@ -84,6 +84,18 @@ eval: ## Run the deterministic eval workflows + the token/error regression gate
 eval-baseline: ## Regenerate tests/eval/baseline.json from the current surface
 	uv run python -m scripts.eval_baseline
 
+data-build: ## Build the local SQLite mirror from the latest Zenodo dump
+	uv run mavedb-link-data build
+
+data-refresh: ## Rebuild the mirror only if Zenodo has a newer dump version
+	uv run mavedb-link-data refresh
+
+data-status: ## Print the local mirror's provenance
+	uv run mavedb-link-data status
+
+data-pack: ## Compress the mirror into a publishable artifact (+ sha256)
+	uv run mavedb-link-data pack
+
 docker-build: ## Build Docker image
 	$(COMPOSE) build
 

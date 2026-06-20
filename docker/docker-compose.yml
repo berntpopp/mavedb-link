@@ -14,8 +14,17 @@ services:
       MAVEDB_LINK_TRANSPORT: unified
       MAVEDB_LINK_MCP_PATH: /mcp
       MAVEDB_LINK_LOG_FORMAT: json
+      # Local SQLite mirror (primary source; live API is the backup). The named
+      # volume persists the built/pulled mirror across restarts. On first start
+      # the entrypoint pulls the prebuilt artifact (bundle_url=latest); set
+      # BUILD_LOCAL=true to build from the Zenodo dump instead.
+      MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/data
+      # MAVEDB_LINK_MIRROR__BUILD_LOCAL: "true"
+      # MAVEDB_LINK_MIRROR__ENABLED: "false"   # disable the mirror (pure live)
       # Override the upstream API if needed:
       # MAVEDB_LINK_API__BASE_URL: https://api.mavedb.org/api/v1
+    volumes:
+      - mavedb-data:/home/app/data
     ports:
       # Pin a deterministic, non-conflicting host port (fleet convention).
       # mavedb sits beside the variant-effect siblings gnomad (8020) / vep (8021).
@@ -27,3 +36,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+volumes:
+  mavedb-data:

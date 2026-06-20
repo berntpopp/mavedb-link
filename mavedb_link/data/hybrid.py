@@ -70,6 +70,10 @@ class HybridClient(MaveDBClient):
         provenance.record("live")
         return await super().post_json(path, json=json, params=params)
 
+    def mirror_meta(self) -> dict[str, Any]:
+        """The mirror's provenance row (snapshot date, counts) for diagnostics."""
+        return self._repo.meta()
+
     async def aclose(self) -> None:
         """Close the live client and the mirror connection."""
         await super().aclose()
@@ -101,6 +105,26 @@ class HybridClient(MaveDBClient):
                 return self._repo.scores_csv(parts[1], start=start, limit=limit)
             return self._repo.counts_csv(parts[1], start=start, limit=limit)
         return None
+
+
+def mirror_status(client: object) -> dict[str, Any]:
+    """Diagnostics block for the mirror behind ``client`` (present=False if none).
+
+    Duck-typed on ``mirror_meta`` so a plain live client reports no mirror.
+    """
+    meta_fn = getattr(client, "mirror_meta", None)
+    if not callable(meta_fn):
+        return {"present": False}
+    meta = meta_fn()
+    return {
+        "present": True,
+        "as_of": meta.get("dump_as_of"),
+        "zenodo_record": meta.get("zenodo_record"),
+        "zenodo_version": meta.get("zenodo_version"),
+        "score_set_count": meta.get("score_set_count"),
+        "mapped_variant_count": meta.get("mapped_variant_count"),
+        "built_utc": meta.get("build_utc"),
+    }
 
 
 def _as_mapped_variants(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
