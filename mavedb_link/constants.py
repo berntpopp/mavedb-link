@@ -67,6 +67,10 @@ MAX_GENE_LIMIT = 100
 DEFAULT_GENE_LIMIT = 20
 MAX_FIND_LIMIT = 100
 DEFAULT_FIND_LIMIT = 25
+#: Max score sets the live HGVS-resolution fallback probes before truncating (one
+#: get_variant_score per set). The mirror serves the common case; this caps the
+#: live-miss path so a popular gene cannot fan out unboundedly.
+HGVS_PROBE_CAP = 10
 MAX_CLASSIFIED_LIMIT = 1000
 DEFAULT_CLASSIFIED_LIMIT = 100
 MAX_COLLECTION_LIMIT = 500
