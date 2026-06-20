@@ -143,6 +143,10 @@ class MirrorRepository:
         """Mapped-variant rows for a single variant URN."""
         return self._mapped("variant_urn", variant_urn)
 
+    def mapped_by_score_set(self, score_set_urn: str) -> list[dict[str, Any]]:
+        """Every (current) mapped-variant row for one score set (the per-set enum)."""
+        return self._mapped("score_set_urn", score_set_urn)
+
     def _mapped(self, column: str, value: str) -> list[dict[str, Any]]:
         rows = self._con.execute(
             f"SELECT * FROM mapped_variant WHERE {column} = ? "  # noqa: S608 (fixed column set)

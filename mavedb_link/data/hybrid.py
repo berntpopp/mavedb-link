@@ -8,9 +8,12 @@ unchanged. Each answered read records its source (mirror | live) for ``_meta``.
 
 Intercepted from the mirror: ``GET /score-sets/{urn}``, ``GET /experiments/{urn}``,
 ``GET /score-sets/{urn}/scores`` + ``/counts``, ``GET /mapped-variants/vrs/{id}``,
-and ``POST /score-sets/search``. Genes (rich HGNC identity), single ``/variants``
-records, mapped-variants-by-set, hgvs validation and calibration listings fall
-through to live, so a snapshot newer than the dump is always reachable.
+and ``POST /score-sets/search``; the per-set mapped-variant enumeration is served
+via :meth:`score_set_mapped_variants` (current-only compact/minimal) from the same
+annotation index. Genes (rich HGNC identity), single ``/variants`` records, the
+standard/full or current_only=False mapped-variant reads, hgvs validation and
+calibration listings fall through to live, so a snapshot newer than the dump is
+always reachable.
 """
 
 from __future__ import annotations
@@ -73,6 +76,23 @@ class HybridClient(MaveDBClient):
     def mirror_meta(self) -> dict[str, Any]:
         """The mirror's provenance row (snapshot date, counts) for diagnostics."""
         return self._repo.meta()
+
+    def score_set_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]] | None:
+        """Upstream-shaped CURRENT mapped variants for a score set, or None on miss.
+
+        Serves the per-set mapped-variant enumeration from the annotation index
+        (GAP-B) so ``get_mapped_variants`` need not hit the slow live endpoint. The
+        index carries only current mappings + the compact identity fields, so the
+        caller must restrict this to a current-only compact/minimal read (the
+        service does). Returns None when the snapshot has no mapping for the set --
+        mappings can post-date the dump, so an empty list would falsely claim
+        "none"; the caller then falls through to the authoritative live endpoint.
+        """
+        rows = self._repo.mapped_by_score_set(score_set_urn)
+        if not rows:
+            return None
+        provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+        return _as_mapped_variants(rows)
 
     async def aclose(self) -> None:
         """Close the live client and the mirror connection."""

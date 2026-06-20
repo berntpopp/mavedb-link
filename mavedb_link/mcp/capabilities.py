@@ -169,16 +169,18 @@ def build_capabilities() -> dict[str, Any]:
             "A local SQLite mirror built from the CC0 MaveDB Zenodo bulk dump is the "
             "PRIMARY source when present; the live API is the backup. Score-set/"
             "experiment records, the scores/counts tables, full-text search, the "
-            "score distribution, and the cross-dataset VRS rollup are served from a "
-            "local index; a mirror-miss (e.g. a record newer than the snapshot) "
+            "score distribution, the cross-dataset VRS rollup, and the per-set "
+            "mapped-variant enumeration (current-only compact/minimal) are served "
+            "from a local index; a mirror-miss (e.g. a record newer than the snapshot) "
             "transparently falls back to the live API. _meta.data_source "
             "(mirror|live|mixed) + mirror_as_of report provenance per call; "
             "get_diagnostics.mirror reports the live snapshot status."
         ),
         "latency_profile": (
             "With a local mirror active (get_diagnostics.mirror.present=true), "
-            "get_score_set/get_variant_score/get_variant_scores/get_score_distribution "
-            "and search are served from a local SQLite index -- sub-ms and offline, no "
+            "get_score_set/get_variant_score/get_variant_scores/get_score_distribution, "
+            "get_mapped_variants (current-only compact/minimal) and search are served "
+            "from a local SQLite index -- sub-ms and offline, no "
             "network scan. Without a mirror (live-only), get_variant_score (by hgvs) "
             "and get_score_distribution read a score set's full scores table in one "
             "upstream read (~1-3s cold for the largest sets), cached per set and shared "
@@ -312,6 +314,9 @@ def build_capabilities() -> dict[str, Any]:
             "get_mapped_variants": [
                 "Some variants are unmapped, so this list and get_variant_scores can "
                 "differ in length -- JOIN on variant_urn/variant_index, never by row.",
+                "The default (current_only, compact/minimal) read is mirror-served and "
+                "fast; standard/full (full VRS objects) and current_only=False reach "
+                "the live endpoint (_meta.data_source reports which answered).",
             ],
             "get_score_set": [
                 "score_calibrations is present only for the MINORITY of sets MaveDB "
