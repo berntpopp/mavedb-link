@@ -63,10 +63,12 @@ def register_experiment_tools(mcp: FastMCP) -> None:
         description=(
             "Search MaveDB experiments by free text (author facet, plus target "
             "facets — targets/target_organism_names/target_types — derived from the "
-            "score-set search and grouped by parent experiment). Returns experiment "
-            "hits {urn, score_set_urns, ...} plus a pagination block (paged "
-            "client-side). Use search_score_sets when you want datasets/scores; use "
-            "this for the assay-context grouping. "
+            "score-set search and grouped by parent experiment). A gene-token query "
+            "re-ranks experiments whose score sets target the gene above abstract "
+            "namesakes (reranked_by:'target_gene'). Returns experiment hits {urn, "
+            "score_set_urns, ...} plus a pagination block (paged client-side). Use "
+            "search_score_sets when you want datasets/scores; use this for the "
+            "assay-context grouping. "
             "Signature: search_experiments(text=, targets=, target_organism_names=, "
             "target_types=, authors=, published=, limit=, offset=, response_mode=)."
         ),

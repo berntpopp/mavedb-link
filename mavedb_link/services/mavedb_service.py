@@ -27,11 +27,19 @@ from mavedb_link.constants import (
     SEARCH_FETCH_LIMIT,
 )
 from mavedb_link.exceptions import InvalidInputError
-from mavedb_link.identifiers import validate_score_set_urn, variant_index_of
+from mavedb_link.identifiers import (
+    looks_like_gene_symbol,
+    validate_score_set_urn,
+    variant_index_of,
+)
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
 from mavedb_link.services.calibration import primary_classification, shape_calibrations
 from mavedb_link.services.scores import shape_scores
-from mavedb_link.services.search import apply_sparse_facets, rank_by_target_match
+from mavedb_link.services.search import (
+    apply_sparse_facets,
+    rank_by_target_match,
+    rank_experiments_by_target,
+)
 
 
 def _clamp(value: int, lo: int, hi: int) -> int:
@@ -346,14 +354,49 @@ class MaveDBService:
         items, _ = _extract_items(
             resp, ("experiments", "items", "results"), ("numExperiments", "total", "count")
         )
+        reranked = False
+        if text and looks_like_gene_symbol(text.strip()):
+            target_urns = await self._target_experiment_urns(text.strip())
+            if target_urns:
+                items = rank_experiments_by_target(items, target_urns)
+                reranked = True
         total = len(items)
         page = items[offset : offset + capped]
         results = [shaping.shape_experiment(it, response_mode) for it in page]
-        return {
+        payload: dict[str, Any] = {
             "query": text,
             "results": results,
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
+        if reranked:
+            payload["reranked_by"] = "target_gene"
+        return payload
+
+    async def _target_experiment_urns(self, symbol: str) -> set[str]:
+        """Experiment URNs whose score sets target ``symbol`` (best-effort; A2).
+
+        The experiment search endpoint has no target facet, so target-relevance is
+        derived from the score-set target search and projected to parent experiment
+        URNs. An upstream failure degrades to "no boost", never raises.
+        """
+        try:
+            resp = await self._client.post_json(
+                "/score-sets/search",
+                json={"published": True, "targets": [symbol], "limit": MAX_SEARCH_LIMIT},
+            )
+        except Exception:  # best-effort: the re-rank is an enhancement, not required
+            return set()
+        items, _ = _extract_items(
+            resp, ("scoreSets", "items", "results"), ("numScoreSets", "total", "count")
+        )
+        urns: set[str] = set()
+        for score_set in items:
+            if not isinstance(score_set, dict):
+                continue
+            exp = (score_set.get("experiment") or {}).get("urn") or score_set.get("experimentUrn")
+            if exp:
+                urns.add(exp)
+        return urns
 
     async def _search_experiments_by_target(
         self,

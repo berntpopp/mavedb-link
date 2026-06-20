@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from mavedb_link.services.search import apply_sparse_facets, rank_by_target_match
+from mavedb_link.services.search import (
+    apply_sparse_facets,
+    rank_by_target_match,
+    rank_experiments_by_target,
+)
 
 
 def _ss(urn: str, name: str, organism: str | None = None, category: str = "protein_coding"):
@@ -39,6 +43,27 @@ def test_rank_is_stable_within_buckets() -> None:
         "urn:mavedb:1-a-1",
         "urn:mavedb:4-a-1",
     ]
+
+
+def test_rank_experiments_boosts_target_gene_matches() -> None:
+    # A2: an experiment whose score sets target the query gene ranks above an
+    # abstract namesake; stable within buckets.
+    items = [
+        {"urn": "urn:mavedb:00000001-a", "title": "mentions BRCA1 in abstract"},
+        {"urn": "urn:mavedb:00000081-a", "title": "BRCA1 SGE"},
+        {"urn": "urn:mavedb:00000082-a", "title": "another BRCA1 experiment"},
+    ]
+    ranked = rank_experiments_by_target(items, {"urn:mavedb:00000081-a", "urn:mavedb:00000082-a"})
+    assert [r["urn"] for r in ranked] == [
+        "urn:mavedb:00000081-a",
+        "urn:mavedb:00000082-a",
+        "urn:mavedb:00000001-a",
+    ]
+
+
+def test_rank_experiments_noop_without_target_urns() -> None:
+    items = [{"urn": "urn:mavedb:00000001-a"}, {"urn": "urn:mavedb:00000002-a"}]
+    assert rank_experiments_by_target(items, set()) == items
 
 
 def test_rank_noop_for_non_gene_query() -> None:

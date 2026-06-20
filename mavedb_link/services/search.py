@@ -81,6 +81,26 @@ def _facet_drops(values: set[str], facet: set[str] | None, *, strict: bool) -> b
     return bool(values) or strict
 
 
+def rank_experiments_by_target(
+    items: list[dict[str, Any]], target_urns: set[str]
+) -> list[dict[str, Any]]:
+    """Stable-sort experiments so those that target the query gene rank first (A2).
+
+    Experiment records carry no target-gene names (those live on their score sets),
+    so ``target_urns`` is the set of experiment URNs found to target the gene via a
+    score-set target search. A no-op when that set is empty.
+    """
+    if not target_urns:
+        return list(items)
+    return [
+        item
+        for _, item in sorted(
+            enumerate(items),
+            key=lambda pair: (0 if pair[1].get("urn") in target_urns else 1, pair[0]),
+        )
+    ]
+
+
 def apply_sparse_facets(
     items: list[dict[str, Any]],
     organisms: list[str] | None,

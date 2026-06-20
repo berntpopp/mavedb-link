@@ -335,6 +335,37 @@ async def test_search_experiments(respx_mock: respx.Router, service: MaveDBServi
 
 
 @respx.mock(base_url=BASE)
+async def test_search_experiments_reranks_target_gene_above_namesake(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # A2: a gene-token free-text query boosts experiments whose score sets target
+    # the gene above abstract namesakes (which the upstream order surfaces first).
+    namesake = {"urn": "urn:mavedb:00000001-a", "title": "abstract mentions BRCA1"}
+    target = {"urn": "urn:mavedb:00000081-a", "title": "BRCA1 SGE"}
+    respx_mock.post("/experiments/search").mock(
+        return_value=httpx.Response(200, json=[namesake, target])
+    )
+    respx_mock.post("/score-sets/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "scoreSets": [
+                    {
+                        "urn": "urn:mavedb:00000081-a-1",
+                        "experiment": {"urn": "urn:mavedb:00000081-a"},
+                        "targetGenes": [{"name": "BRCA1"}],
+                    }
+                ],
+                "numScoreSets": 1,
+            },
+        )
+    )
+    out = await service.search_experiments("BRCA1")
+    assert [r["urn"] for r in out["results"]] == ["urn:mavedb:00000081-a", "urn:mavedb:00000001-a"]
+    assert out["reranked_by"] == "target_gene"
+
+
+@respx.mock(base_url=BASE)
 async def test_get_mapped_variants_pages(respx_mock: respx.Router, service: MaveDBService) -> None:
     respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
         return_value=httpx.Response(200, json=fixtures.MAPPED_VARIANTS_RAW)
