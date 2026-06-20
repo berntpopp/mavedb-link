@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 import pytest
 
@@ -22,6 +23,14 @@ def tool_names() -> list[str]:
 
     mcp = create_mavedb_mcp()
     return sorted(t.name for t in asyncio.run(mcp.list_tools()))
+
+
+@pytest.fixture
+def tool_schemas() -> dict[str, dict[str, Any]]:
+    import asyncio
+
+    mcp = create_mavedb_mcp()
+    return {t.name: dict(t.parameters or {}) for t in asyncio.run(mcp.list_tools())}
 
 
 def test_registered_equals_frozen_tools(tool_names: list[str]) -> None:
@@ -65,3 +74,26 @@ def test_every_tool_is_annotated_read_only() -> None:
         ann = getattr(tool, "annotations", None)
         read_only = getattr(ann, "readOnlyHint", None) if ann is not None else None
         assert read_only is True, f"{tool.name} is missing readOnlyHint"
+
+
+def test_router_canonical_gene_schema_names(tool_schemas: dict[str, dict[str, Any]]) -> None:
+    gene_schema = tool_schemas["get_gene_score_sets"]
+    gene_props = gene_schema["properties"]
+    assert "gene_symbol" in gene_props
+    assert "symbol" not in gene_props
+    assert gene_schema["required"] == ["gene_symbol"]
+
+    find_schema = tool_schemas["find_variant"]
+    find_props = find_schema["properties"]
+    assert "gene_symbol" in find_props
+    assert "gene" not in find_props
+
+
+def test_variant_scores_exposes_offset_with_start_alias_rationale(
+    tool_schemas: dict[str, dict[str, Any]],
+) -> None:
+    schema = tool_schemas["get_variant_scores"]
+    props = schema["properties"]
+    assert "offset" in props
+    assert "start" not in props
+    assert "start alias" in props["offset"]["description"]

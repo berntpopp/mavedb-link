@@ -216,6 +216,17 @@ class MaveDBClient:
         self._raise_for_status(response)
         return response.json()
 
+    async def ensure_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
+        """Return a score set's raw mapped-variant list from the live API.
+
+        The contract :class:`~mavedb_link.data.hybrid.HybridClient` overrides to
+        serve/persist via the on-disk cache; the base client always fetches live.
+        Returns the list upstream emits (current + superseded), shaped exactly as
+        ``GET /score-sets/{urn}/mapped-variants``.
+        """
+        raw = await self.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
+        return _as_mapped_list(raw)
+
     def clear_cache(self) -> None:
         """Drop the in-process response cache (test/maintenance helper)."""
         self._cache.clear()
@@ -225,6 +236,16 @@ class MaveDBClient:
         if self._client is not None:
             client, self._client = self._client, None
             await client.aclose()
+
+
+def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:
+    """Normalise a ``/mapped-variants`` response to a list of dict records."""
+    items = (
+        raw
+        if isinstance(raw, list)
+        else (raw.get("mappedVariants") if isinstance(raw, dict) else None)
+    )
+    return [it for it in (items or []) if isinstance(it, dict)]
 
 
 def _extract_detail(response: httpx.Response) -> str:

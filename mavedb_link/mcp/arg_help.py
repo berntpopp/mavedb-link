@@ -24,14 +24,14 @@ ARG_ALIASES: dict[str, str] = {
     "query": "text",
     "q": "text",
     "search": "text",
-    "gene": "symbol",
-    "gene_symbol": "symbol",
-    "hgnc": "symbol",
+    "gene": "gene_symbol",
+    "symbol": "gene_symbol",
+    "hgnc": "gene_symbol",
     "max": "limit",
     "mode": "response_mode",
-    # get_variant_scores uses `start`; accept `offset` for paging uniformity (fires
-    # only there, since `start` is not a parameter of the offset-based list tools).
-    "offset": "start",
+    # Tools expose the fleet-canonical `offset`; accept `start` as a paging alias,
+    # especially for get_variant_scores where MaveDB's upstream endpoint uses it.
+    "start": "offset",
 }
 
 

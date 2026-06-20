@@ -11,13 +11,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from mavedb_link.ingest.builder import build_database
 from tests.dump_fixture import CALIBRATED_URN, DUMP_AS_OF, write_mini_dump
 from tests.fixtures import EXPERIMENT_SET_URN, EXPERIMENT_URN, SCORE_SET_URN
 
 
-def _build(tmp_path: Path) -> tuple[Path, dict]:
+def _build(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     dump = write_mini_dump(tmp_path)
     db_path = tmp_path / "mavedb.sqlite"
     summary = build_database(dump, db_path, source_md5="deadbeef", zenodo_record="18511521")
@@ -31,10 +32,17 @@ def test_build_summary_and_meta(tmp_path: Path) -> None:
     assert summary["experiment_count"] == 1
     assert summary["experiment_set_count"] == 1
     assert summary["mapped_variant_count"] == 2
+    assert summary["mapping_coverage"] == {
+        "complete": 1,
+        "incomplete": 0,
+        "failed": 0,
+        "none": 1,
+    }
     con = sqlite3.connect(db_path)
     try:
         row = con.execute(
-            "SELECT dump_as_of, score_set_count, source_md5, zenodo_record, schema_version "
+            "SELECT dump_as_of, score_set_count, source_md5, zenodo_record, schema_version, "
+            "mapping_coverage_json "
             "FROM meta WHERE id = 1"
         ).fetchone()
     finally:
@@ -44,6 +52,7 @@ def test_build_summary_and_meta(tmp_path: Path) -> None:
     assert row[2] == "deadbeef"
     assert row[3] == "18511521"
     assert isinstance(row[4], int) and row[4] >= 1
+    assert json.loads(row[5]) == summary["mapping_coverage"]
 
 
 def test_score_set_record_is_camelcase_and_parent_enriched(tmp_path: Path) -> None:

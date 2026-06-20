@@ -8,6 +8,7 @@ registered per-test via the ``mock_routes`` helper.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -26,7 +27,8 @@ def _structured(result: Any) -> dict[str, Any]:
     sc = getattr(result, "structured_content", None)
     if isinstance(sc, dict):
         return sc
-    return json.loads(result.content[0].text)
+    loaded = json.loads(result.content[0].text)
+    return loaded if isinstance(loaded, dict) else {}
 
 
 @pytest.fixture
@@ -35,18 +37,42 @@ def structured() -> Any:
     return _structured
 
 
+def _remove_cache_files(path: Path) -> None:
+    """Remove a SQLite cache DB and its WAL sidecars if present."""
+    path.unlink(missing_ok=True)
+    Path(f"{path}-wal").unlink(missing_ok=True)
+    Path(f"{path}-shm").unlink(missing_ok=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_mapped_cache(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    """Point the global mapped-variant cache at pytest temp storage."""
+    from mavedb_link.config import settings
+
+    original = settings.cache.db_path
+    settings.cache.db_path = tmp_path_factory.mktemp("mavedb-cache") / "mavedb_cache.sqlite"
+    try:
+        yield
+    finally:
+        _remove_cache_files(settings.cache.db_path)
+        settings.cache.db_path = original
+
+
 @pytest.fixture(autouse=True)
 def _reset_process_state() -> Any:
     """Reset process-wide caches/metrics between tests for deterministic snapshots."""
+    from mavedb_link.config import settings
     from mavedb_link.services.resolvers import (
         clear_gene_identity_cache,
         clear_hgvs_validation_cache,
     )
 
+    _remove_cache_files(settings.cache.db_path)
     metrics.reset()
     clear_hgvs_validation_cache()
     clear_gene_identity_cache()
     yield
+    _remove_cache_files(settings.cache.db_path)
     metrics.reset()
     clear_hgvs_validation_cache()
     clear_gene_identity_cache()

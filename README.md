@@ -35,7 +35,7 @@ uninterpretable float.
 | `get_variant_score` | ONE variant's score **+ per-calibration classification** (by variant URN, or score-set URN + hgvs) |
 | `get_classified_variants` | Every variant in a calibrated functional class (e.g. all `abnormal`/PS3), with scores |
 | `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile + class |
-| `find_variant` | One variant's score + class across **every** score set (cross-dataset) — anchor by GA4GH VRS id, `variant_urn`, or a bare `hgvs=` (+ optional `gene=`) resolved to VRS internally |
+| `find_variant` | One variant's score + class across **every** score set (cross-dataset) — anchor by GA4GH VRS id, `variant_urn`, or a bare `hgvs=` (+ optional `gene_symbol=`) resolved to VRS internally |
 | `get_hgvs_validation` | Validate an HGVS string and surface *why* it's invalid (reference mismatch, missing accession) |
 | `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol (lean listing: `has_calibrations` flag, not the inlined ladder — open `get_score_set` for thresholds) |
 | `get_experiment` | Experiment record + child score-set URNs |
@@ -43,7 +43,7 @@ uninterpretable float.
 | `get_mapped_variants` | Genome-mapped VRS alleles + ClinGen Allele IDs for a score set |
 | `get_collection` | Curated collection members (URN from a score set's `official_collections`, or mavedb.org) |
 | `get_server_capabilities` | Discovery surface: tools, signatures, limits, error taxonomy |
-| `get_diagnostics` | Live API reachability + version + runtime metrics |
+| `get_diagnostics` | Live API reachability + version + mirror/cache/runtime metrics |
 
 ⭐ = the router's pinned canonical entry point.
 
@@ -65,6 +65,10 @@ curl -s localhost:8000/health | python -m json.tool
 # 4. Add to an MCP host
 claude mcp add --transport http mavedb-link http://127.0.0.1:8000/mcp
 ```
+
+The `claude mcp add --transport http` flag is the client-side MCP transport for
+the `/mcp` endpoint. Run this server with `server.py --transport unified` for
+router/MCP clients; `server.py --transport http` is REST/health-only.
 
 For Claude Desktop (stdio): `uv run python mcp_server.py`.
 
@@ -94,18 +98,27 @@ pure-live — no setup required.
 make data-build     # download the latest Zenodo dump + build data/mavedb.sqlite
 make data-status    # show snapshot date, Zenodo record, counts
 make data-refresh   # rebuild only if Zenodo has a newer dump version
+mavedb-link-cache status   # inspect lazy mapped-variant cache state
 ```
 
+The MCP/API surface is read-only with respect to MaveDB: it never mutates
+upstream records and does not accept caller credentials. Local mirror and
+mapped-variant cache files are operational state only; they are written on disk
+to make public reads fast/offline and do not change upstream/domain data.
+
 Score-set/experiment records, the scores/counts tables, full-text search, the
-score distribution, the cross-dataset VRS rollup, the per-set mapped-variant
-enumeration (current-only, compact/minimal), HGVS→VRS resolution for
-`find_variant(hgvs=)`, and the `get_gene_score_sets` score-set listing are served
-from the local index; rich gene identity is fetched live but memoised + time-boxed
-(degrading to a thin mirror identity), and the richer mapped-variant reads (full
-VRS objects), HGVS validation (memoised), and the calibration-by-class listing stay
+score distribution, and the `get_gene_score_sets` score-set listing are served
+from the local index. The verified Zenodo v4 zip member listing omits
+`csv/*.annotations.csv`, so the VRS/ClinGen mapped-variant layer is backfilled
+lazily from the live API per score set into an on-disk cache; repeat
+`get_mapped_variants`, `find_variant(variant_urn=)`, and target-relative
+`find_variant(hgvs=, gene_symbol=)` reads then reuse that cache. Rich gene
+identity is fetched live but memoised + time-boxed (degrading to a thin mirror
+identity), HGVS validation is memoised, and the calibration-by-class listing stays
 live. Each response's `_meta.data_source` reports
 `mirror` | `live` | `mixed`, with `mirror_as_of` (the snapshot date);
-`get_diagnostics.mirror` reports live status.
+`get_diagnostics.mirror` reports snapshot status and `get_diagnostics.cache`
+reports the mapped-variant cache state.
 In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
 artifact → build, else live-only) and persists the mirror on a volume; prebuilt
 `mavedb.sqlite.zst` artifacts are published to GitHub Releases by

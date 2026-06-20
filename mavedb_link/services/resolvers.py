@@ -161,6 +161,12 @@ async def _vrs_from_variant(client: MaveDBClient, variant_urn: str) -> str:
         mirror_vrs = from_mirror(candidate)
         if mirror_vrs:
             return str(mirror_vrs)
+        set_urn = score_set_urn_of_variant(candidate)
+        if set_urn:
+            await _warm_mapped_variants(client, [set_urn])
+            mirror_vrs = from_mirror(candidate)
+        if mirror_vrs:
+            return str(mirror_vrs)
     raw = await client.get_json(f"/variants/{candidate.replace('#', '%23')}")
     shaped = shape_single_variant(raw, "standard")  # standard carries current mappings
     for mapping in shaped.get("mapped_variants") or []:
@@ -216,6 +222,22 @@ def _hgvs_candidates(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
         for r in rows
         if r.get("vrs_id")
     ]
+
+
+async def _warm_mapped_variants(client: MaveDBClient, score_set_urns: list[str]) -> None:
+    """Best-effort lazy mapped-variant enrichment for cache-aware clients."""
+    ensure = getattr(client, "ensure_mapped_variants", None)
+    if not callable(ensure) or not score_set_urns:
+        return
+    await asyncio.gather(*(ensure(urn) for urn in score_set_urns), return_exceptions=True)
+
+
+def _gene_score_set_urns(client: MaveDBClient, gene: str) -> list[str]:
+    """Mirror gene-index URNs when a HybridClient exposes them."""
+    urns_fn = getattr(client, "score_set_urns_for_gene", None)
+    if not callable(urns_fn):
+        return []
+    return [str(urn) for urn in urns_fn(gene)[:HGVS_PROBE_CAP]]
 
 
 async def _live_probe_hgvs(client: MaveDBClient, hgvs: str, gene: str) -> tuple[list[str], bool]:
@@ -286,6 +308,13 @@ async def _vrs_from_hgvs(
                     candidates=_hgvs_candidates(rows),
                 )
             return vrs, False
+        if gene and gene.strip():
+            urns = _gene_score_set_urns(client, gene.strip())
+            await _warm_mapped_variants(client, urns)
+            rows = from_mirror(core, candidate.lower(), gene=gene)
+            vrs = _distinct_vrs(rows)
+            if vrs:
+                return vrs, False
     if not (gene and gene.strip()):
         raise InvalidInputError(
             f"HGVS '{candidate}' is not in the local mirror; resolving it live needs gene= "

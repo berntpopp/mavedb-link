@@ -4,6 +4,10 @@ The Zenodo concept record (DOI 10.5281/zenodo.11201736) versions the dump; we
 resolve the highest version, then stream its zip to disk verifying the published
 md5. The download is large (~1.8 GB) so it streams in chunks and never buffers
 the whole file in memory.
+
+The current v4 dump's verified zip member listing omits per-set annotations CSVs;
+mapped VRS/ClinGen data is therefore backfilled lazily from the live API into the
+on-disk mapped-variant cache.
 """
 
 from __future__ import annotations

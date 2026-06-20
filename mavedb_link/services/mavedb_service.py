@@ -28,7 +28,7 @@ from mavedb_link.constants import (
     MAX_SEARCH_LIMIT,
     SEARCH_FETCH_LIMIT,
 )
-from mavedb_link.data.hybrid import mirror_status
+from mavedb_link.data.hybrid import mapped_cache_status, mirror_status
 from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import (
     looks_like_gene_symbol,
@@ -445,8 +445,12 @@ class MaveDBService:
         capped = _clamp(limit, 1, MAX_MAPPED_LIMIT)
         items = self._mirror_mapped_variants(score_set_urn, current_only, response_mode)
         if items is None:
-            raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-            items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
+            fetch = getattr(self._client, "ensure_mapped_variants", None)
+            if callable(fetch):
+                items = await fetch(score_set_urn)
+            else:
+                raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
+                items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
             if current_only:
                 items = [it for it in items if isinstance(it, dict) and it.get("current")]
         items = sorted(items, key=_mapped_sort_key)
@@ -566,6 +570,7 @@ class MaveDBService:
         # Mirror status first, so it is reported even when the live API is down
         # (the mirror serves offline).
         diag["mirror"] = mirror_status(self._client)
+        diag["cache"] = mapped_cache_status(self._client)
         try:
             version = await self._client.get_version()
         except Exception as exc:  # diagnostics REPORTS upstream failure, never raises

@@ -169,12 +169,15 @@ def build_capabilities() -> dict[str, Any]:
             "A local SQLite mirror built from the CC0 MaveDB Zenodo bulk dump is the "
             "PRIMARY source when present; the live API is the backup. Score-set/"
             "experiment records, the scores/counts tables, full-text search, the "
-            "score distribution, the cross-dataset VRS rollup, and the per-set "
-            "mapped-variant enumeration (current-only compact/minimal) are served "
-            "from a local index; a mirror-miss (e.g. a record newer than the snapshot) "
+            "score distribution, and gene score-set listings are served from a local "
+            "index. The verified Zenodo v4 zip omits csv/*.annotations.csv, so "
+            "VRS/ClinGen mapped variants are lazily fetched from live per score set "
+            "and written to the local mapped-variant cache; repeats then reuse that "
+            "cache. A mirror/cache miss (e.g. a record newer than the snapshot) "
             "transparently falls back to the live API. _meta.data_source "
             "(mirror|live|mixed) + mirror_as_of report provenance per call; "
-            "get_diagnostics.mirror reports the live snapshot status."
+            "get_diagnostics.mirror reports snapshot status, and get_diagnostics.cache "
+            "reports the local mapped-variant cache state."
         ),
         "latency_profile": (
             "With a local mirror active (get_diagnostics.mirror.present=true), "
@@ -223,9 +226,10 @@ def build_capabilities() -> dict[str, Any]:
         ),
         "truncation_contract": (
             "List tools return total (when known), returned, limit, offset, "
-            "truncated, and next_offset. get_variant_scores additionally mirrors "
-            "start/next_start (and accepts offset as an alias for start), and now "
-            "carries a real total (= num_variants). When truncated, "
+            "truncated, and next_offset. get_variant_scores exposes offset for "
+            "fleet-uniform paging, also mirrors upstream-compatible start/next_start "
+            "in the payload, and accepts start as an alias for offset. It carries a "
+            "real total (= num_variants). When truncated, "
             "_meta.next_commands includes a ready-to-call forward-page step. The "
             f"{RESPONSE_TOKEN_BUDGET}-token cap is ENFORCED, not just reported: a list "
             "page over the cap is deterministically trimmed (trailing rows dropped, "
@@ -253,7 +257,7 @@ def build_capabilities() -> dict[str, Any]:
             "(find_variant, get_mapped_variants), standard returns a FLAT post_mapped "
             "genomic summary (assembly, sequence_id, start, end, ref, alt) and drops "
             "pre_mapped; request response_mode=full for the complete pre/post VRS "
-            "objects. find_variant also accepts a bare hgvs= (+ optional gene=) "
+            "objects. find_variant also accepts a bare hgvs= (+ optional gene_symbol=) "
             "resolved to VRS internally, so an HGVS string needs no map-first round-trip."
         ),
         "recommended_workflows": [
@@ -307,7 +311,7 @@ def build_capabilities() -> dict[str, Any]:
             ],
             "get_variant_scores": [
                 "A full ~1000-row page at standard can exceed the 25k token budget "
-                "(_meta.budget_exceeded) -- use response_mode='minimal' or page via start=.",
+                "(_meta.budget_exceeded) -- use response_mode='minimal' or page via offset=.",
                 "Rows carry variant_index; JOIN get_mapped_variants on it, never zip.",
                 "The top-level calibrations ladder ships once (the first page, start=0) "
                 "or at full; forward pages carry only the per-row classification. Open "

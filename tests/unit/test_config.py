@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from mavedb_link.config import MaveDBApiConfig, ServerSettings
 
 
@@ -34,3 +36,18 @@ def test_env_prefix_override(monkeypatch: object) -> None:
     s = ServerSettings()
     assert s.api.base_url == "https://example.test/api/v1"
     assert s.port == 9100
+
+
+def test_cache_defaults() -> None:
+    s = ServerSettings()
+    assert s.cache.enabled is True
+    assert s.cache.db_path == Path("data/mavedb_cache.sqlite")
+    assert isinstance(s.cache.lru_sets, int) and s.cache.lru_sets > 0
+
+
+def test_cache_env_override(monkeypatch: object) -> None:
+    monkeypatch.setenv("MAVEDB_LINK_CACHE__ENABLED", "false")  # type: ignore[attr-defined]
+    monkeypatch.setenv("MAVEDB_LINK_CACHE__LRU_SETS", "8")  # type: ignore[attr-defined]
+    s = ServerSettings()
+    assert s.cache.enabled is False
+    assert s.cache.lru_sets == 8
