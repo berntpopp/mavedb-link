@@ -7,15 +7,40 @@ reused across tool calls). It is built on first use; tests inject a fake via
 
 from __future__ import annotations
 
+import logging
+
 from mavedb_link.api.client import MaveDBClient
+from mavedb_link.data.hybrid import HybridClient
+from mavedb_link.data.repository import MirrorRepository
 from mavedb_link.services.mavedb_service import MaveDBService
+
+logger = logging.getLogger(__name__)
 
 _service: MaveDBService | None = None
 
 
 def _build_service() -> MaveDBService:
+    """Build the service over the mirror-first client when a built DB exists.
+
+    Falls back to the pure live client when the mirror is disabled or absent, so
+    a missing/unbuilt database never blocks startup (the live API is the backup).
+    """
     from mavedb_link.config import settings
 
+    if settings.mirror.enabled:
+        repo = MirrorRepository.open(settings.mirror.db_path)
+        if repo is not None:
+            meta = repo.meta()
+            logger.info(
+                "mirror enabled db=%s as_of=%s score_sets=%s",
+                settings.mirror.db_path,
+                meta.get("dump_as_of"),
+                meta.get("score_set_count"),
+            )
+            return MaveDBService(HybridClient(settings.api, repository=repo))
+        logger.info(
+            "mirror enabled but no database at %s; serving live-only", settings.mirror.db_path
+        )
     return MaveDBService(MaveDBClient(settings.api))
 
 
