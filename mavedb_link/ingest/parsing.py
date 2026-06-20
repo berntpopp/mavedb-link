@@ -15,7 +15,7 @@ import io
 from typing import Any
 
 from mavedb_link.constants import DISTRIBUTION_BINS
-from mavedb_link.services.scores import parse_scores_csv
+from mavedb_link.services.scores import hgvs_core, parse_scores_csv
 
 #: Namespace prefixes the dump prepends to non-core columns (``include_post_mapped``
 #: uses the ``mavedb`` namespace; score/count columns use ``scores``/``counts``).
@@ -64,6 +64,36 @@ def extract_scores(scores_csv: str) -> list[float]:
     """Numeric ``score`` values from a (denamespaced) scores CSV, NA dropped."""
     _, rows = parse_scores_csv(scores_csv)
     return [r["score"] for r in rows if isinstance(r.get("score"), float)]
+
+
+def extract_hgvs_rows(scores_csv: str, score_set_urn: str) -> list[dict[str, Any]]:
+    """Normalised (variant_urn, hgvs_*) rows for the mirror hgvs_index.
+
+    Keeps only rows naming a variant (``accession``) AND carrying at least one HGVS
+    field; each HGVS is stored as its :func:`hgvs_core` (prefix-stripped, lowercased)
+    so the resolver matches by equality on an indexed column.
+    """
+    _, rows = parse_scores_csv(scores_csv)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        accession = row.get("accession")
+        if not isinstance(accession, str):
+            continue
+        nt = row.get("hgvs_nt")
+        pro = row.get("hgvs_pro")
+        splice = row.get("hgvs_splice")
+        if not any(isinstance(v, str) for v in (nt, pro, splice)):
+            continue
+        out.append(
+            {
+                "score_set_urn": score_set_urn,
+                "variant_urn": accession,
+                "hgvs_nt": hgvs_core(nt) if isinstance(nt, str) else None,
+                "hgvs_pro": hgvs_core(pro) if isinstance(pro, str) else None,
+                "hgvs_splice": hgvs_core(splice) if isinstance(splice, str) else None,
+            }
+        )
+    return out
 
 
 def compute_distribution(scores: list[float]) -> dict[str, Any]:

@@ -81,6 +81,26 @@ CREATE INDEX idx_mapped_clingen ON mapped_variant (clingen_allele_id);
 CREATE INDEX idx_mapped_variant_urn ON mapped_variant (variant_urn);
 CREATE INDEX idx_mapped_score_set ON mapped_variant (score_set_urn);
 
+-- Target-relative HGVS -> variant identity (from the scores CSV), for HGVS-first
+-- cross-dataset entry. Values are normalised for lookup: accession-prefix stripped
+-- and lowercased (see scores.hgvs_core), so the resolver matches by equality.
+CREATE TABLE hgvs_index (
+    score_set_urn  TEXT,
+    variant_urn    TEXT,
+    hgvs_nt        TEXT,
+    hgvs_pro       TEXT,
+    hgvs_splice    TEXT
+);
+CREATE INDEX idx_hgvs_nt ON hgvs_index (hgvs_nt);
+CREATE INDEX idx_hgvs_pro ON hgvs_index (hgvs_pro);
+CREATE INDEX idx_hgvs_splice ON hgvs_index (hgvs_splice);
+
+-- Genomic post-mapped HGVS lookups for the accessioned-HGVS resolution path
+-- (case-insensitive: genomic accessions vary in case across sources).
+CREATE INDEX idx_mapped_hgvs_g ON mapped_variant (post_mapped_hgvs_g COLLATE NOCASE);
+CREATE INDEX idx_mapped_hgvs_c ON mapped_variant (post_mapped_hgvs_c COLLATE NOCASE);
+CREATE INDEX idx_mapped_hgvs_p ON mapped_variant (post_mapped_hgvs_p COLLATE NOCASE);
+
 -- Precomputed per-set score distribution (so the summary needs no table scan).
 CREATE TABLE score_distribution (
     score_set_urn   TEXT PRIMARY KEY,
