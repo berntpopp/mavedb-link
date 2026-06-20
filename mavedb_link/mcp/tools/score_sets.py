@@ -12,7 +12,15 @@ from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_score_set, after_search_score_sets
 from mavedb_link.mcp.schemas import SCORE_SET_SCHEMA, SEARCH_SCORE_SETS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
-from mavedb_link.mcp.tools._common import ResponseMode, ScoreSetUrnStr, SearchText, StringList
+from mavedb_link.mcp.tools._common import (
+    AuthorsFilter,
+    OrganismsFilter,
+    ResponseMode,
+    ScoreSetUrnStr,
+    SearchText,
+    TargetsFilter,
+    TargetTypesFilter,
+)
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -45,10 +53,10 @@ def register_score_set_tools(mcp: FastMCP) -> None:
     )
     async def search_score_sets(
         text: SearchText = None,
-        targets: StringList = None,
-        target_organism_names: StringList = None,
-        target_types: StringList = None,
-        authors: StringList = None,
+        targets: TargetsFilter = None,
+        target_organism_names: OrganismsFilter = None,
+        target_types: TargetTypesFilter = None,
+        authors: AuthorsFilter = None,
         facet_mode: Annotated[
             Literal["inclusive", "strict"],
             Field(
