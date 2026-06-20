@@ -36,11 +36,15 @@ def structured() -> Any:
 
 
 @pytest.fixture(autouse=True)
-def _reset_metrics() -> Any:
-    """Reset process-wide metrics between tests for deterministic snapshots."""
+def _reset_process_state() -> Any:
+    """Reset process-wide caches/metrics between tests for deterministic snapshots."""
+    from mavedb_link.services.resolvers import clear_hgvs_validation_cache
+
     metrics.reset()
+    clear_hgvs_validation_cache()
     yield
     metrics.reset()
+    clear_hgvs_validation_cache()
 
 
 @pytest.fixture

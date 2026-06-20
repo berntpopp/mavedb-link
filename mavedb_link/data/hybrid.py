@@ -94,6 +94,20 @@ class HybridClient(MaveDBClient):
         provenance.record("mirror", mirror_as_of=self._mirror_as_of)
         return _as_mapped_variants(rows)
 
+    def mapped_vrs_for_variant(self, variant_urn: str) -> str | None:
+        """The genome-mapped VRS allele id for a variant URN from the mirror, or None.
+
+        Lets find_variant(variant_urn=) resolve the VRS without a live variant fetch
+        (D.3); the id is identical to the live one (same digest), so provenance/latency
+        change but the rollup shape does not. None on miss -> caller goes live.
+        """
+        for row in self._repo.mapped_by_variant_urn(variant_urn):
+            vrs = row.get("vrs_id")
+            if vrs:
+                provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+                return str(vrs)
+        return None
+
     async def aclose(self) -> None:
         """Close the live client and the mirror connection."""
         await super().aclose()

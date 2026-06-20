@@ -148,6 +148,20 @@ async def test_get_hgvs_validation_rejects_empty(service: MaveDBService) -> None
         await service.get_hgvs_validation("   ")
 
 
+@respx.mock(base_url=BASE)
+async def test_get_hgvs_validation_caches_idempotent_result(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # D.2: upstream validation is idempotent, so a repeated HGVS string is served
+    # from the in-process cache (no second ~1.6s POST), warming the live call.
+    route = respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    first = await service.get_hgvs_validation("NM_000059.4:c.9999G>A")
+    second = await service.get_hgvs_validation("NM_000059.4:c.9999G>A")
+    assert first == second
+    assert first["valid"] is True
+    assert route.call_count == 1
+
+
 # --- get_classified_variants ---------------------------------------------------
 
 

@@ -312,6 +312,14 @@ def build_capabilities() -> dict[str, Any]:
                 "Pass variant_urn to roll a variant up across every score set without "
                 "mapping it first (the VRS is resolved internally).",
                 "ClinGen Allele IDs are not accepted upstream -- pass the variant_urn.",
+                "With a mirror active, the variant_urn->VRS resolution and the rollup "
+                "are mirror-served; only enrich=true (per-hit score/class) adds live "
+                "hops, so _meta.data_source reads 'mixed' there and 'mirror' when "
+                "enrich=false.",
+            ],
+            "get_hgvs_validation": [
+                "Validation is idempotent and memoised in-process, so a repeated HGVS "
+                "string returns immediately without the ~1.6s upstream round-trip.",
             ],
             "get_mapped_variants": [
                 "Some variants are unmapped, so this list and get_variant_scores can "
