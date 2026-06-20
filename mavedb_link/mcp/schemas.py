@@ -170,8 +170,11 @@ COLLECTION_SCHEMA = _envelope(
 )
 
 FIND_VARIANT_SCHEMA = _envelope(
-    vrs_id=_STR,  # the resolved GA4GH allele id (resolved from variant_urn when given)
-    resolved_by=_STR,  # "vrs_id" | "variant_urn"
+    vrs_id=_STR,  # the resolved GA4GH allele id (first, when several resolved)
+    resolved_vrs=_ARR,  # all resolved GA4GH allele ids (>=1)
+    resolved_by=_STR,  # "vrs_id" | "variant_urn" | "hgvs"
+    hgvs_input=_STR_NULL,  # the HGVS string that was resolved (hgvs path only)
+    probe_truncated=_BOOL,  # live-probe hit its score-set cap (hgvs path only)
     hits=_ARR,  # each: {score_set_urn, variant_urn, vrs_id, clingen_allele_id, score?, classifications?}
     enriched=_BOOL,
     **_PAGE,
