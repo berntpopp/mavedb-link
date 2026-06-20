@@ -2,7 +2,7 @@
         format format-check lint lint-ci lint-fix lint-loc \
         typecheck test test-fast test-unit test-integration test-cov \
         check ci-local precommit clean \
-        dev mcp-serve smoke \
+        dev mcp-serve smoke eval eval-baseline \
         docker-build docker-up docker-down docker-logs docker-url info
 
 DOCKER_COMPOSE := $(shell if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
@@ -77,6 +77,12 @@ mcp-serve: ## Start local stdio MCP server
 
 smoke: ## Hit the live MaveDB API end-to-end through the service layer
 	uv run python -m tests.smoke
+
+eval: ## Run the deterministic eval workflows + the token/error regression gate
+	uv run pytest tests/eval -q
+
+eval-baseline: ## Regenerate tests/eval/baseline.json from the current surface
+	uv run python -m scripts.eval_baseline
 
 docker-build: ## Build Docker image
 	$(COMPOSE) build

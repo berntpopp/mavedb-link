@@ -22,7 +22,9 @@ make ci-local      # format-check, lint-ci, lint-loc (600-LOC budget), mypy stri
 
 Other targets: `make test`, `make test-integration` (live API), `make test-cov`
 (coverage ≥80), `make lint`, `make typecheck`, `make dev`, `make smoke`,
-`make docker-build`.
+`make docker-build`. `make eval` runs the deterministic multi-call eval workflows
++ the token/error-rate regression gate (also run inside `ci-local`); regenerate
+its baseline with `make eval-baseline` after an intentional surface change.
 
 ## Architecture — the two-plane boundary (non-negotiable)
 

@@ -1,0 +1,27 @@
+{
+  "calibrated_interpretation": {
+    "errors": 0,
+    "tokens": 1168,
+    "tool_calls": 3
+  },
+  "follow_the_chain": {
+    "errors": 0,
+    "tokens": 592,
+    "tool_calls": 2
+  },
+  "gene_discovery": {
+    "errors": 0,
+    "tokens": 1514,
+    "tool_calls": 3
+  },
+  "single_variant_lookup": {
+    "errors": 0,
+    "tokens": 585,
+    "tool_calls": 2
+  },
+  "variant_rollup_by_urn": {
+    "errors": 0,
+    "tokens": 321,
+    "tool_calls": 1
+  }
+}
