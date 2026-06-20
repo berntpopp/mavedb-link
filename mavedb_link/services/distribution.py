@@ -58,9 +58,18 @@ def _histogram(values: list[float], *, bins: int) -> list[dict[str, Any]]:
 
 
 async def score_distribution(
-    client: MaveDBClient, urn: str, *, score: float | None = None
+    client: MaveDBClient,
+    urn: str,
+    *,
+    score: float | None = None,
+    response_mode: str = "compact",
 ) -> dict[str, Any]:
-    """Summarise a score set's score column (+ a query score's percentile/class)."""
+    """Summarise a score set's score column (+ a query score's percentile/class).
+
+    A query ``score`` always carries its matched calibration band
+    (``query.classifications``); the heavy top-level threshold ladder is gated to
+    ``response_mode='full'`` so it is not duplicated at compact/standard (GAP-1).
+    """
     score_set_urn = validate_score_set_urn(urn)
     gathered: Any = await asyncio.gather(
         client.get_text(
@@ -89,8 +98,8 @@ async def score_distribution(
         **_summary(values),
         "histogram": _histogram(values, bins=DISTRIBUTION_BINS),
     }
-    if isinstance(raw_calibrations, list) and raw_calibrations:
-        payload["calibrations"] = shape_calibrations(raw_calibrations, full=False)
+    if isinstance(raw_calibrations, list) and raw_calibrations and response_mode == "full":
+        payload["calibrations"] = shape_calibrations(raw_calibrations, full=True)
     if score is not None:
         query: dict[str, Any] = {
             "score": score,

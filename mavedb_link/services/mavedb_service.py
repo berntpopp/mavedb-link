@@ -524,7 +524,9 @@ class MaveDBService:
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
         """Summarise a score set's score distribution (delegated to distribution)."""
-        return await distribution.score_distribution(self._client, urn, score=score)
+        return await distribution.score_distribution(
+            self._client, urn, score=score, response_mode=response_mode
+        )
 
     async def get_classified_variants(
         self,

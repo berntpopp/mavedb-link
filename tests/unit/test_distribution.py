@@ -43,8 +43,28 @@ async def test_score_distribution_query_percentile_and_classification(
     out = await service.get_score_distribution(fixtures.SCORE_SET_URN, score=0.94)
     assert out["query"]["score"] == 0.94
     assert out["query"]["percentile"] == 10.0  # one of ten scores is below 0.94
+    # GAP-1: the matched band travels with the query at every tier...
     assert out["query"]["classifications"][0]["classification"] == "abnormal"
-    assert out["calibrations"][0]["title"] == "IGVF Controls"
+    # ...but the full threshold ladder is gated to full (not duplicated at compact).
+    assert "calibrations" not in out
+
+
+@respx.mock(base_url=BASE)
+async def test_score_distribution_ladder_gated_to_full(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.DISTRIBUTION_SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    compact = await service.get_score_distribution(fixtures.SCORE_SET_URN, score=0.94)
+    assert "calibrations" not in compact
+    full = await service.get_score_distribution(
+        fixtures.SCORE_SET_URN, score=0.94, response_mode="full"
+    )
+    assert full["calibrations"][0]["title"] == "IGVF Controls"
 
 
 @respx.mock(base_url=BASE)

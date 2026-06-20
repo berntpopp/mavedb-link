@@ -195,8 +195,9 @@ def _wrap(
         "variants": views,
         "match_count": len(views),
     }
-    if calibrations:
-        payload["calibrations"] = shape_calibrations(
-            calibrations, full=response_mode in _FULL_MODES
-        )
+    # GAP-1: the per-variant matched band (variants[].classifications) is the
+    # interpretation; the heavy full threshold ladder is gated to full only, never
+    # duplicated alongside the matched band at compact/standard.
+    if calibrations and response_mode == "full":
+        payload["calibrations"] = shape_calibrations(calibrations, full=True)
     return payload

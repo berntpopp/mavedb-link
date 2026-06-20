@@ -115,9 +115,30 @@ async def test_get_variant_score_by_hgvs_attaches_classifications(
     )
     out = await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs="c.2T>G")
     assert out["variants"][0]["score"] == -1.2
+    # GAP-1: the per-variant matched band is the interpretation at compact; the
+    # full threshold ladder is NOT duplicated top-level.
     assert out["variants"][0]["classifications"][0]["classification"] == "abnormal"
-    # the calibration thresholds travel with the result so the score is readable
-    assert out["calibrations"][0]["title"] == "IGVF Controls"
+    assert "calibrations" not in out
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_full_ladder_gated_to_full(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # GAP-1: the heavy top-level threshold ladder appears ONLY at full; compact and
+    # standard rely on the inline matched-band classification.
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    for mode in ("compact", "standard"):
+        out = await service.get_variant_score(fixtures.VARIANT_URN, response_mode=mode)
+        assert "calibrations" not in out, mode
+        assert out["variants"][0]["classifications"]  # matched band still present
+    full = await service.get_variant_score(fixtures.VARIANT_URN, response_mode="full")
+    assert full["calibrations"][0]["title"] == "IGVF Controls"
 
 
 @respx.mock(base_url=BASE)
