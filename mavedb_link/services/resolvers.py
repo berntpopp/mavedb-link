@@ -17,6 +17,8 @@ from mavedb_link.constants import (
     DEFAULT_CLASSIFIED_LIMIT,
     DEFAULT_FIND_LIMIT,
     FUNCTIONAL_CLASSES,
+    GENE_IDENTITY_CACHE_MAX,
+    GENE_IDENTITY_TIMEOUT_S,
     HGVS_PROBE_CAP,
     MAX_CLASSIFIED_LIMIT,
     MAX_FIND_LIMIT,
@@ -48,6 +50,45 @@ _HGVS_CACHE_MAX = 2048
 def clear_hgvs_validation_cache() -> None:
     """Drop the HGVS validation memo (used for test isolation)."""
     _HGVS_CACHE.clear()
+
+
+#: Process-wide memo of /genes identity (rich HGNC fields post-date the dump, so it
+#: is fetched live; idempotent within a snapshot window). Bounded FIFO.
+_GENE_IDENTITY_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def clear_gene_identity_cache() -> None:
+    """Drop the gene-identity memo (used for test isolation)."""
+    _GENE_IDENTITY_CACHE.clear()
+
+
+async def resolve_gene_identity(client: MaveDBClient, symbol: str) -> tuple[dict[str, Any], str]:
+    """Return ``(gene_record, source)`` for a symbol: cache | live | mirror-thin.
+
+    Rich HGNC identity is fetched live but process-cached and time-boxed: a cache hit
+    is instant; a slow/failed live fetch degrades to the mirror's thin identity
+    (symbol + organism) when the mirror knows the gene, else the error propagates.
+    """
+    sym = symbol.strip()
+    cached = _GENE_IDENTITY_CACHE.get(sym)
+    if cached is not None:
+        return dict(cached), "cache"
+    thin_fn = getattr(client, "gene_identity", None)
+    thin = thin_fn(sym) if callable(thin_fn) else None
+    try:
+        raw = await asyncio.wait_for(
+            client.get_json(f"/genes/{sym}", params={"limit": MAX_GENE_LIMIT, "offset": 0}),
+            timeout=GENE_IDENTITY_TIMEOUT_S,
+        )
+    except Exception:  # degrade to mirror identity when the mirror knows the gene
+        if thin is not None:
+            return dict(thin), "mirror"
+        raise
+    if isinstance(raw, dict):
+        if len(_GENE_IDENTITY_CACHE) >= GENE_IDENTITY_CACHE_MAX:
+            _GENE_IDENTITY_CACHE.pop(next(iter(_GENE_IDENTITY_CACHE)), None)
+        _GENE_IDENTITY_CACHE[sym] = raw
+    return raw, "live"
 
 
 def _clamp(value: int, lo: int, hi: int) -> int:
