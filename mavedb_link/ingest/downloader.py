@@ -46,7 +46,15 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
     try:
         resp = http.get(
             f"{ZENODO_API}/records",
-            params={"q": f"conceptrecid:{concept_id}", "all_versions": "true", "size": "50"},
+            # Zenodo (anonymous) rejects this search with HTTP 400 unless a sort is
+            # given AND size is small (>=50 is rejected); 25 is ample for a ~yearly
+            # dump. We pick the max version ourselves, so the direction is moot.
+            params={
+                "q": f"conceptrecid:{concept_id}",
+                "all_versions": "true",
+                "sort": "-version",
+                "size": "25",
+            },
         )
         resp.raise_for_status()
         hits = resp.json().get("hits", {}).get("hits", [])

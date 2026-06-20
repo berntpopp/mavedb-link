@@ -57,8 +57,10 @@ def _zenodo_versions() -> dict:
 
 def test_resolve_latest_picks_max_version() -> None:
     with respx.mock(base_url="https://zenodo.org/api") as mock:
-        mock.get("/records").mock(return_value=httpx.Response(200, json=_zenodo_versions()))
+        route = mock.get("/records").mock(return_value=httpx.Response(200, json=_zenodo_versions()))
         ref = resolve_latest_dump("11201736")
+    # Zenodo rejects the search with 400 unless a sort is sent (regression guard).
+    assert "sort=" in str(route.calls.last.request.url)
     assert ref.version == "4"
     assert ref.record_id == "222"
     assert ref.filename == "v4.zip"
