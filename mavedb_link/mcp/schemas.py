@@ -86,13 +86,17 @@ SCORE_SET_SCHEMA = _envelope(
     targets=_ARR,
     experiment_urn=_STR_NULL,
     publications=_OBJ,
+    # MaveDB's curated interpretation layer: per-bin functional-class thresholds,
+    # ACMG criterion + evidence strength, OddsPath, baseline (WT) anchor.
+    score_calibrations=_ARR,
     record_url=_STR_NULL,
 )
 
 VARIANT_SCORES_SCHEMA = _envelope(
     urn=_STR,
     columns=_ARR,
-    rows=_ARR,
+    rows=_ARR,  # each row may carry a derived `classification` (primary calibration)
+    calibrations=_ARR,  # thresholds block so the score column is interpretable
     returned=_INT,
     start=_INT,
     offset=_INT,
@@ -110,11 +114,13 @@ VARIANT_SCORE_SCHEMA = _envelope(
     hgvs_nt=_STR_NULL,
     hgvs_pro=_STR_NULL,
     score=_NUM_NULL,
+    classifications=_ARR,  # per-calibration functional class (ACMG/OddsPath)
     # hgvs-scan form
     urn=_STR,
     query_hgvs=_STR_NULL,
     columns=_ARR,
     matches=_ARR,
+    calibrations=_ARR,
     match_count=_INT,
     scanned_rows=_INT,
 )

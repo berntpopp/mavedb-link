@@ -26,6 +26,11 @@ from mavedb_link.constants import (
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
 from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn
 from mavedb_link.services import shaping
+from mavedb_link.services.calibration import (
+    classify_score,
+    primary_classification,
+    shape_calibrations,
+)
 from mavedb_link.services.scores import hgvs_matches, parse_scores_csv, shape_scores
 from mavedb_link.services.search import apply_sparse_facets, rank_by_target_match
 
@@ -167,12 +172,25 @@ class MaveDBService:
         if isinstance(text, BaseException):
             raise text
         num_variants: int | None = None
-        if isinstance(record, dict) and isinstance(record.get("numVariants"), int):
-            num_variants = record["numVariants"]
+        raw_calibrations: list[dict[str, Any]] = []
+        if isinstance(record, dict):
+            if isinstance(record.get("numVariants"), int):
+                num_variants = record["numVariants"]
+            cals = record.get("scoreCalibrations")
+            if isinstance(cals, list):
+                raw_calibrations = cals
         payload = shape_scores(text, start=start, limit=capped, num_variants=num_variants)
         payload["urn"] = score_set_urn
         payload["offset"] = payload["start"]
         payload["next_offset"] = payload["next_start"]
+        if raw_calibrations:
+            for row in payload["rows"]:
+                verdict = primary_classification(row.get("score"), raw_calibrations)
+                if verdict:
+                    row["classification"] = verdict
+            payload["calibrations"] = shape_calibrations(
+                raw_calibrations, full=response_mode in ("standard", "full")
+            )
         return payload
 
     async def get_variant_score(
@@ -193,7 +211,12 @@ class MaveDBService:
             # The variant URN's '#<index>' must be percent-encoded or httpx drops it
             # as a URL fragment.
             raw = await self._client.get_json(f"/variants/{candidate.replace('#', '%23')}")
-            return shaping.shape_single_variant(raw, response_mode)
+            payload = shaping.shape_single_variant(raw, response_mode)
+            calibrations = await self._raw_calibrations(payload.get("score_set_urn"))
+            classified = classify_score(payload.get("score"), calibrations)
+            if classified:
+                payload["classifications"] = classified
+            return payload
         score_set_urn = validate_score_set_urn(candidate)
         if not hgvs or not hgvs.strip():
             raise InvalidInputError(
@@ -215,7 +238,7 @@ class MaveDBService:
                 f"(scanned {len(rows)} rows). Check the hgvs string against "
                 "get_variant_scores, or pass a variant URN."
             )
-        return {
+        result: dict[str, Any] = {
             "urn": score_set_urn,
             "query_hgvs": hgvs.strip(),
             "columns": _columns,
@@ -223,6 +246,32 @@ class MaveDBService:
             "match_count": len(matches),
             "scanned_rows": len(rows),
         }
+        calibrations = await self._raw_calibrations(score_set_urn)
+        if calibrations:
+            for match in matches:
+                classified = classify_score(match.get("score"), calibrations)
+                if classified:
+                    match["classifications"] = classified
+            result["calibrations"] = shape_calibrations(
+                calibrations, full=response_mode in ("standard", "full")
+            )
+        return result
+
+    async def _raw_calibrations(self, score_set_urn: str | None) -> list[dict[str, Any]]:
+        """Best-effort fetch of a score set's raw ``scoreCalibrations`` (never raises).
+
+        Classification enrichment must never fail the underlying score lookup, so
+        any upstream error degrades to "no calibrations" rather than propagating.
+        The score-set record read is cached, so this is usually free.
+        """
+        if not score_set_urn:
+            return []
+        try:
+            record = await self._client.get_json(f"/score-sets/{score_set_urn}")
+        except Exception:  # best-effort: a calibration miss must not fail the lookup
+            return []
+        cals = record.get("scoreCalibrations") if isinstance(record, dict) else None
+        return cals if isinstance(cals, list) else []
 
     async def get_gene_score_sets(
         self,

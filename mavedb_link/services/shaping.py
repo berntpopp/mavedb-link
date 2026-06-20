@@ -16,6 +16,7 @@ from typing import Any
 
 from mavedb_link.constants import MAVEDB_WEB_URL
 from mavedb_link.identifiers import score_set_urn_of_variant
+from mavedb_link.services.calibration import shape_calibrations
 
 RESPONSE_MODES: tuple[str, ...] = ("minimal", "compact", "standard", "full")
 DEFAULT_RESPONSE_MODE = "compact"
@@ -127,6 +128,10 @@ def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
         "targets": [_shape_target(t, full=full) for t in raw.get("targetGenes") or []],
         "experiment_urn": (raw.get("experiment") or {}).get("urn") or raw.get("experimentUrn"),
         "publications": _shape_publications(raw, full=full),
+        # MaveDB's curated interpretation layer (ACMG/OddsPath/thresholds). Empty
+        # for most sets -> dropped by _drop_empty in compact; the decision-relevant
+        # field the MCP previously discarded.
+        "score_calibrations": shape_calibrations(raw.get("scoreCalibrations"), full=full),
         "processing_state": raw.get("processingState"),
         "published_date": raw.get("publishedDate"),
         "record_url": _web_url("score-sets", raw.get("urn")),
@@ -134,6 +139,7 @@ def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     if full:
         payload.update(
             {
+                "score_ranges": raw.get("scoreRanges"),
                 "abstract_text": raw.get("abstractText"),
                 "method_text": raw.get("methodText"),
                 "dataset_columns": raw.get("datasetColumns"),

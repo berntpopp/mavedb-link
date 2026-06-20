@@ -196,3 +196,92 @@ SCORES_CSV = (
     "urn:mavedb:00000001-a-1#2,c.2T>G,NA,p.Met1Arg,-1.2,0.20\n"
     "urn:mavedb:00000001-a-1#3,c.3G>A,NA,NA,NA,NA\n"
 )
+
+#: A positive-direction calibration (higher = normal; WT anchor = 5), modelled on
+#: the BRCA2 HDR IGVF controls (urn:mavedb:00001224-a-1). Bins are both-exclusive.
+CALIBRATION_POS: dict[str, Any] = {
+    "title": "IGVF Controls",
+    "researchUseOnly": False,
+    "baselineScore": 5.0,
+    "baselineScoreDescription": "Wild-type HDR activity.",
+    "primary": True,
+    "functionalClassifications": [
+        {
+            "label": "Functionally abnormal",
+            "functionalClassification": "abnormal",
+            "range": [None, 1.49],
+            "inclusiveLowerBound": False,
+            "inclusiveUpperBound": False,
+            "acmgClassification": {"criterion": "PS3", "evidenceStrength": "STRONG"},
+            "oddspathsRatio": 42.2,
+            "id": 249,
+            "variantCount": 137,
+        },
+        {
+            "label": "Intermediate",
+            "functionalClassification": "not_specified",
+            "range": [1.49, 2.5],
+            "inclusiveLowerBound": False,
+            "inclusiveUpperBound": False,
+            "id": 251,
+            "variantCount": 12,
+        },
+        {
+            "label": "Functionally normal",
+            "functionalClassification": "normal",
+            "range": [2.5, None],
+            "inclusiveLowerBound": False,
+            "inclusiveUpperBound": False,
+            "acmgClassification": {"criterion": "BS3", "evidenceStrength": "STRONG"},
+            "oddspathsRatio": 0.02,
+            "id": 250,
+            "variantCount": 313,
+        },
+    ],
+    "thresholdSources": [
+        {
+            "identifier": "38417439",
+            "dbName": "PubMed",
+            "title": "Functional analysis of 462 germline BRCA2 missense variants.",
+            "authors": [{"name": "Hu C", "primary": True}],
+        }
+    ],
+}
+
+#: A negative-direction, GAPPED, null-baseline calibration (ExCALIBR-like): scores
+#: in (-0.90, -0.58) fall in no bin -> indeterminate. Higher score = normal.
+CALIBRATION_NEG_GAPPED: dict[str, Any] = {
+    "title": "ExCALIBR calibration",
+    "researchUseOnly": False,
+    "baselineScore": None,
+    "primary": False,
+    "functionalClassifications": [
+        {
+            "label": "BS3 Supporting (-1)",
+            "functionalClassification": "normal",
+            "range": [-0.58, None],
+            "inclusiveLowerBound": False,
+            "inclusiveUpperBound": False,
+            "acmgClassification": {"criterion": "BS3", "evidenceStrength": "SUPPORTING"},
+            "id": 11,
+            "variantCount": 308,
+        },
+        {
+            "label": "PS3 Supporting (1)",
+            "functionalClassification": "abnormal",
+            "range": [None, -0.90],
+            "inclusiveLowerBound": False,
+            "inclusiveUpperBound": False,
+            "acmgClassification": {"criterion": "PS3", "evidenceStrength": "SUPPORTING"},
+            "id": 12,
+            "variantCount": 102,
+        },
+    ],
+    "thresholdSources": [],
+}
+
+#: Score-set record that carries calibrations (the decision-relevant case).
+SCORE_SET_WITH_CALIBRATIONS_RAW: dict[str, Any] = {
+    **SCORE_SET_RAW,
+    "scoreCalibrations": [CALIBRATION_POS, CALIBRATION_NEG_GAPPED],
+}

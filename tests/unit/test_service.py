@@ -156,6 +156,25 @@ async def test_get_variant_scores_total_degrades_when_record_missing(
     assert out["total"] is None
 
 
+@respx.mock(base_url=BASE)
+async def test_get_variant_scores_classifies_rows(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # Every row gets the primary-calibration verdict; the thresholds block travels
+    # with the page so the score column is interpretable in one call.
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    out = await service.get_variant_scores(fixtures.SCORE_SET_URN, start=0, limit=3)
+    assert out["rows"][0]["classification"] == "abnormal"  # score 0.5 < 1.49
+    assert out["rows"][1]["classification"] == "abnormal"  # score -1.2
+    assert "classification" not in out["rows"][2]  # score is None
+    assert out["calibrations"][0]["title"] == "IGVF Controls"
+
+
 async def test_get_variant_scores_rejects_non_score_set_urn(service: MaveDBService) -> None:
     with pytest.raises(InvalidInputError):
         await service.get_variant_scores("urn:mavedb:00000001-a")
@@ -170,11 +189,16 @@ async def test_get_variant_score_by_variant_urn(
     respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
     )
+    # The calibration enrichment reads the (uncalibrated) score-set record.
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+    )
     out = await service.get_variant_score(fixtures.VARIANT_URN)
     assert out["variant_urn"] == fixtures.VARIANT_URN
     assert out["score_set_urn"] == fixtures.SCORE_SET_URN
     assert out["score"] == -1.2
     assert out["hgvs_nt"] == "c.2T>G"
+    assert "classifications" not in out  # uncalibrated set -> no classification
 
 
 @respx.mock(base_url=BASE)
@@ -185,11 +209,68 @@ async def test_get_variant_score_by_hgvs_filters_table(
     respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
     )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+    )
     out = await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs="c.2T>G")
     assert out["urn"] == fixtures.SCORE_SET_URN
     assert out["match_count"] == 1
     assert out["matches"][0]["score"] == -1.2
     assert out["query_hgvs"] == "c.2T>G"
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_by_urn_attaches_classifications(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # The naked score (-1.2) becomes interpretable: abnormal under both calibrations.
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    out = await service.get_variant_score(fixtures.VARIANT_URN)
+    assert out["score"] == -1.2
+    cls = out["classifications"]
+    assert cls[0]["calibration"] == "IGVF Controls"
+    assert cls[0]["classification"] == "abnormal"
+    assert cls[0]["acmg"] == "PS3"
+    assert cls[1]["calibration"] == "ExCALIBR calibration"
+    assert cls[1]["classification"] == "abnormal"
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_classification_is_best_effort(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # If the calibration fetch fails, the score still returns (no classifications).
+    respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
+        return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(503, text="down")
+    )
+    out = await service.get_variant_score(fixtures.VARIANT_URN)
+    assert out["score"] == -1.2
+    assert "classifications" not in out
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_score_by_hgvs_attaches_classifications(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    out = await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs="c.2T>G")
+    assert out["matches"][0]["score"] == -1.2
+    assert out["matches"][0]["classifications"][0]["classification"] == "abnormal"
+    # the calibration thresholds travel with the result so the score is readable
+    assert out["calibrations"][0]["title"] == "IGVF Controls"
 
 
 @respx.mock(base_url=BASE)

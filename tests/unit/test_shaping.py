@@ -11,6 +11,7 @@ from tests.fixtures import (
     GENE_RESPONSE,
     MAPPED_VARIANTS_RAW,
     SCORE_SET_RAW,
+    SCORE_SET_WITH_CALIBRATIONS_RAW,
     VARIANT_RAW,
 )
 
@@ -69,6 +70,31 @@ def test_score_set_compact_publications_summary() -> None:
     assert pubs["primary"][0]["identifier"] == "30037627"
     assert pubs["secondary_count"] == 0
     assert "title" not in pubs["primary"][0]  # compact pub omits title
+
+
+def test_score_set_compact_surfaces_calibrations() -> None:
+    out = shaping.shape_score_set(SCORE_SET_WITH_CALIBRATIONS_RAW, "compact")
+    calib = out["score_calibrations"][0]
+    assert calib["title"] == "IGVF Controls"
+    assert calib["baseline_score"] == 5.0
+    assert calib["classifications"][0]["acmg"] == "PS3"
+    assert calib["classifications"][0]["acmg_strength"] == "STRONG"
+
+
+def test_score_set_without_calibrations_omits_field() -> None:
+    # The base fixture has no scoreCalibrations -> compact drops the empty key.
+    out = shaping.shape_score_set(SCORE_SET_RAW, "compact")
+    assert "score_calibrations" not in out
+
+
+def test_score_set_minimal_excludes_calibrations() -> None:
+    out = shaping.shape_score_set(SCORE_SET_WITH_CALIBRATIONS_RAW, "minimal")
+    assert set(out.keys()) == {"urn", "title"}
+
+
+def test_score_set_full_calibration_classifications_include_id() -> None:
+    out = shaping.shape_score_set(SCORE_SET_WITH_CALIBRATIONS_RAW, "full")
+    assert out["score_calibrations"][0]["classifications"][0]["id"] == 249
 
 
 def test_experiment_shaping() -> None:
