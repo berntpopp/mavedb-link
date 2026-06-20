@@ -98,6 +98,21 @@ def score_set_urn_of_variant(value: str) -> str | None:
     return None
 
 
+def variant_index_of(value: str) -> int | None:
+    """Return the trailing ``#<index>`` of a variant URN as an int, or ``None``.
+
+    The score table (``get_variant_scores``) and the genome mapping
+    (``get_mapped_variants``) both key on this index, but a *string* sort of the
+    variant URN orders ``#1, #10, #100, … #2`` (lexically), mispairing rows when
+    the two are zipped. Parsing the index to an int lets callers sort/join
+    numerically so the alignment actually holds.
+    """
+    candidate = value.strip()
+    if is_variant_urn(candidate):
+        return int(candidate.rsplit("#", 1)[1])
+    return None
+
+
 def validate_score_set_urn(value: str) -> str:
     """Return the trimmed score-set URN, or raise ``InvalidInputError``."""
     candidate = value.strip()

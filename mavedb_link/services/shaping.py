@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from mavedb_link.constants import MAVEDB_WEB_URL
-from mavedb_link.identifiers import score_set_urn_of_variant
+from mavedb_link.identifiers import score_set_urn_of_variant, variant_index_of
 from mavedb_link.services.calibration import shape_calibrations
 
 RESPONSE_MODES: tuple[str, ...] = ("minimal", "compact", "standard", "full")
@@ -225,8 +225,12 @@ def shape_gene(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
 def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project a mapped-variant (VRS allele) record."""
     post = raw.get("postMapped") or {}
+    variant_urn = raw.get("variantUrn") or (raw.get("variant") or {}).get("urn")
     payload: dict[str, Any] = {
-        "variant_urn": raw.get("variantUrn") or (raw.get("variant") or {}).get("urn"),
+        "variant_urn": variant_urn,
+        # The numeric join key: align with get_variant_scores rows by this value,
+        # NOT by row position (some variants are unmapped, so the lists differ).
+        "variant_index": variant_index_of(variant_urn) if variant_urn else None,
         "vrs_id": post.get("id") if isinstance(post, dict) else None,
         "clingen_allele_id": raw.get("clingenAlleleId"),
         "current": raw.get("current"),

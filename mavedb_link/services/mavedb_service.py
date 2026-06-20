@@ -26,7 +26,7 @@ from mavedb_link.constants import (
     VARIANT_SCAN_LIMIT,
 )
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
-from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn
+from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn, variant_index_of
 from mavedb_link.services import distribution, resolvers, shaping
 from mavedb_link.services.calibration import (
     classify_score,
@@ -58,10 +58,22 @@ def _extract_items(
 
 
 def _mapped_variant_urn(item: Any) -> str:
-    """Sort key: a mapped-variant record's source variant URN (or empty)."""
+    """A mapped-variant record's source variant URN (or empty)."""
     if not isinstance(item, dict):
         return ""
     return item.get("variantUrn") or (item.get("variant") or {}).get("urn") or ""
+
+
+def _mapped_sort_key(item: Any) -> tuple[int, str]:
+    """Numeric sort key (``#index``, urn) so rows order #1,#2,…,#10 — not #1,#10,#2.
+
+    Lexical sort of the variant URN string mispairs rows when zipped against the
+    numerically-ordered scores table (F1). Variants with no parseable index sort
+    last (deterministically, by URN string).
+    """
+    urn = _mapped_variant_urn(item)
+    index = variant_index_of(urn)
+    return (index if index is not None else 2**62, urn)
 
 
 def _page_block(*, total: int | None, returned: int, limit: int, offset: int) -> dict[str, Any]:
@@ -455,8 +467,11 @@ class MaveDBService:
 
         Upstream emits both the current and superseded mapping per variant (a 2x
         doubling); ``current_only`` (default) collapses to one row per variant.
-        Rows are ordered by ``variant_urn`` so the page aligns with the
-        ``get_variant_scores`` / ``get_variant_score`` accession column (DEF-5).
+        Upstream returns the list UNORDERED, so rows are sorted **numerically by
+        the variant index** (``#1, #2, … #10``) to match ``get_variant_scores``;
+        each row carries ``variant_index``. Because some variants may be unmapped,
+        the two lists can differ in length — **join on ``variant_urn`` /
+        ``variant_index``, do not zip by row position** (F1).
         """
         score_set_urn = validate_score_set_urn(urn)
         capped = _clamp(limit, 1, MAX_MAPPED_LIMIT)
@@ -464,7 +479,7 @@ class MaveDBService:
         items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
         if current_only:
             items = [it for it in items if isinstance(it, dict) and it.get("current")]
-        items = sorted(items, key=_mapped_variant_urn)
+        items = sorted(items, key=_mapped_sort_key)
         total = len(items)
         page = items[offset : offset + capped]
         results = [shaping.shape_mapped_variant(it, response_mode) for it in page]
@@ -472,7 +487,8 @@ class MaveDBService:
             "urn": score_set_urn,
             "mapped_variants": results,
             "current_only": current_only,
-            "ordering": "variant_urn",
+            "ordering": "variant_index",
+            "join_key": "variant_urn",
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
 

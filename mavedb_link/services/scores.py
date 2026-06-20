@@ -15,6 +15,8 @@ import csv
 import io
 from typing import Any
 
+from mavedb_link.identifiers import variant_index_of
+
 #: Columns that always stay strings (identifiers / HGVS), never coerced to float.
 _STRING_COLUMNS = frozenset({"accession", "hgvs_nt", "hgvs_splice", "hgvs_pro", "guide_sequence"})
 
@@ -84,6 +86,11 @@ def shape_scores(
     ``num_variants`` is known it is used for an exact bound.
     """
     columns, rows = parse_scores_csv(text)
+    for row in rows:
+        accession = row.get("accession")
+        # Surface the numeric join key so callers align rows with get_mapped_variants
+        # by value, never by fragile row position (F1).
+        row["variant_index"] = variant_index_of(accession) if isinstance(accession, str) else None
     returned = len(rows)
     truncated = start + returned < num_variants if num_variants is not None else returned >= limit
     return {

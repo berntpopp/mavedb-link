@@ -21,7 +21,11 @@ from mavedb_link.constants import (
     MAX_FIND_LIMIT,
 )
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
-from mavedb_link.identifiers import score_set_urn_of_variant, validate_score_set_urn
+from mavedb_link.identifiers import (
+    score_set_urn_of_variant,
+    validate_score_set_urn,
+    variant_index_of,
+)
 from mavedb_link.services.calibration import classify_score
 from mavedb_link.services.shaping import shape_mapped_variant, shape_single_variant
 
@@ -107,7 +111,7 @@ async def find_variant(
         params={"only_current": only_current},
     )
     items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
-    items = sorted(items, key=lambda it: _mapped_variant_urn(it))
+    items = sorted(items, key=_cross_dataset_sort_key)
     total = len(items)
     page = items[offset : offset + capped]
     hits: list[dict[str, Any]] = []
@@ -127,10 +131,23 @@ async def find_variant(
 
 
 def _mapped_variant_urn(item: Any) -> str:
-    """Sort key: a mapped-variant record's source variant URN (or empty)."""
+    """A mapped-variant record's source variant URN (or empty)."""
     if not isinstance(item, dict):
         return ""
     return item.get("variantUrn") or (item.get("variant") or {}).get("urn") or ""
+
+
+def _cross_dataset_sort_key(item: Any) -> tuple[str, int]:
+    """Group cross-dataset hits by score set, then order numerically by index.
+
+    A VRS allele can appear in several score sets; ordering by the score-set URN
+    then the numeric variant index keeps a stable, human-sensible order (rather
+    than the lexical #1,#10,#2 a string sort would give).
+    """
+    urn = _mapped_variant_urn(item)
+    base = score_set_urn_of_variant(urn) or urn
+    index = variant_index_of(urn)
+    return (base, index if index is not None else 2**62)
 
 
 async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, Any]:

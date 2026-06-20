@@ -153,9 +153,12 @@ SEARCH_EXPERIMENTS_SCHEMA = _envelope(
 
 MAPPED_VARIANTS_SCHEMA = _envelope(
     urn=_STR,
+    # each row carries variant_index (numeric #index) so callers join with
+    # get_variant_scores rows by value, never by fragile position (F1).
     mapped_variants=_ARR,
     current_only=_BOOL,
     ordering=_STR,
+    join_key=_STR,
     **_PAGE,
 )
 

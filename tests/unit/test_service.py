@@ -429,7 +429,7 @@ async def test_get_mapped_variants_current_only_collapses_and_orders(
     respx_mock: respx.Router, service: MaveDBService
 ) -> None:
     # DEF-5: 2 rows/variant (current + non-current) collapse to 1/variant by default,
-    # ordered by variant_urn so the page aligns with the scores table.
+    # ordered numerically by variant_index so the page aligns with the scores table.
     raw = [
         {
             "variantUrn": f"{fixtures.SCORE_SET_URN}#2",
@@ -458,7 +458,7 @@ async def test_get_mapped_variants_current_only_collapses_and_orders(
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN)
     assert out["total"] == 2
     assert out["current_only"] is True
-    assert out["ordering"] == "variant_urn"
+    assert out["ordering"] == "variant_index"
     assert all(m["current"] for m in out["mapped_variants"])
     assert [m["variant_urn"] for m in out["mapped_variants"]] == [
         f"{fixtures.SCORE_SET_URN}#1",
@@ -479,6 +479,49 @@ async def test_get_mapped_variants_current_only_false_keeps_both(
     )
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN, current_only=False)
     assert out["total"] == 2
+
+
+@respx.mock(base_url=BASE)
+async def test_get_mapped_variants_orders_numerically_not_lexically(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F1: the upstream list is unordered; sorting the variant_urn STRING orders
+    # #1, #10, #2 (lexical), which mispairs rows when zipped against the numeric
+    # scores table. Must sort numerically by the trailing #index: #1, #2, #10.
+    raw = [
+        {
+            "variantUrn": f"{fixtures.SCORE_SET_URN}#10",
+            "postMapped": {"id": "v10"},
+            "current": True,
+        },
+        {"variantUrn": f"{fixtures.SCORE_SET_URN}#2", "postMapped": {"id": "v2"}, "current": True},
+        {"variantUrn": f"{fixtures.SCORE_SET_URN}#1", "postMapped": {"id": "v1"}, "current": True},
+    ]
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+        return_value=httpx.Response(200, json=raw)
+    )
+    out = await service.get_mapped_variants(fixtures.SCORE_SET_URN, limit=10)
+    indices = [m["variant_index"] for m in out["mapped_variants"]]
+    assert indices == [1, 2, 10]  # NOT [1, 10, 2]
+    assert out["ordering"] == "variant_index"
+    # the join key is surfaced on every row so callers never zip blind
+    assert out["mapped_variants"][2]["variant_urn"] == f"{fixtures.SCORE_SET_URN}#10"
+
+
+@respx.mock(base_url=BASE)
+async def test_get_variant_scores_rows_carry_variant_index(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F1 join key: scores rows expose variant_index so they align with mapped
+    # variants by value rather than by fragile row position.
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+    )
+    out = await service.get_variant_scores(fixtures.SCORE_SET_URN, start=0, limit=3)
+    assert [r["variant_index"] for r in out["rows"]] == [1, 2, 3]
 
 
 @respx.mock(base_url=BASE)

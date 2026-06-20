@@ -54,6 +54,17 @@ def test_score_set_urn_of_variant() -> None:
     assert ids.score_set_urn_of_variant("urn:mavedb:00000001-a-1") is None
 
 
+def test_variant_index_of() -> None:
+    # The trailing #<index> parsed as an int so callers can sort/join numerically
+    # (lexical sort of the URN string would order #1, #10, #100, ... #2).
+    assert ids.variant_index_of("urn:mavedb:00000001-a-1#2044") == 2044
+    assert ids.variant_index_of("urn:mavedb:00000001-a-1#1") == 1
+    assert ids.variant_index_of("  urn:mavedb:00000001-a-1#7  ") == 7
+    assert ids.variant_index_of("urn:mavedb:00000001-a-1") is None
+    assert ids.variant_index_of("not-a-urn") is None
+    assert ids.variant_index_of("") is None
+
+
 def test_validate_score_set_urn_ok() -> None:
     assert ids.validate_score_set_urn("urn:mavedb:00000001-a-1") == "urn:mavedb:00000001-a-1"
 

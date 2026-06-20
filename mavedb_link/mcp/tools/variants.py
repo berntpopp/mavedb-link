@@ -181,11 +181,13 @@ def register_variant_tools(mcp: FastMCP) -> None:
         tags={"mave", "variant", "vrs", "mapping"},
         description=(
             "Return the genome-mapped GA4GH VRS alleles for a score set's variants "
-            "(urn:mavedb:...-a-1), each with its source variant URN, VRS allele id, "
-            "ClinGen Allele ID, and current flag — the bridge from assay coordinates "
-            "to reference-genome/clinical coordinates. Rows are ordered by variant_urn "
-            "(aligns with get_variant_scores); current_only (default true) collapses "
-            "the current/superseded pair to one row per variant. Paged via offset/limit. "
+            "(urn:mavedb:...-a-1), each with its source variant URN, variant_index, "
+            "VRS allele id, ClinGen Allele ID, and current flag — the bridge from "
+            "assay coordinates to reference-genome/clinical coordinates. Rows are "
+            "ordered numerically by variant_index to match get_variant_scores, but "
+            "JOIN on variant_urn/variant_index (do not zip by row — some variants "
+            "are unmapped). current_only (default true) collapses the "
+            "current/superseded pair to one row per variant. Paged via offset/limit. "
             "Signature: get_mapped_variants(urn, current_only=, limit=, offset=, response_mode=)."
         ),
     )
