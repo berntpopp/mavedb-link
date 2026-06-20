@@ -41,7 +41,7 @@ uninterpretable float.
 | `get_experiment` | Experiment record + child score-set URNs |
 | `search_experiments` | Full-text experiment search |
 | `get_mapped_variants` | Genome-mapped VRS alleles + ClinGen Allele IDs for a score set |
-| `get_collection` | Curated collection members |
+| `get_collection` | Curated collection members (URN from a score set's `official_collections`, or mavedb.org) |
 | `get_server_capabilities` | Discovery surface: tools, signatures, limits, error taxonomy |
 | `get_diagnostics` | Live API reachability + version + runtime metrics |
 
@@ -96,8 +96,13 @@ make data-status    # show snapshot date, Zenodo record, counts
 make data-refresh   # rebuild only if Zenodo has a newer dump version
 ```
 
-Each response's `_meta.data_source` reports `mirror` | `live` | `mixed`, with
-`mirror_as_of` (the snapshot date); `get_diagnostics.mirror` reports live status.
+Score-set/experiment records, the scores/counts tables, full-text search, the
+score distribution, the cross-dataset VRS rollup, and the per-set mapped-variant
+enumeration (current-only, compact/minimal) are served from the local index; the
+richer mapped-variant reads (full VRS objects), HGVS validation (memoised), and the
+calibration-by-class listing stay live. Each response's `_meta.data_source` reports
+`mirror` | `live` | `mixed`, with `mirror_as_of` (the snapshot date);
+`get_diagnostics.mirror` reports live status.
 In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
 artifact → build, else live-only) and persists the mirror on a volume; prebuilt
 `mavedb.sqlite.zst` artifacts are published to GitHub Releases by
