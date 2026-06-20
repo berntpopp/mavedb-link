@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from mavedb_link.constants import MAPPED_CACHE_LRU_SETS
+from mavedb_link.constants import MAPPED_CACHE_LRU_SETS, MAPPED_CACHE_VERSION
 
 #: A present row means "this set was enriched" -- even a stored ``[]`` (the set has
 #: zero mappings) is a recorded result, distinct from "not yet fetched" (no row).
@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS mapped_variants (
 """
 
 _Items = list[dict[str, Any]]
+
+
+def mapped_cache_data_version(mirror_meta: dict[str, Any] | None) -> str:
+    """Build the cache ``data_version`` from the mirror snapshot.
+
+    ``f"{MAPPED_CACHE_VERSION}:{marker}"`` where ``marker`` is the mirror's Zenodo
+    version (or dump date), else ``"live"``. A mirror refresh to a newer dump thus
+    changes the version and transparently invalidates stale cache rows.
+    """
+    marker = "live"
+    if mirror_meta:
+        marker = str(mirror_meta.get("zenodo_version") or mirror_meta.get("dump_as_of") or "live")
+    return f"{MAPPED_CACHE_VERSION}:{marker}"
 
 
 class _LRU:
