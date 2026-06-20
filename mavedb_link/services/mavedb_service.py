@@ -445,8 +445,12 @@ class MaveDBService:
         capped = _clamp(limit, 1, MAX_MAPPED_LIMIT)
         items = self._mirror_mapped_variants(score_set_urn, current_only, response_mode)
         if items is None:
-            raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-            items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
+            fetch = getattr(self._client, "ensure_mapped_variants", None)
+            if callable(fetch):
+                items = await fetch(score_set_urn)
+            else:
+                raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
+                items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
             if current_only:
                 items = [it for it in items if isinstance(it, dict) and it.get("current")]
         items = sorted(items, key=_mapped_sort_key)
