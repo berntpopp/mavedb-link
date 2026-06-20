@@ -225,6 +225,23 @@ async def test_get_classified_variants_abnormal(
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_score_distribution_summarises_and_locates(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
+    res = await facade.call_tool(
+        "get_score_distribution", {"urn": fixtures.SCORE_SET_URN, "score": 0.5}
+    )
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert payload["n"] == 2  # SCORES_CSV has two numeric scores
+    assert "histogram" in payload
+    assert payload["query"]["score"] == 0.5
+    tools = [s["tool"] for s in payload["_meta"]["next_commands"]]
+    assert "get_variant_scores" in tools
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
 async def test_meta_tiering_by_response_mode(
     respx_mock: respx.Router, facade: Any, structured: Any
 ) -> None:

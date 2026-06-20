@@ -188,3 +188,20 @@ CLASSIFIED_VARIANTS_SCHEMA = _envelope(
     variants=_ARR,
     **_PAGE,
 )
+
+SCORE_DISTRIBUTION_SCHEMA = _envelope(
+    urn=_STR,
+    n=_INT,
+    total_variants=_INT_NULL,
+    truncated=_BOOL,
+    min=_NUM_NULL,
+    max=_NUM_NULL,
+    mean=_NUM_NULL,
+    median=_NUM_NULL,
+    q1=_NUM_NULL,
+    q3=_NUM_NULL,
+    stdev=_NUM_NULL,
+    histogram=_ARR,
+    calibrations=_ARR,
+    query=_OBJ,  # {score, percentile, classifications?} when a query score is given
+)

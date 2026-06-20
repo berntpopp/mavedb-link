@@ -51,6 +51,7 @@ TOOLS: list[str] = [
     "find_variant",
     "get_hgvs_validation",
     "get_classified_variants",
+    "get_score_distribution",
 ]
 
 _SUMMARY_KEYS: tuple[str, ...] = (

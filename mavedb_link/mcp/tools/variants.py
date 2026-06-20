@@ -16,11 +16,13 @@ from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import (
     after_get_mapped_variants,
+    after_get_score_distribution,
     after_get_variant_score,
     after_get_variant_scores,
 )
 from mavedb_link.mcp.schemas import (
     MAPPED_VARIANTS_SCHEMA,
+    SCORE_DISTRIBUTION_SCHEMA,
     VARIANT_SCORE_SCHEMA,
     VARIANT_SCORES_SCHEMA,
 )
@@ -127,6 +129,47 @@ def register_variant_tools(mcp: FastMCP) -> None:
             call,
             context=McpErrorContext(
                 "get_variant_score", arguments={"urn": urn}, response_mode=response_mode
+            ),
+        )
+
+    @mcp.tool(
+        name="get_score_distribution",
+        title="Get Score Distribution",
+        annotations=READ_ONLY_OPEN_WORLD,
+        output_schema=SCORE_DISTRIBUTION_SCHEMA,
+        tags={"mave", "variant", "score", "distribution", "statistics"},
+        description=(
+            "Summarise a score set's score distribution server-side (MaveDB has no "
+            "stats endpoint): n, min/max, mean, median, quartiles, stdev, and a "
+            "10-bin histogram — a compact summary INSTEAD of paging the whole "
+            "table. Pass score= to locate that value (its percentile + calibrated "
+            "classification). Carries the calibration thresholds when present. "
+            "Signature: get_score_distribution(urn, score=, response_mode=)."
+        ),
+    )
+    async def get_score_distribution(
+        urn: ScoreSetUrnStr,
+        score: Annotated[
+            float | None,
+            Field(
+                default=None,
+                description="A score to locate within the distribution (percentile + class).",
+            ),
+        ] = None,
+        response_mode: ResponseMode = "compact",
+    ) -> dict[str, Any]:
+        async def call() -> dict[str, Any]:
+            payload = await get_mavedb_service().get_score_distribution(
+                urn, score=score, response_mode=response_mode
+            )
+            payload.setdefault("_meta", {})["next_commands"] = after_get_score_distribution(payload)
+            return payload
+
+        return await run_mcp_tool(
+            "get_score_distribution",
+            call,
+            context=McpErrorContext(
+                "get_score_distribution", arguments={"urn": urn}, response_mode=response_mode
             ),
         )
 

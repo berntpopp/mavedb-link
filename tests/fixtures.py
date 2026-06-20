@@ -286,6 +286,11 @@ SCORE_SET_WITH_CALIBRATIONS_RAW: dict[str, Any] = {
     "scoreCalibrations": [CALIBRATION_POS, CALIBRATION_NEG_GAPPED],
 }
 
+#: A 10-row scores CSV (scores 0.0..9.0) for distribution-summary tests.
+DISTRIBUTION_SCORES_CSV = "accession,hgvs_nt,score\n" + "".join(
+    f"urn:mavedb:00000001-a-1#{i},c.{i}A>T,{float(i)}\n" for i in range(10)
+)
+
 #: Cross-dataset VRS lookup: one allele present in two score sets, as
 #: GET /mapped-variants/vrs/{identifier} returns it (a bare list).
 VRS_ID = "ga4gh:VA.KJ_post2"

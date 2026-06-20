@@ -199,6 +199,14 @@ def after_find_variant(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return steps or [cmd("get_server_capabilities")]
 
 
+def after_get_score_distribution(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """After get_score_distribution: open the record + the underlying score table."""
+    urn = payload.get("urn")
+    if not urn:
+        return [cmd("get_server_capabilities")]
+    return [cmd("get_score_set", urn=urn), cmd("get_variant_scores", urn=urn)]
+
+
 def after_get_hgvs_validation(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """After get_hgvs_validation: search for a relevant score set when valid."""
     if payload.get("valid"):

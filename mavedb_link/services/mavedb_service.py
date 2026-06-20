@@ -27,7 +27,7 @@ from mavedb_link.constants import (
 )
 from mavedb_link.exceptions import InvalidInputError, NotFoundError
 from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn
-from mavedb_link.services import resolvers, shaping
+from mavedb_link.services import distribution, resolvers, shaping
 from mavedb_link.services.calibration import (
     classify_score,
     primary_classification,
@@ -500,6 +500,16 @@ class MaveDBService:
     async def get_hgvs_validation(self, variant: str) -> dict[str, Any]:
         """Validate an HGVS string upstream (delegated to resolvers)."""
         return await resolvers.get_hgvs_validation(self._client, variant)
+
+    async def get_score_distribution(
+        self,
+        urn: str,
+        *,
+        score: float | None = None,
+        response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
+    ) -> dict[str, Any]:
+        """Summarise a score set's score distribution (delegated to distribution)."""
+        return await distribution.score_distribution(self._client, urn, score=score)
 
     async def get_classified_variants(
         self,

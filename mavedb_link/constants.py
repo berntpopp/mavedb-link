@@ -71,6 +71,11 @@ SEARCH_FETCH_LIMIT = 100
 #: Single-variant hgvs lookup scans the full scores table in one upstream read
 #: (the largest MaveDB tables are ~tens of thousands of rows); cached thereafter.
 VARIANT_SCAN_LIMIT = 200_000
+#: get_score_distribution reads the whole scores table once to compute summary
+#: statistics server-side (a summary instead of returning every row).
+DISTRIBUTION_FETCH_LIMIT = 200_000
+#: Histogram bin count for the distribution summary.
+DISTRIBUTION_BINS = 10
 
 #: Score-table CSV namespaces selectable via get_variant_scores.
 SCORE_NAMESPACES: list[str] = ["scores", "counts"]

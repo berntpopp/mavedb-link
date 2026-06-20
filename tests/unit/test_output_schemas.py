@@ -34,6 +34,7 @@ _CALLS: dict[str, dict[str, Any]] = {
     "find_variant": {"vrs_id": fixtures.VRS_ID},
     "get_hgvs_validation": {"variant": "NM_000059.4:c.8167G>A"},
     "get_classified_variants": {"urn": fixtures.SCORE_SET_URN},
+    "get_score_distribution": {"urn": fixtures.SCORE_SET_URN},
 }
 
 
