@@ -11,6 +11,7 @@ import logging
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.data.hybrid import HybridClient
+from mavedb_link.data.mapped_cache import MappedVariantCache, mapped_cache_data_version
 from mavedb_link.data.repository import MirrorRepository
 from mavedb_link.services.mavedb_service import MaveDBService
 
@@ -37,7 +38,17 @@ def _build_service() -> MaveDBService:
                 meta.get("dump_as_of"),
                 meta.get("score_set_count"),
             )
-            return MaveDBService(HybridClient(settings.api, repository=repo))
+            cache = None
+            if settings.cache.enabled:
+                try:
+                    cache = MappedVariantCache(
+                        settings.cache.db_path,
+                        data_version=mapped_cache_data_version(meta),
+                        lru_sets=settings.cache.lru_sets,
+                    )
+                except Exception as exc:
+                    logger.warning("mapped-variant cache disabled: %s", exc, exc_info=True)
+            return MaveDBService(HybridClient(settings.api, repository=repo, cache=cache))
         logger.info(
             "mirror enabled but no database at %s; serving live-only", settings.mirror.db_path
         )

@@ -19,12 +19,14 @@ live, so a snapshot newer than the dump is always reachable.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from urllib.parse import unquote
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.config import MaveDBApiConfig
 from mavedb_link.data import provenance
+from mavedb_link.data.mapped_cache import MappedVariantCache
 from mavedb_link.data.repository import MirrorRepository
 
 #: Sentinel: "the mirror does not answer this read" (vs a real ``None`` payload).
@@ -34,11 +36,19 @@ _MISS = object()
 class HybridClient(MaveDBClient):
     """A live MaveDB client that serves what it can from the local mirror first."""
 
-    def __init__(self, config: MaveDBApiConfig | None, *, repository: MirrorRepository) -> None:
+    def __init__(
+        self,
+        config: MaveDBApiConfig | None,
+        *,
+        repository: MirrorRepository,
+        cache: MappedVariantCache | None = None,
+    ) -> None:
         """Wrap the live client config and a read-only mirror repository."""
         super().__init__(config)
         self._repo = repository
         self._mirror_as_of = repository.meta().get("dump_as_of")
+        self._mapped_cache = cache
+        self._mapped_inflight: dict[str, asyncio.Lock] = {}
 
     async def get_json(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
         """Serve a GET-JSON read from the mirror when possible, else live."""
@@ -91,7 +101,11 @@ class HybridClient(MaveDBClient):
         """
         rows = self._repo.mapped_by_score_set(score_set_urn)
         if not rows:
-            return None
+            cached = self._mapped_cache_get(score_set_urn)
+            if cached is None:
+                return None
+            provenance.record("live")
+            return [it for it in cached if isinstance(it, dict) and it.get("current")]
         provenance.record("mirror", mirror_as_of=self._mirror_as_of)
         return _as_mapped_variants(rows)
 
@@ -107,6 +121,12 @@ class HybridClient(MaveDBClient):
             if vrs:
                 provenance.record("mirror", mirror_as_of=self._mirror_as_of)
                 return str(vrs)
+        score_set_urn = _score_set_urn_for_variant(variant_urn)
+        cached = self._mapped_cache_get(score_set_urn) if score_set_urn else None
+        vrs = _vrs_for_variant(cached or [], variant_urn)
+        if vrs:
+            provenance.record("live")
+            return vrs
         return None
 
     def vrs_for_hgvs(
@@ -118,10 +138,13 @@ class HybridClient(MaveDBClient):
         ``[]`` on miss (no mirror coverage) so the caller falls through to the live
         probe. Records mirror provenance only when it actually answers.
         """
-        rows = self._repo.resolve_hgvs(core, full, gene=gene)
+        rows = [r for r in self._repo.resolve_hgvs(core, full, gene=gene) if r.get("vrs_id")]
         if rows:
             provenance.record("mirror", mirror_as_of=self._mirror_as_of)
-        return rows
+        cached = self._cached_vrs_for_hgvs(core, gene=gene)
+        if cached:
+            provenance.record("live")
+        return _dedupe_hgvs_rows([*rows, *cached])
 
     def gene_identity(self, symbol: str) -> dict[str, Any] | None:
         """Thin gene identity (symbol + organism) from the mirror index, or None."""
@@ -130,10 +153,95 @@ class HybridClient(MaveDBClient):
             provenance.record("mirror", mirror_as_of=self._mirror_as_of)
         return ident
 
+    async def ensure_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
+        """Return raw mapped variants, lazily fetching and caching by score set.
+
+        Cache rows are live-authority data, so cache hits record ``data_source=live``.
+        Only an explicit mirror ``mappingState == "failed"`` short-circuits to a
+        cached empty list; every other state falls through to the live API and lets
+        live errors propagate exactly as the base client does.
+        """
+        if self._mapped_cache is None:
+            return await self._fetch_live_mapped_variants(score_set_urn)
+        hit = self._mapped_cache_get(score_set_urn)
+        if hit is not None:
+            provenance.record("live")
+            return hit
+        lock = self._mapped_inflight.setdefault(score_set_urn, asyncio.Lock())
+        try:
+            async with lock:
+                hit = self._mapped_cache_get(score_set_urn)
+                if hit is not None:
+                    provenance.record("live")
+                    return hit
+                record = self._repo.score_set_record(score_set_urn)
+                if isinstance(record, dict) and record.get("mappingState") == "failed":
+                    items: list[dict[str, Any]] = []
+                else:
+                    items = await self._fetch_live_mapped_variants(score_set_urn)
+                self._mapped_cache_put(score_set_urn, items)
+                return items
+        finally:
+            if self._mapped_inflight.get(score_set_urn) is lock and not lock.locked():
+                self._mapped_inflight.pop(score_set_urn, None)
+
+    def mapped_cache_stats(self) -> dict[str, Any] | None:
+        """Diagnostics for the mapped-variant cache, or None when disabled/broken."""
+        if self._mapped_cache is None:
+            return None
+        try:
+            return self._mapped_cache.stats()
+        except Exception:
+            return None
+
     async def aclose(self) -> None:
         """Close the live client and the mirror connection."""
         await super().aclose()
         self._repo.close()
+        if self._mapped_cache is not None:
+            self._mapped_cache.close()
+
+    async def _fetch_live_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
+        provenance.record("live")
+        raw = await super().get_json(f"/score-sets/{score_set_urn}/mapped-variants")
+        return _as_mapped_list(raw)
+
+    def _mapped_cache_get(self, score_set_urn: str) -> list[dict[str, Any]] | None:
+        if self._mapped_cache is None:
+            return None
+        try:
+            return self._mapped_cache.get(score_set_urn)
+        except Exception:
+            return None
+
+    def _mapped_cache_put(self, score_set_urn: str, items: list[dict[str, Any]]) -> None:
+        if self._mapped_cache is None:
+            return
+        try:
+            self._mapped_cache.put(score_set_urn, items)
+        except Exception:
+            return
+
+    def _cached_vrs_for_hgvs(
+        self, core: str, *, gene: str | None = None
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for candidate in self._repo.hgvs_variant_urns(core, gene=gene):
+            variant_urn = str(candidate.get("variant_urn") or "")
+            score_set_urn = str(candidate.get("score_set_urn") or "")
+            cached = self._mapped_cache_get(score_set_urn)
+            if cached is None:
+                continue
+            vrs = _vrs_for_variant(cached, variant_urn)
+            if vrs:
+                rows.append(
+                    {
+                        "variant_urn": variant_urn,
+                        "score_set_urn": score_set_urn,
+                        "vrs_id": vrs,
+                    }
+                )
+        return rows
 
     # --- mirror routing -------------------------------------------------------
 
@@ -183,6 +291,17 @@ def mirror_status(client: object) -> dict[str, Any]:
     }
 
 
+def mapped_cache_status(client: object) -> dict[str, Any]:
+    """Diagnostics block for the mapped-variant cache behind ``client``."""
+    stats_fn = getattr(client, "mapped_cache_stats", None)
+    if not callable(stats_fn):
+        return {"enabled": False}
+    stats = stats_fn()
+    if not isinstance(stats, dict):
+        return {"enabled": False}
+    return {"enabled": True, **stats}
+
+
 def _as_mapped_variants(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Reconstruct the upstream mapped-variant shape from mirror identity rows."""
     return [
@@ -194,3 +313,47 @@ def _as_mapped_variants(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:
+    """Normalise a ``/mapped-variants`` response to raw dict records."""
+    items = (
+        raw
+        if isinstance(raw, list)
+        else (raw.get("mappedVariants") if isinstance(raw, dict) else None)
+    )
+    return [it for it in (items or []) if isinstance(it, dict)]
+
+
+def _score_set_urn_for_variant(variant_urn: str) -> str | None:
+    """Return the score-set URN segment of ``urn:mavedb:...#n``."""
+    if "#" not in variant_urn:
+        return None
+    return variant_urn.split("#", 1)[0]
+
+
+def _vrs_for_variant(items: list[dict[str, Any]], variant_urn: str) -> str | None:
+    """Find a variant's post-mapped VRS id in raw mapped-variant records."""
+    for item in items:
+        if item.get("variantUrn") != variant_urn:
+            continue
+        post_mapped = item.get("postMapped")
+        if isinstance(post_mapped, dict) and post_mapped.get("id"):
+            return str(post_mapped["id"])
+    return None
+
+
+def _dedupe_hgvs_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dedupe VRS rows while preserving mirror/cache field shape."""
+    out: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        variant_urn = str(row.get("variant_urn") or "")
+        score_set_urn = str(row.get("score_set_urn") or "")
+        vrs_id = str(row.get("vrs_id") or "")
+        if variant_urn and score_set_urn and vrs_id:
+            out[(score_set_urn, variant_urn, vrs_id)] = {
+                "variant_urn": variant_urn,
+                "score_set_urn": score_set_urn,
+                "vrs_id": vrs_id,
+            }
+    return [out[k] for k in sorted(out)]
