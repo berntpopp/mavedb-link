@@ -29,3 +29,12 @@ docker/.env
 
 # GSD planning artifacts (internal scratch; public docs live in docs/)
 .planning/
+
+# Local SQLite mirror + downloaded bulk dump (build artifacts; never committed)
+/data/
+*.sqlite
+*.sqlite-*
+*.sqlite.tmp
+*.sqlite.zst
+*.sqlite.zst.sha256
+mavedb-dump*.zip
