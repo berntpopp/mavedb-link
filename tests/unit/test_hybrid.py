@@ -136,7 +136,8 @@ async def test_mapped_variants_served_from_mirror(hybrid: HybridClient) -> None:
 
 async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClient) -> None:
     # standard/full need the full VRS objects the annotation index lacks, so they
-    # fall through to live to preserve shape interchangeability.
+    # fall through to live. standard now returns a FLAT post_mapped genomic summary
+    # (assembly/sequence_id/start/end/ref/alt) and DROPS pre_mapped; full keeps both.
     provenance.begin()
     with respx.mock(base_url=BASE_URL) as mock:
         route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
@@ -146,7 +147,19 @@ async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClie
                     {
                         "variantUrn": f"{CALIBRATED_URN}#1",
                         "preMapped": {"id": "pre1"},
-                        "postMapped": {"id": "ga4gh:VA.MINI_digest1", "type": "Allele"},
+                        "postMapped": {
+                            "id": "ga4gh:VA.MINI_digest1",
+                            "type": "Allele",
+                            "location": {
+                                "sequenceReference": {
+                                    "refgetAccession": "SQ.MINI",
+                                    "assembly": "GRCh38",
+                                },
+                                "start": 32316460,
+                                "end": 32316461,
+                            },
+                            "state": {"sequence": "T"},
+                        },
                         "clingenAlleleId": "CA999001",
                         "current": True,
                         "vrsVersion": "2.0",
@@ -159,7 +172,16 @@ async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClie
         )
     assert route.called
     assert provenance.snapshot()["data_source"] == "live"
-    assert "post_mapped" in out["mapped_variants"][0]
+    row = out["mapped_variants"][0]
+    assert "pre_mapped" not in row  # trimmed at standard
+    assert row["post_mapped"] == {
+        "assembly": "GRCh38",
+        "sequence_id": "SQ.MINI",
+        "start": 32316460,
+        "end": 32316461,
+        "alt": "T",
+    }
+    assert row["vrs_version"] == "2.0"
 
 
 async def test_mapped_variants_current_false_falls_through_to_live(hybrid: HybridClient) -> None:
