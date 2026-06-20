@@ -131,8 +131,8 @@ async def test_get_variant_score_by_urn_chains(
     res = await facade.call_tool("get_variant_score", {"urn": fixtures.VARIANT_URN})
     payload = structured(res)
     _assert_envelope_ok(payload)
-    assert payload["score"] == -1.2
-    assert payload["score_set_urn"] == fixtures.SCORE_SET_URN
+    assert payload["variants"][0]["score"] == -1.2
+    assert payload["urn"] == fixtures.SCORE_SET_URN
     tools = [s["tool"] for s in payload["_meta"]["next_commands"]]
     assert "get_score_set" in tools
 
@@ -148,7 +148,7 @@ async def test_get_variant_score_by_hgvs(
     payload = structured(res)
     _assert_envelope_ok(payload)
     assert payload["match_count"] == 1
-    assert payload["matches"][0]["score"] == -1.2
+    assert payload["variants"][0]["score"] == -1.2
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)

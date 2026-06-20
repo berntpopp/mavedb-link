@@ -99,8 +99,11 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "table. Pass a full variant URN (urn:mavedb:...-a-1#2) to resolve it "
             "directly, OR a score-set URN plus hgvs= (e.g. 'c.8168A>G' or "
             "'p.Arg1699Trp') to scan that score set's table for the matching row(s). "
-            "Returns the variant's score (+ hgvs, score_set_urn). The fast path for "
-            "'what is the score for this variant?'. "
+            "BOTH paths return the same shape: {urn, query, resolved_by, match_count, "
+            "variants:[{variant_urn, variant_index, hgvs_nt, hgvs_pro, score, "
+            "classifications?}], calibrations?}. mapped_variants are opt-in "
+            "(standard/full) and current-only unless full. The fast path for 'what is "
+            "the score (and calibrated class) for this variant?'. "
             "Signature: get_variant_score(urn, hgvs=, response_mode=)."
         ),
     )

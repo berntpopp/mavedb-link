@@ -197,6 +197,28 @@ SCORES_CSV = (
     "urn:mavedb:00000001-a-1#3,c.3G>A,NA,NA,NA,NA\n"
 )
 
+#: A variant record that ALSO carries a superseded (current:false) mapping, to
+#: prove get_variant_score drops historical rows except at full (F2).
+VARIANT_RAW_WITH_HISTORY: dict[str, Any] = {
+    **VARIANT_RAW,
+    "mappedVariants": [
+        {
+            "variantUrn": VARIANT_URN,
+            "postMapped": {"type": "Allele", "id": "ga4gh:VA.KJ_post2"},
+            "clingenAlleleId": "CA000002",
+            "current": True,
+            "mappingApiVersion": "2.0",
+        },
+        {
+            "variantUrn": VARIANT_URN,
+            "postMapped": {"type": "Allele", "id": "ga4gh:VA.OLD_post2"},
+            "clingenAlleleId": "CA000002",
+            "current": False,
+            "mappingApiVersion": "1.0",
+        },
+    ],
+}
+
 #: A positive-direction calibration (higher = normal; WT anchor = 5), modelled on
 #: the BRCA2 HDR IGVF controls (urn:mavedb:00001224-a-1). Bins are both-exclusive.
 CALIBRATION_POS: dict[str, Any] = {

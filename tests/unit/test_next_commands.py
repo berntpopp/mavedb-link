@@ -54,8 +54,14 @@ def test_after_variant_scores_pages_by_start() -> None:
 
 
 def test_after_variant_score_opens_score_set() -> None:
+    # The unified payload carries the score-set URN at top level (urn) for BOTH
+    # resolution paths (F2).
     steps = nc.after_get_variant_score(
-        {"variant_urn": "urn:mavedb:00000001-a-1#2", "score_set_urn": "urn:mavedb:00000001-a-1"}
+        {
+            "urn": "urn:mavedb:00000001-a-1",
+            "resolved_by": "variant_urn",
+            "variants": [{"variant_urn": "urn:mavedb:00000001-a-1#2"}],
+        }
     )
     assert steps[0] == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1")
     assert any(s["tool"] == "get_mapped_variants" for s in steps)

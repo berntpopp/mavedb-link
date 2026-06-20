@@ -23,17 +23,11 @@ from mavedb_link.constants import (
     MAX_SCORES_LIMIT,
     MAX_SEARCH_LIMIT,
     SEARCH_FETCH_LIMIT,
-    VARIANT_SCAN_LIMIT,
 )
-from mavedb_link.exceptions import InvalidInputError, NotFoundError
-from mavedb_link.identifiers import is_variant_urn, validate_score_set_urn, variant_index_of
-from mavedb_link.services import distribution, resolvers, shaping
-from mavedb_link.services.calibration import (
-    classify_score,
-    primary_classification,
-    shape_calibrations,
-)
-from mavedb_link.services.scores import hgvs_matches, parse_scores_csv, shape_scores
+from mavedb_link.identifiers import validate_score_set_urn, variant_index_of
+from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
+from mavedb_link.services.calibration import primary_classification, shape_calibrations
+from mavedb_link.services.scores import shape_scores
 from mavedb_link.services.search import apply_sparse_facets, rank_by_target_match
 
 
@@ -214,78 +208,10 @@ class MaveDBService:
         hgvs: str | None = None,
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
-        """Look up ONE variant's score without paging the whole table (DEF-6).
-
-        Two entry forms: a full variant URN (``…-a-1#<index>``) resolves directly
-        via ``GET /variants/{urn}``; a score-set URN plus ``hgvs`` scans the score
-        table once (cached thereafter) and returns the matching row(s).
-        """
-        candidate = urn.strip()
-        if is_variant_urn(candidate):
-            # The variant URN's '#<index>' must be percent-encoded or httpx drops it
-            # as a URL fragment.
-            raw = await self._client.get_json(f"/variants/{candidate.replace('#', '%23')}")
-            payload = shaping.shape_single_variant(raw, response_mode)
-            calibrations = await self._raw_calibrations(payload.get("score_set_urn"))
-            classified = classify_score(payload.get("score"), calibrations)
-            if classified:
-                payload["classifications"] = classified
-            return payload
-        score_set_urn = validate_score_set_urn(candidate)
-        if not hgvs or not hgvs.strip():
-            raise InvalidInputError(
-                "Provide hgvs= (e.g. 'c.8168A>G' or 'p.Arg1699Trp') to look up one "
-                "variant, or pass a full variant URN ('urn:mavedb:...-a-1#<index>').",
-                field="hgvs",
-                hint="Variant URNs are the 'accession' column of get_variant_scores "
-                "and 'variant_urn' in get_mapped_variants.",
-            )
-        text = await self._client.get_text(
-            f"/score-sets/{score_set_urn}/scores", params={"start": 0, "limit": VARIANT_SCAN_LIMIT}
+        """Look up ONE variant's score by variant URN or score-set URN + hgvs (delegated)."""
+        return await variant_lookup.get_variant_score(
+            self._client, urn, hgvs=hgvs, response_mode=response_mode
         )
-        _columns, rows = parse_scores_csv(text)
-        query = hgvs.strip().lower()
-        matches = [r for r in rows if hgvs_matches(r, query)]
-        if not matches:
-            raise NotFoundError(
-                f"No variant matching hgvs '{hgvs.strip()}' in {score_set_urn} "
-                f"(scanned {len(rows)} rows). Check the hgvs string against "
-                "get_variant_scores, or pass a variant URN."
-            )
-        result: dict[str, Any] = {
-            "urn": score_set_urn,
-            "query_hgvs": hgvs.strip(),
-            "columns": _columns,
-            "matches": matches,
-            "match_count": len(matches),
-            "scanned_rows": len(rows),
-        }
-        calibrations = await self._raw_calibrations(score_set_urn)
-        if calibrations:
-            for match in matches:
-                classified = classify_score(match.get("score"), calibrations)
-                if classified:
-                    match["classifications"] = classified
-            result["calibrations"] = shape_calibrations(
-                calibrations, full=response_mode in ("standard", "full")
-            )
-        return result
-
-    async def _raw_calibrations(self, score_set_urn: str | None) -> list[dict[str, Any]]:
-        """Best-effort fetch of a score set's raw ``scoreCalibrations`` (never raises).
-
-        Classification enrichment must never fail the underlying score lookup, so
-        any upstream error degrades to "no calibrations" rather than propagating.
-        The score-set record read is cached, so this is usually free.
-        """
-        if not score_set_urn:
-            return []
-        try:
-            record = await self._client.get_json(f"/score-sets/{score_set_urn}")
-        except Exception:  # best-effort: a calibration miss must not fail the lookup
-            return []
-        cals = record.get("scoreCalibrations") if isinstance(record, dict) else None
-        return cals if isinstance(cals, list) else []
 
     async def get_gene_score_sets(
         self,

@@ -58,13 +58,15 @@ async def test_single_variant_path_returns_score_in_one_call(
     # DEF-6: a variant's score is retrievable without paging — by URN and by hgvs.
     _mock_core(respx_mock)
     by_urn = structured(await facade.call_tool("get_variant_score", {"urn": fixtures.VARIANT_URN}))
-    assert by_urn["score"] == -1.2
+    assert by_urn["variants"][0]["score"] == -1.2
     by_hgvs = structured(
         await facade.call_tool(
             "get_variant_score", {"urn": fixtures.SCORE_SET_URN, "hgvs": "c.2T>G"}
         )
     )
-    assert by_hgvs["matches"][0]["score"] == -1.2
+    assert by_hgvs["variants"][0]["score"] == -1.2
+    # F2: both resolution paths return the same shape
+    assert set(by_urn) == set(by_hgvs)
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)

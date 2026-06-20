@@ -265,19 +265,23 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         score_set_urn = score_set_urn_of_variant(variant_urn)
     payload: dict[str, Any] = {
         "variant_urn": variant_urn,
+        "variant_index": variant_index_of(variant_urn) if isinstance(variant_urn, str) else None,
         "score_set_urn": score_set_urn,
         "hgvs_nt": raw.get("hgvsNt"),
         "hgvs_pro": raw.get("hgvsPro"),
         "score": score_data.get("score"),
     }
     if response_mode in ("standard", "full"):
+        # Embedded mappings are current-only except at full -- the by-URN path used
+        # to leak superseded current:false rows (F2).
+        mapped = raw.get("mappedVariants") or []
+        if response_mode != "full":
+            mapped = [m for m in mapped if isinstance(m, dict) and m.get("current")]
         payload.update(
             {
                 "score_data": score_data,
                 "count_data": data.get("count_data"),
-                "mapped_variants": [
-                    shape_mapped_variant(m, response_mode) for m in raw.get("mappedVariants") or []
-                ],
+                "mapped_variants": [shape_mapped_variant(m, response_mode) for m in mapped],
             }
         )
         return payload

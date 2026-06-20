@@ -108,21 +108,16 @@ VARIANT_SCORES_SCHEMA = _envelope(
 )
 
 VARIANT_SCORE_SCHEMA = _envelope(
-    # variant-URN direct-fetch form
-    variant_urn=_STR_NULL,
-    score_set_urn=_STR_NULL,
-    hgvs_nt=_STR_NULL,
-    hgvs_pro=_STR_NULL,
-    score=_NUM_NULL,
-    classifications=_ARR,  # per-calibration functional class (ACMG/OddsPath)
-    # hgvs-scan form
-    urn=_STR,
-    query_hgvs=_STR_NULL,
-    columns=_ARR,
-    matches=_ARR,
-    calibrations=_ARR,
+    # Unified shape for BOTH resolution paths (variant URN and score-set + hgvs):
+    # the same key set at every response_mode (F2).
+    urn=_STR,  # the score-set URN
+    query=_STR_NULL,  # the variant URN or hgvs string that was resolved
+    resolved_by=_STR,  # "variant_urn" | "hgvs"
     match_count=_INT,
-    scanned_rows=_INT,
+    # each variant: {variant_urn, variant_index, score_set_urn, hgvs_nt, hgvs_pro,
+    # score, classifications?, (standard/full) score_data/count_data/mapped_variants}
+    variants=_ARR,
+    calibrations=_ARR,  # thresholds block, present when the set is calibrated
 )
 
 GENE_SCORE_SETS_SCHEMA = _envelope(

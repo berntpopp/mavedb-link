@@ -19,17 +19,30 @@ from tests.fixtures import (
 def test_shape_single_variant_compact_has_score_and_hgvs() -> None:
     out = shaping.shape_single_variant(VARIANT_RAW, "compact")
     assert out["variant_urn"] == "urn:mavedb:00000001-a-1#2"
+    assert out["variant_index"] == 2  # F1 join key
     assert out["score_set_urn"] == "urn:mavedb:00000001-a-1"
     assert out["score"] == -1.2
     assert out["hgvs_nt"] == "c.2T>G"
     # compact omits the heavy blocks
     assert "count_data" not in out
+    assert "mapped_variants" not in out
 
 
 def test_shape_single_variant_full_has_blocks() -> None:
     out = shaping.shape_single_variant(VARIANT_RAW, "full")
     assert out["count_data"] == {"c_0": 10, "c_1": 5}
     assert out["mapped_variants"][0]["clingen_allele_id"] == "CA000002"
+
+
+def test_shape_single_variant_standard_drops_historical_mappings() -> None:
+    # F2: embedded mapped_variants are current-only except at full (the old payload
+    # leaked superseded current:false rows across several mapping_api_versions).
+    from tests.fixtures import VARIANT_RAW_WITH_HISTORY
+
+    standard = shaping.shape_single_variant(VARIANT_RAW_WITH_HISTORY, "standard")
+    assert [m["current"] for m in standard["mapped_variants"]] == [True]
+    full = shaping.shape_single_variant(VARIANT_RAW_WITH_HISTORY, "full")
+    assert {m["current"] for m in full["mapped_variants"]} == {True, False}
 
 
 @pytest.mark.parametrize("mode", list(shaping.RESPONSE_MODES))
