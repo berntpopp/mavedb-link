@@ -249,7 +249,12 @@ def build_capabilities() -> dict[str, Any]:
             "(search_score_sets, get_gene_score_sets) are intentionally lighter than "
             "the record: targets collapse to gene-name strings and the curated "
             "calibration ladder is replaced by has_calibrations (read it via "
-            "get_score_set) regardless of response_mode."
+            "get_score_set) regardless of response_mode. For mapped-variant rows "
+            "(find_variant, get_mapped_variants), standard returns a FLAT post_mapped "
+            "genomic summary (assembly, sequence_id, start, end, ref, alt) and drops "
+            "pre_mapped; request response_mode=full for the complete pre/post VRS "
+            "objects. find_variant also accepts a bare hgvs= (+ optional gene=) "
+            "resolved to VRS internally, so an HGVS string needs no map-first round-trip."
         ),
         "recommended_workflows": [
             "gene -> get_gene_score_sets -> get_score_set -> get_variant_scores",

@@ -56,9 +56,14 @@ its baseline with `make eval-baseline` after an intentional surface change.
   `MIRROR_SCHEMA_VERSION` (in `constants.py`) on any shape change.
 - **Serve** (`data/hybrid.py`): `HybridClient` subclasses `MaveDBClient` and
   overrides `get_json`/`get_text`/`post_json` to answer from the mirror, else
-  `super()` (live). The whole service/shaping/calibration stack consumes it
-  unchanged. `_meta.data_source` (`mirror`|`live`|`mixed`) + `mirror_as_of`
-  report provenance per call; `get_diagnostics.mirror` reports snapshot status.
+  `super()` (live). It also exposes duck-typed helpers the services prefer when
+  present: `vrs_for_hgvs` (HGVS→VRS via the `hgvs_index`, for `find_variant(hgvs=)`)
+  and `gene_identity` (thin symbol+organism fallback for `get_gene_score_sets`,
+  whose score-set listing is mirror-served while rich `/genes` identity is
+  memoised + time-boxed in `services/resolvers`). The whole
+  service/shaping/calibration stack consumes it unchanged. `_meta.data_source`
+  (`mirror`|`live`|`mixed`) + `mirror_as_of` report provenance per call;
+  `get_diagnostics.mirror` reports snapshot status.
 - **Acquire/refresh** (`mavedb-link-data` CLI): `bootstrap` (reuse → pull
   prebuilt artifact → build, else degrade to live-only), `build`, `refresh`,
   `status`, `pull`, `pack`, `publish`. Prebuilt `mavedb.sqlite.zst` artifacts are

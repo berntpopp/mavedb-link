@@ -230,9 +230,7 @@ async def _live_probe_hgvs(client: MaveDBClient, hgvs: str, gene: str) -> tuple[
         f"/genes/{gene}", params={"limit": MAX_GENE_LIMIT, "offset": 0}
     )
     score_sets = gene_raw.get("scoreSets") if isinstance(gene_raw, dict) else None
-    urns = [
-        s.get("urn") for s in (score_sets or []) if isinstance(s, dict) and s.get("urn")
-    ]
+    urns = [str(s["urn"]) for s in (score_sets or []) if isinstance(s, dict) and s.get("urn")]
     truncated = len(urns) > HGVS_PROBE_CAP
     probes = await asyncio.gather(
         *(
@@ -278,7 +276,7 @@ async def _vrs_from_hgvs(
     core = hgvs_core(candidate)
     from_mirror = getattr(client, "vrs_for_hgvs", None)
     if callable(from_mirror):
-        rows = from_mirror(core, gene=gene)
+        rows = from_mirror(core, candidate.lower(), gene=gene)
         vrs = _distinct_vrs(rows)
         if vrs:
             if len(vrs) > 1 and not (gene and gene.strip()):
@@ -350,9 +348,13 @@ async def find_variant(
         hits.append(hit)
     if enrich:
         await asyncio.gather(*(_enrich_hit(client, h) for h in hits))
+    # resolved_vrs is additive only when an HGVS mapped to >1 distinct allele; the
+    # single-allele case is fully carried by vrs_id, so omit it to keep the common
+    # path lean (the user's token-cost concern).
+    if len(idents) > 1:
+        extra["resolved_vrs"] = idents
     return {
         "vrs_id": idents[0],
-        "resolved_vrs": idents,
         "resolved_by": resolved_by,
         "hits": hits,
         "enriched": enrich,
