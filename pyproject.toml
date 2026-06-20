@@ -63,6 +63,7 @@ Repository = "https://github.com/berntpopp/mavedb-link"
 mavedb-link = "server:main"
 mavedb-link-mcp = "mcp_server:main"
 mavedb-link-data = "mavedb_link.ingest.cli:main"
+mavedb-link-cache = "mavedb_link.data.cache_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mavedb_link"]
