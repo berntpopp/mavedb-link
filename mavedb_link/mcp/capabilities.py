@@ -77,6 +77,7 @@ _SUMMARY_KEYS: tuple[str, ...] = (
     "response_modes",
     "default_response_mode",
     "response_token_budget",
+    "latency_profile",
     "recommended_workflows",
     "calibration_surface",
     "tool_hints",
@@ -159,6 +160,15 @@ def build_capabilities() -> dict[str, Any]:
             "_meta.budget_exceeded + _meta.steer with a leaner re-call."
         ),
         "response_token_budget": RESPONSE_TOKEN_BUDGET,
+        "latency_profile": (
+            "get_variant_score (by hgvs) and get_score_distribution scan a score "
+            "set's full scores table in one upstream read; latency scales with table "
+            "size (the largest sets are ~tens of thousands of rows, ~1-3s cold). The "
+            "table is cached per set and SHARED across both tools, so repeat lookups "
+            "and the distribution call on the same set are served warm (O(1)). For a "
+            "known variant URN, get_variant_score resolves directly (one record read, "
+            "no scan). Read _meta.elapsed_ms for the realised per-call latency."
+        ),
         "capabilities_version_semantics": (
             "_meta.capabilities_version is a content hash of this discovery "
             "contract. A warm client caches the last value and skips re-fetching "

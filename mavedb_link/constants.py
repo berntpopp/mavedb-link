@@ -80,12 +80,17 @@ CALIBRATION_TOOLS: list[str] = [
 #: fetches the top page (= MAX_SEARCH_LIMIT) to rank/facet/page client-side. This
 #: covers every realistic gene/concept search (BRCA1, the largest, is ~62 sets).
 SEARCH_FETCH_LIMIT = 100
-#: Single-variant hgvs lookup scans the full scores table in one upstream read
-#: (the largest MaveDB tables are ~tens of thousands of rows); cached thereafter.
-VARIANT_SCAN_LIMIT = 200_000
-#: get_score_distribution reads the whole scores table once to compute summary
-#: statistics server-side (a summary instead of returning every row).
-DISTRIBUTION_FETCH_LIMIT = 200_000
+#: One upstream read pulls the whole scores table (the largest MaveDB tables are
+#: ~tens of thousands of rows). The by-hgvs single-variant scan AND the
+#: distribution summary use this SAME start(0)+limit, so they share one cached CSV
+#: per score set (identical cache key) -- repeat/warm lookups are then O(1), not
+#: O(table). Keep these equal or the cache sharing silently breaks (see
+#: tests/unit/test_perf_contract.py).
+SCORES_FULL_SCAN_LIMIT = 200_000
+#: Single-variant hgvs lookup scans the full scores table in one upstream read.
+VARIANT_SCAN_LIMIT = SCORES_FULL_SCAN_LIMIT
+#: get_score_distribution reads the whole scores table once for server-side stats.
+DISTRIBUTION_FETCH_LIMIT = SCORES_FULL_SCAN_LIMIT
 #: Histogram bin count for the distribution summary.
 DISTRIBUTION_BINS = 10
 
