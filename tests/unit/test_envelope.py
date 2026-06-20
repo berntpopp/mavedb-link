@@ -101,3 +101,74 @@ async def test_budget_guard_flags_and_steers_oversized_response() -> None:
     assert meta["truncated"] is True
     assert meta["budget_exceeded"] is True
     assert "steer" in meta and "response_mode" in meta["steer"]
+
+
+# --- A.2: the budget ceiling ENFORCES on a list page (deterministic truncation) --
+
+
+async def test_budget_guard_trims_oversized_list_page_to_fit() -> None:
+    # GAP-A.2: a list page over the 25k cap must be deterministically trimmed (not
+    # just flagged) -- reduce `returned`, drop trailing rows, keep the response
+    # re-pageable -- so the front-door search tool returns data, never a client
+    # rejection. A page carries the pagination contract (returned/offset/next_offset).
+    big = [{"urn": f"urn:mavedb:{i:08d}-a-1", "blob": "x" * 600} for i in range(200)]
+    page = {
+        "query": "BRCA1",
+        "results": big,
+        "total": 200,
+        "returned": 200,
+        "limit": 200,
+        "offset": 0,
+        "truncated": False,
+        "next_offset": None,
+    }
+    ctx = McpErrorContext("search_score_sets", arguments={"text": "BRCA1"}, response_mode="compact")
+    env = await run_mcp_tool("search_score_sets", lambda: _ok(dict(page)), context=ctx)
+    meta = env["_meta"]
+    assert meta["budget_exceeded"] is True
+    assert meta["truncated"] is True
+    # Trimmed deterministically: fewer rows, and the payload now fits the cap.
+    assert env["returned"] < 200
+    assert env["returned"] == len(env["results"]) > 0
+    assert meta["token_estimate"] <= RESPONSE_TOKEN_BUDGET
+    # Honest + re-pageable: the dropped rows remain reachable via the real total.
+    assert env["total"] == 200
+    assert env["truncated"] is True
+    assert env["next_offset"] == env["returned"]
+
+
+async def test_budget_guard_updates_next_start_alias_when_trimming() -> None:
+    # get_variant_scores mirrors offset/next_offset onto start/next_start, so the
+    # trim must keep that alias consistent for callers paging by start=.
+    rows = [{"accession": f"urn:mavedb:00000001-a-1#{i}", "blob": "y" * 600} for i in range(200)]
+    page = {
+        "urn": "urn:mavedb:00000001-a-1",
+        "columns": ["accession", "blob"],
+        "rows": rows,
+        "total": 5000,
+        "returned": 200,
+        "start": 0,
+        "offset": 0,
+        "limit": 200,
+        "truncated": True,
+        "next_start": 200,
+        "next_offset": 200,
+    }
+    ctx = McpErrorContext("get_variant_scores", arguments={"urn": "u"}, response_mode="standard")
+    env = await run_mcp_tool("get_variant_scores", lambda: _ok(dict(page)), context=ctx)
+    assert env["returned"] == len(env["rows"]) < 200
+    assert env["next_start"] == env["returned"]
+    assert env["next_offset"] == env["returned"]
+    assert env["_meta"]["token_estimate"] <= RESPONSE_TOKEN_BUDGET
+
+
+async def test_budget_guard_does_not_trim_a_record_payload() -> None:
+    # A record has no pagination contract; trimming it would corrupt the structured
+    # output, so it stays flagged + steered with its data intact.
+    record = {"urn": "urn:mavedb:00000001-a-1", "method_text": "y" * 200_000}
+    ctx = McpErrorContext("get_score_set", arguments={"urn": "u"}, response_mode="full")
+    env = await run_mcp_tool("get_score_set", lambda: _ok(dict(record)), context=ctx)
+    meta = env["_meta"]
+    assert meta["budget_exceeded"] is True
+    assert env["method_text"] == "y" * 200_000  # untouched
+    assert meta["token_estimate"] > RESPONSE_TOKEN_BUDGET
