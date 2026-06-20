@@ -77,3 +77,22 @@ def test_target_type_facet_excludes_known_mismatch() -> None:
     kept, excluded = apply_sparse_facets(items, None, ["protein_coding"])
     assert {k["urn"] for k in kept} == {"urn:mavedb:1-a-1"}
     assert excluded == {"target_types": 1}
+
+
+def test_strict_facets_drop_unknown_metadata() -> None:
+    # F9: strict mode drops records whose facet metadata is empty/unknown (the
+    # null-inclusive default keeps them); the drop is still counted honestly.
+    items = [
+        _ss("urn:mavedb:human-a-1", "BRCA2", organism="Homo sapiens"),
+        _ss("urn:mavedb:unknown-a-1", "BRCA2", organism=None),
+        _ss("urn:mavedb:yeast-a-1", "BRCA2", organism="Saccharomyces cerevisiae"),
+    ]
+    kept, excluded = apply_sparse_facets(items, ["Homo sapiens"], None, strict=True)
+    assert {k["urn"] for k in kept} == {"urn:mavedb:human-a-1"}
+    assert excluded == {"target_organism_names": 2}  # unknown + yeast both dropped
+
+
+def test_inclusive_default_keeps_unknown_metadata() -> None:
+    items = [_ss("urn:mavedb:unknown-a-1", "BRCA2", organism=None)]
+    kept, _excluded = apply_sparse_facets(items, ["Homo sapiens"], None)
+    assert {k["urn"] for k in kept} == {"urn:mavedb:unknown-a-1"}

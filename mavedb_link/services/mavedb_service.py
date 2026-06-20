@@ -26,6 +26,7 @@ from mavedb_link.constants import (
     MAX_SEARCH_LIMIT,
     SEARCH_FETCH_LIMIT,
 )
+from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import validate_score_set_urn, variant_index_of
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
 from mavedb_link.services.calibration import primary_classification, shape_calibrations
@@ -105,6 +106,7 @@ class MaveDBService:
         target_organism_names: list[str] | None = None,
         target_types: list[str] | None = None,
         authors: list[str] | None = None,
+        facet_mode: str = "inclusive",
         limit: int = DEFAULT_SEARCH_LIMIT,
         offset: int = 0,
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
@@ -113,10 +115,17 @@ class MaveDBService:
 
         The endpoint returns the FULL match list and ignores page params, so the
         service fetches it whole and (1) re-ranks gene-token queries by target
-        match (DEF-2), (2) applies organism/target-type facets client-side,
-        null-inclusively, surfacing an honest ``_meta.facet_excluded`` (DEF-3),
+        match (DEF-2), (2) applies organism/target-type facets client-side
+        (``facet_mode`` ``inclusive`` keeps unknown-metadata records, ``strict``
+        drops them — F9), surfacing an honest ``_meta.facet_excluded`` (DEF-3),
         then (3) pages the processed list. ``targets``/``authors`` stay server-side.
         """
+        if facet_mode not in ("inclusive", "strict"):
+            raise InvalidInputError(
+                f"Unknown facet_mode '{facet_mode}'.",
+                field="facet_mode",
+                allowed=["inclusive", "strict"],
+            )
         capped = _clamp(limit, 1, MAX_SEARCH_LIMIT)
         body: dict[str, Any] = {"published": published, "limit": SEARCH_FETCH_LIMIT}
         for key, value in (("text", text), ("targets", targets), ("authors", authors)):
@@ -126,13 +135,16 @@ class MaveDBService:
         items, _ = _extract_items(
             resp, ("scoreSets", "items", "results"), ("numScoreSets", "total", "count")
         )
-        kept, facet_excluded = apply_sparse_facets(items, target_organism_names, target_types)
+        kept, facet_excluded = apply_sparse_facets(
+            items, target_organism_names, target_types, strict=facet_mode == "strict"
+        )
         ranked = rank_by_target_match(kept, text)
         total = len(ranked)
         page = ranked[offset : offset + capped]
         results = [shaping.shape_score_set(it, response_mode) for it in page]
         payload: dict[str, Any] = {
             "query": text,
+            "facet_mode": facet_mode,
             "results": results,
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }

@@ -34,9 +34,13 @@ def register_score_set_tools(mcp: FastMCP) -> None:
             "Search MaveDB score sets (the datasets carrying scored variants) by "
             "free text and facets — target gene(s), organism, target type, and "
             "author. Returns score-set hits {urn, title, num_variants, targets, "
-            "license, ...} plus a pagination block. This is the MaveDB front door. "
+            "license, ...} plus a pagination block. Organism/target-type facets are "
+            "null-inclusive by default (records with unknown metadata are KEPT and "
+            "_meta.facet_excluded reports the drops); pass facet_mode='strict' to "
+            "also drop unknown-metadata records. This is the MaveDB front door. "
             "Signature: search_score_sets(text=, targets=, target_organism_names=, "
-            "target_types=, authors=, published=, limit=, offset=, response_mode=)."
+            "target_types=, authors=, facet_mode=, published=, limit=, offset=, "
+            "response_mode=)."
         ),
     )
     async def search_score_sets(
@@ -45,6 +49,14 @@ def register_score_set_tools(mcp: FastMCP) -> None:
         target_organism_names: StringList = None,
         target_types: StringList = None,
         authors: StringList = None,
+        facet_mode: Annotated[
+            str,
+            Field(
+                description="'inclusive' (default; keep unknown-metadata records) or "
+                "'strict' (drop them).",
+                examples=["inclusive", "strict"],
+            ),
+        ] = "inclusive",
         published: Annotated[
             bool, Field(description="Restrict to published records (default true).")
         ] = True,
@@ -60,6 +72,7 @@ def register_score_set_tools(mcp: FastMCP) -> None:
                 target_organism_names=target_organism_names,
                 target_types=target_types,
                 authors=authors,
+                facet_mode=facet_mode,
                 limit=limit,
                 offset=offset,
                 response_mode=response_mode,

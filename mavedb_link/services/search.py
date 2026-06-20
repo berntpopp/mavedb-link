@@ -69,16 +69,31 @@ def rank_by_target_match(items: list[dict[str, Any]], text: str | None) -> list[
     ]
 
 
+def _facet_drops(values: set[str], facet: set[str] | None, *, strict: bool) -> bool:
+    """Whether a record is dropped for one facet.
+
+    ``None`` facet never drops. A match is always kept. On a non-match the record
+    is dropped if it had a KNOWN value (inclusive default) or always (``strict``,
+    which therefore also drops empty/unknown metadata).
+    """
+    if facet is None or (values & facet):
+        return False
+    return bool(values) or strict
+
+
 def apply_sparse_facets(
     items: list[dict[str, Any]],
     organisms: list[str] | None,
     target_types: list[str] | None,
+    *,
+    strict: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Filter by organism/target-type client-side, null-inclusively, counting drops.
+    """Filter by organism/target-type client-side, counting drops.
 
-    A record is excluded only when it has a KNOWN value that does not match the
-    filter; a record whose metadata is empty/unknown is kept. Returns
-    ``(kept, excluded_counts)`` where ``excluded_counts`` omits zero entries.
+    Default (``strict=False``) is null-inclusive: a record is excluded only when it
+    has a KNOWN value that does not match; empty/unknown metadata is kept. With
+    ``strict=True`` a record whose facet metadata is empty/unknown is ALSO dropped
+    (F9). Returns ``(kept, excluded_counts)`` where ``excluded_counts`` omits zeros.
     """
     if not organisms and not target_types:
         return list(items), {}
@@ -87,12 +102,10 @@ def apply_sparse_facets(
     kept: list[dict[str, Any]] = []
     excluded = {"target_organism_names": 0, "target_types": 0}
     for item in items:
-        item_orgs = _target_organisms(item)
-        if org_filter is not None and item_orgs and not (item_orgs & org_filter):
+        if _facet_drops(_target_organisms(item), org_filter, strict=strict):
             excluded["target_organism_names"] += 1
             continue
-        item_types = _target_categories(item)
-        if type_filter is not None and item_types and not (item_types & type_filter):
+        if _facet_drops(_target_categories(item), type_filter, strict=strict):
             excluded["target_types"] += 1
             continue
         kept.append(item)

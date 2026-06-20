@@ -171,11 +171,12 @@ def build_capabilities() -> dict[str, Any]:
             "score-set URN + hgvs."
         ),
         "facet_honesty": (
-            "target_organism_names / target_types are applied client-side and "
-            "null-inclusively: a record whose upstream metadata is empty is KEPT, "
-            "never silently dropped. When a facet excludes records that had a known, "
-            "non-matching value, search_score_sets reports _meta.facet_excluded "
-            "{field: count}."
+            "target_organism_names / target_types are applied client-side. The "
+            "default facet_mode='inclusive' is null-inclusive: a record whose "
+            "upstream metadata is empty is KEPT, never silently dropped. "
+            "facet_mode='strict' drops unknown-metadata records too. Either way, "
+            "search_score_sets reports _meta.facet_excluded {field: count} for every "
+            "record it dropped."
         ),
         "truncation_contract": (
             "List tools return total (when known), returned, limit, offset, "

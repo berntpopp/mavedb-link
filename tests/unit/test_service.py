@@ -105,6 +105,44 @@ async def test_search_organism_facet_null_inclusive_reports_excluded(
 
 
 @respx.mock(base_url=BASE)
+async def test_search_score_sets_strict_facet_drops_unknown(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F9: facet_mode=strict drops the empty-organism record that inclusive keeps.
+    def _ss(urn: str, organism: str | None) -> dict:
+        taxonomy = {"organismName": organism} if organism is not None else {}
+        return {
+            "urn": urn,
+            "title": "BRCA2",
+            "targetGenes": [
+                {
+                    "name": "BRCA2",
+                    "category": "protein_coding",
+                    "targetSequence": {"taxonomy": taxonomy},
+                }
+            ],
+        }
+
+    items = [_ss("urn:mavedb:00001224-a-1", "Homo sapiens"), _ss("urn:mavedb:00001268-a-1", None)]
+    respx_mock.post("/score-sets/search").mock(
+        return_value=httpx.Response(200, json={"scoreSets": items, "numScoreSets": 2})
+    )
+    out = await service.search_score_sets(
+        "BRCA2", target_organism_names=["Homo sapiens"], facet_mode="strict"
+    )
+    urns = {r["urn"] for r in out["results"]}
+    assert urns == {"urn:mavedb:00001224-a-1"}  # unknown-organism record dropped
+    assert out["facet_mode"] == "strict"
+    assert out["_meta"]["facet_excluded"]["target_organism_names"] == 1
+
+
+async def test_search_score_sets_rejects_bad_facet_mode(service: MaveDBService) -> None:
+    with pytest.raises(InvalidInputError) as exc:
+        await service.search_score_sets("BRCA2", facet_mode="loose")
+    assert exc.value.field == "facet_mode"
+
+
+@respx.mock(base_url=BASE)
 async def test_get_score_set(respx_mock: respx.Router, service: MaveDBService) -> None:
     respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
         return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
