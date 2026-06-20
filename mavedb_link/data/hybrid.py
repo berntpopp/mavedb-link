@@ -153,6 +153,13 @@ class HybridClient(MaveDBClient):
             provenance.record("mirror", mirror_as_of=self._mirror_as_of)
         return ident
 
+    def score_set_urns_for_gene(self, symbol: str) -> list[str]:
+        """Score-set URNs for a gene from the mirror index, ordered."""
+        urns = self._repo.gene_score_set_urns(symbol)
+        if urns:
+            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+        return urns
+
     async def ensure_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
         """Return raw mapped variants, lazily fetching and caching by score set.
 
