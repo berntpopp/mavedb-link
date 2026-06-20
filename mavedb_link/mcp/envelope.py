@@ -275,27 +275,96 @@ def _estimate_tokens(payload: dict[str, Any]) -> int:
     return chars // TOKEN_ESTIMATE_CHARS_PER_TOKEN
 
 
-def _apply_budget_guard(result: dict[str, Any], context: McpErrorContext) -> None:
-    """Flag + steer (never silently emit) a response over the token budget (1.3).
+#: Token headroom reserved for the _meta the budget guard appends AFTER trimming
+#: (steer text + a prepended next_command), so the final envelope stays under cap.
+_BUDGET_META_MARGIN = 800
 
-    Domain data is left intact -- lossy server-side trimming would corrupt the
-    structured output -- but ``_meta`` is marked ``truncated``/``budget_exceeded``
-    with a concrete steer, and a leaner re-call is prepended to ``next_commands``.
+
+def _page_list_key(result: dict[str, Any], returned: int) -> str | None:
+    """The top-level list field that IS the page (``len == returned``), largest on tie.
+
+    Identifies the page generically from the pagination contract -- no domain field
+    names -- so the envelope can trim ANY list tool without coupling to its shape.
+    """
+    candidates = [k for k, v in result.items() if isinstance(v, list) and len(v) == returned]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda k: len(json.dumps(result[k], default=str)))
+
+
+def _trim_list_to_budget(result: dict[str, Any], target: int) -> bool:
+    """Drop trailing rows from a list page until it fits ``target`` tokens (A.2).
+
+    Returns True if it trimmed. Acts ONLY on a payload carrying the pagination
+    contract (an int ``returned`` + a list field of that length) -- a record has no
+    such field and is left intact (trimming it would corrupt the structured output).
+    Re-pages honestly: updates ``returned``, ``truncated``, and the ``next_offset``/
+    ``next_start`` continuation cursors so the dropped rows stay reachable.
+    """
+    returned = result.get("returned")
+    if not isinstance(returned, int) or returned <= 0:
+        return False
+    key = _page_list_key(result, returned)
+    if key is None:
+        return False
+    page = result[key]
+    offset = result.get("offset")
+    if not isinstance(offset, int):
+        offset = result["start"] if isinstance(result.get("start"), int) else 0
+    # Per-row cost = the page's share of the estimate; size the keep from the fixed
+    # overhead (everything but the page), then tighten for uneven rows.
+    result[key] = []
+    base = _estimate_tokens(result)
+    result[key] = page
+    per_item = max(1, (_estimate_tokens(result) - base) // len(page))
+    keep = max(0, min((target - base) // per_item, len(page) - 1))
+    result[key] = page[:keep]
+    while keep > 0 and _estimate_tokens(result) > target:
+        keep = max(0, keep - max(1, keep // 10))
+        result[key] = page[:keep]
+    result["returned"] = keep
+    result["truncated"] = True
+    if "next_offset" in result or "offset" in result:
+        result["next_offset"] = offset + keep
+    if "next_start" in result or "start" in result:
+        start = result["start"] if isinstance(result.get("start"), int) else offset
+        result["next_start"] = start + keep
+    return True
+
+
+def _apply_budget_guard(result: dict[str, Any], context: McpErrorContext) -> None:
+    """Enforce the token budget (1.3 / A.2): trim a list page, else flag + steer.
+
+    A list page over the cap is deterministically trimmed (rows dropped, ``returned``
+    reduced, response kept re-pageable) so the front door returns data, never a
+    client rejection. A record payload has no page contract, so it is left intact
+    and only flagged/steered. Either way ``_meta`` carries ``truncated`` +
+    ``budget_exceeded`` and a concrete steer; rich modes also get a leaner re-call.
     """
     meta = result["_meta"]
     if meta.get("token_estimate", 0) <= RESPONSE_TOKEN_BUDGET:
         return
     meta["truncated"] = True
     meta["budget_exceeded"] = True
-    meta["steer"] = (
-        f"Response is ~{meta['token_estimate']} tokens (> the {RESPONSE_TOKEN_BUDGET}-token "
-        "budget). Re-call with a smaller limit=, response_mode='compact'/'minimal', or page "
-        "via offset=/start=."
-    )
+    trimmed = _trim_list_to_budget(result, RESPONSE_TOKEN_BUDGET - _BUDGET_META_MARGIN)
+    if trimmed:
+        meta["steer"] = (
+            f"Response trimmed to {result.get('returned')} of {result.get('total')} rows "
+            f"to fit the {RESPONSE_TOKEN_BUDGET}-token budget. Page forward via "
+            "offset=/start=, or re-call with response_mode='minimal' for more rows per page."
+        )
+    else:
+        meta["steer"] = (
+            f"Response is ~{meta['token_estimate']} tokens (> the {RESPONSE_TOKEN_BUDGET}-token "
+            "budget). Re-call with a smaller limit=, response_mode='compact'/'minimal', or page "
+            "via offset=/start=."
+        )
     if context.response_mode in _RICH_MODES:
         steps = meta.get("next_commands")
         if isinstance(steps, list):
             meta["next_commands"] = [_lower_mode_step(context), *steps]
+    if trimmed:  # recompute over the trimmed payload incl. the steer/next_commands
+        meta["token_estimate"] = _estimate_tokens(result)
 
 
 async def run_mcp_tool(
