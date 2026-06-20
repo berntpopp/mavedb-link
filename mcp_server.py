@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stdio MCP entry point for Claude Desktop and similar clients.
 
-For HTTP transport use `server.py --transport unified` (or `--transport http`).
+For router/MCP HTTP clients use `server.py --transport unified` and connect to /mcp.
 """
 
 from __future__ import annotations

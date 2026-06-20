@@ -107,3 +107,14 @@ async def test_get_mapped_variants_current_false_uses_cached_raw_list(
     assert route.call_count == 1
     assert out["total"] == 2
     assert [m["current"] for m in out["mapped_variants"]] == [True, False]
+
+
+async def test_get_diagnostics_reports_mapped_cache_status(service: MaveDBService) -> None:
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.get("/api/version").mock(
+            return_value=httpx.Response(200, json={"name": "MaveDB API", "version": "test"})
+        )
+        out = await service.get_diagnostics()
+
+    assert out["api_reachable"] is True
+    assert out["cache"] == {"enabled": True, "on_disk": 0, "lru_size": 0, "data_version": "1:v4"}

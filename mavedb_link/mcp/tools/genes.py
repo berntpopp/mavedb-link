@@ -37,18 +37,18 @@ def register_gene_tools(mcp: FastMCP) -> None:
             "target-name facet and deduped by URN (see the coverage block). The "
             "fastest complete way to find all MAVE data for a gene. Paged via "
             "offset/limit. "
-            "Signature: get_gene_score_sets(symbol, limit=, offset=, response_mode=)."
+            "Signature: get_gene_score_sets(gene_symbol, limit=, offset=, response_mode=)."
         ),
     )
     async def get_gene_score_sets(
-        symbol: SymbolStr,
+        gene_symbol: SymbolStr,
         limit: _Limit = DEFAULT_GENE_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
     ) -> dict[str, Any]:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_gene_score_sets(
-                symbol, limit=limit, offset=offset, response_mode=response_mode
+                gene_symbol, limit=limit, offset=offset, response_mode=response_mode
             )
             payload.setdefault("_meta", {})["next_commands"] = after_get_gene_score_sets(payload)
             return payload
@@ -57,6 +57,8 @@ def register_gene_tools(mcp: FastMCP) -> None:
             "get_gene_score_sets",
             call,
             context=McpErrorContext(
-                "get_gene_score_sets", arguments={"symbol": symbol}, response_mode=response_mode
+                "get_gene_score_sets",
+                arguments={"gene_symbol": gene_symbol},
+                response_mode=response_mode,
             ),
         )

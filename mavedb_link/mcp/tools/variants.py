@@ -32,7 +32,16 @@ from mavedb_link.mcp.tools._common import ResponseMode, ScoreSetUrnStr, VariantL
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
-_Start = Annotated[int, Field(ge=0, description="Row offset into the score table (default 0).")]
+_ScoresOffset = Annotated[
+    int,
+    Field(
+        ge=0,
+        description=(
+            "Rows to skip in the score table (default 0); `start` is accepted as a "
+            "start alias for compatibility with MaveDB's upstream scores endpoint."
+        ),
+    ),
+]
 _ScoresLimit = Annotated[
     int, Field(ge=1, le=MAX_SCORES_LIMIT, description="Max score rows (default 100).")
 ]
@@ -57,21 +66,22 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "variant_index (numeric join key for get_mapped_variants), HGVS "
             "(hgvs_nt/hgvs_splice/hgvs_pro), the numeric score (+ derived "
             "classification when calibrated), and score-set specific columns. Paged "
-            "via start/limit; NA values become null. Page forward with "
-            "start=next_start. For large pulls use response_mode='minimal' to drop "
+            "via offset/limit; NA values become null. Page forward with "
+            "offset=next_offset. For large pulls use response_mode='minimal' to drop "
             "the HGVS columns to {accession, variant_index, score, classification} "
             "(token-safe); a full ~1000-row page at standard can exceed the MCP "
-            "token cap and be auto-saved to a tool-results file — page via start or "
+            "token cap and be auto-saved to a tool-results file — page via offset or "
             "use get_score_distribution for summary statistics instead. The top-level "
             "calibrations threshold ladder is record-level data shipped once (the "
             "first page, start=0) or at full — not re-sent on every forward page; the "
             "per-row classification rides on every page. "
-            "Signature: get_variant_scores(urn, start=, limit=, drop_na_columns=, response_mode=)."
+            "Signature: get_variant_scores(urn, offset=, limit=, drop_na_columns=, "
+            "response_mode=)."
         ),
     )
     async def get_variant_scores(
         urn: ScoreSetUrnStr,
-        start: _Start = 0,
+        offset: _ScoresOffset = 0,
         limit: _ScoresLimit = DEFAULT_SCORES_LIMIT,
         drop_na_columns: Annotated[
             bool, Field(description="Drop columns that are entirely NA (default false).")
@@ -81,7 +91,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_variant_scores(
                 urn,
-                start=start,
+                start=offset,
                 limit=limit,
                 drop_na_columns=drop_na_columns,
                 response_mode=response_mode,
@@ -93,7 +103,9 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "get_variant_scores",
             call,
             context=McpErrorContext(
-                "get_variant_scores", arguments={"urn": urn}, response_mode=response_mode
+                "get_variant_scores",
+                arguments={"urn": urn, "offset": offset},
+                response_mode=response_mode,
             ),
         )
 

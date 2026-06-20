@@ -226,9 +226,10 @@ def build_capabilities() -> dict[str, Any]:
         ),
         "truncation_contract": (
             "List tools return total (when known), returned, limit, offset, "
-            "truncated, and next_offset. get_variant_scores additionally mirrors "
-            "start/next_start (and accepts offset as an alias for start), and now "
-            "carries a real total (= num_variants). When truncated, "
+            "truncated, and next_offset. get_variant_scores exposes offset for "
+            "fleet-uniform paging, also mirrors upstream-compatible start/next_start "
+            "in the payload, and accepts start as an alias for offset. It carries a "
+            "real total (= num_variants). When truncated, "
             "_meta.next_commands includes a ready-to-call forward-page step. The "
             f"{RESPONSE_TOKEN_BUDGET}-token cap is ENFORCED, not just reported: a list "
             "page over the cap is deterministically trimmed (trailing rows dropped, "
@@ -256,7 +257,7 @@ def build_capabilities() -> dict[str, Any]:
             "(find_variant, get_mapped_variants), standard returns a FLAT post_mapped "
             "genomic summary (assembly, sequence_id, start, end, ref, alt) and drops "
             "pre_mapped; request response_mode=full for the complete pre/post VRS "
-            "objects. find_variant also accepts a bare hgvs= (+ optional gene=) "
+            "objects. find_variant also accepts a bare hgvs= (+ optional gene_symbol=) "
             "resolved to VRS internally, so an HGVS string needs no map-first round-trip."
         ),
         "recommended_workflows": [
@@ -310,7 +311,7 @@ def build_capabilities() -> dict[str, Any]:
             ],
             "get_variant_scores": [
                 "A full ~1000-row page at standard can exceed the 25k token budget "
-                "(_meta.budget_exceeded) -- use response_mode='minimal' or page via start=.",
+                "(_meta.budget_exceeded) -- use response_mode='minimal' or page via offset=.",
                 "Rows carry variant_index; JOIN get_mapped_variants on it, never zip.",
                 "The top-level calibrations ladder ships once (the first page, start=0) "
                 "or at full; forward pages carry only the per-row classification. Open "

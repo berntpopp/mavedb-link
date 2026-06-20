@@ -154,9 +154,21 @@ async def test_get_variant_score_by_hgvs(
 @respx.mock(base_url=BASE, assert_all_called=False)
 async def test_get_gene_score_sets(respx_mock: respx.Router, facade: Any, structured: Any) -> None:
     _mock_all(respx_mock)
+    res = await facade.call_tool("get_gene_score_sets", {"gene_symbol": "UBE2I"})
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert payload["gene"]["symbol"] == "UBE2I"
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_gene_score_sets_accepts_symbol_alias(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
     res = await facade.call_tool("get_gene_score_sets", {"symbol": "UBE2I"})
     payload = structured(res)
     _assert_envelope_ok(payload)
+    assert ["symbol", "gene_symbol"] in payload["_meta"]["argument_aliases_applied"]
     assert payload["gene"]["symbol"] == "UBE2I"
 
 
@@ -212,6 +224,17 @@ async def test_find_variant_by_variant_urn_resolves_and_rolls_up(
     assert payload["resolved_by"] == "variant_urn"
     assert payload["vrs_id"] == fixtures.VRS_ID
     assert payload["hits"][0]["score_set_urn"] == fixtures.SCORE_SET_URN
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_find_variant_accepts_gene_alias(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    _mock_all(respx_mock)
+    res = await facade.call_tool("find_variant", {"vrs_id": fixtures.VRS_ID, "gene": "UBE2I"})
+    payload = structured(res)
+    _assert_envelope_ok(payload)
+    assert ["gene", "gene_symbol"] in payload["_meta"]["argument_aliases_applied"]
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -331,17 +354,18 @@ async def test_alias_rewrite_disclosed(
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
-async def test_offset_alias_rewrites_to_start_on_variant_scores(
+async def test_start_alias_rewrites_to_offset_on_variant_scores(
     respx_mock: respx.Router, facade: Any, structured: Any
 ) -> None:
     _mock_all(respx_mock)
-    # DEF-7: `offset` is accepted (and disclosed) as an alias for `start`.
+    # Router compatibility: `offset` is the fleet-canonical public arg, while
+    # `start` remains accepted because the upstream scores endpoint uses it.
     res = await facade.call_tool(
-        "get_variant_scores", {"urn": fixtures.SCORE_SET_URN, "offset": 0, "limit": 3}
+        "get_variant_scores", {"urn": fixtures.SCORE_SET_URN, "start": 0, "limit": 3}
     )
     payload = structured(res)
     assert payload["success"] is True
-    assert ["offset", "start"] in payload["_meta"]["argument_aliases_applied"]
+    assert ["start", "offset"] in payload["_meta"]["argument_aliases_applied"]
     assert payload["total"] == 12720
 
 
