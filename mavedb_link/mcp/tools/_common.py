@@ -56,7 +56,43 @@ SearchText = Annotated[
     ),
 ]
 
-StringList = Annotated[
+#: Facet filters carry concrete examples + declared value sets (G2/G3) so the agent
+#: builds a valid faceted search without guessing. Applied server-side, null-inclusive.
+TargetsFilter = Annotated[
     list[str] | None,
-    Field(default=None, description="Optional list of filter values."),
+    Field(
+        default=None,
+        description="Filter to score sets whose target gene is one of these HGNC "
+        "symbols (server-side facet).",
+        examples=[["BRCA1"], ["TP53", "PTEN"]],
+    ),
+]
+
+OrganismsFilter = Annotated[
+    list[str] | None,
+    Field(
+        default=None,
+        description="Filter to these target organisms (client-side, null-inclusive). "
+        "Use full scientific names.",
+        examples=[["Homo sapiens"], ["Saccharomyces cerevisiae"]],
+    ),
+]
+
+TargetTypesFilter = Annotated[
+    list[str] | None,
+    Field(
+        default=None,
+        description="Filter to these target categories (client-side, null-inclusive). "
+        "Allowed: protein_coding | regulatory | other_noncoding.",
+        examples=[["protein_coding"], ["regulatory", "other_noncoding"]],
+    ),
+]
+
+AuthorsFilter = Annotated[
+    list[str] | None,
+    Field(
+        default=None,
+        description="Filter to score sets with these author name substrings (case-insensitive).",
+        examples=[["Starita"], ["Findlay"]],
+    ),
 ]

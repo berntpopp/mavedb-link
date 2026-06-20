@@ -12,7 +12,15 @@ from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_experiment, after_search_experiments
 from mavedb_link.mcp.schemas import EXPERIMENT_SCHEMA, SEARCH_EXPERIMENTS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
-from mavedb_link.mcp.tools._common import ResponseMode, SearchText, StringList, UrnStr
+from mavedb_link.mcp.tools._common import (
+    AuthorsFilter,
+    OrganismsFilter,
+    ResponseMode,
+    SearchText,
+    TargetsFilter,
+    TargetTypesFilter,
+    UrnStr,
+)
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -75,10 +83,10 @@ def register_experiment_tools(mcp: FastMCP) -> None:
     )
     async def search_experiments(
         text: SearchText = None,
-        targets: StringList = None,
-        target_organism_names: StringList = None,
-        target_types: StringList = None,
-        authors: StringList = None,
+        targets: TargetsFilter = None,
+        target_organism_names: OrganismsFilter = None,
+        target_types: TargetTypesFilter = None,
+        authors: AuthorsFilter = None,
         published: Annotated[
             bool, Field(description="Restrict to published records (default true).")
         ] = True,
