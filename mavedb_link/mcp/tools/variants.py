@@ -62,7 +62,10 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "the HGVS columns to {accession, variant_index, score, classification} "
             "(token-safe); a full ~1000-row page at standard can exceed the MCP "
             "token cap and be auto-saved to a tool-results file — page via start or "
-            "use get_score_distribution for summary statistics instead. "
+            "use get_score_distribution for summary statistics instead. The top-level "
+            "calibrations threshold ladder is record-level data shipped once (the "
+            "first page, start=0) or at full — not re-sent on every forward page; the "
+            "per-row classification rides on every page. "
             "Signature: get_variant_scores(urn, start=, limit=, drop_na_columns=, response_mode=)."
         ),
     )
