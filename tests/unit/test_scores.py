@@ -52,6 +52,21 @@ def test_shape_scores_partial_page_not_truncated() -> None:
     assert payload["truncated"] is False
 
 
+def test_shape_scores_minimal_drops_hgvs_columns() -> None:
+    # F7b: a token-safe lean mode -> {accession, variant_index, score} only.
+    payload = shape_scores(SCORES_CSV, start=0, limit=3, response_mode="minimal")
+    row = payload["rows"][0]
+    assert set(row) <= {"accession", "variant_index", "score"}
+    assert "hgvs_nt" not in row
+    assert payload["columns"] == ["accession", "variant_index", "score"]
+
+
+def test_shape_scores_compact_keeps_hgvs_columns() -> None:
+    payload = shape_scores(SCORES_CSV, start=0, limit=3, response_mode="compact")
+    assert "hgvs_nt" in payload["rows"][0]
+    assert "hgvs_nt" in payload["columns"]
+
+
 # --- F5: accession-prefix-insensitive hgvs matching ---------------------------
 # Live-verified: BRCA2 SGE sets store hgvs_nt accession-prefixed
 # (ENST00000380152.8:c.8168A>G) so a bare 'c.8168A>G' used to 404.

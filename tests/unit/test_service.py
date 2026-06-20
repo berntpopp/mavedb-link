@@ -175,6 +175,26 @@ async def test_get_variant_scores_classifies_rows(
     assert out["calibrations"][0]["title"] == "IGVF Controls"
 
 
+@respx.mock(base_url=BASE)
+async def test_get_variant_scores_minimal_is_token_lean_but_classified(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F7b: response_mode=minimal drops HGVS columns for big pulls, but the derived
+    # classification still rides along so the score stays interpretable.
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+        return_value=httpx.Response(200, json=fixtures.SCORE_SET_WITH_CALIBRATIONS_RAW)
+    )
+    out = await service.get_variant_scores(fixtures.SCORE_SET_URN, response_mode="minimal")
+    row = out["rows"][0]
+    assert "hgvs_nt" not in row
+    assert set(row) <= {"accession", "variant_index", "score", "classification"}
+    assert row["classification"] == "abnormal"
+    assert out["columns"] == ["accession", "variant_index", "score"]
+
+
 async def test_get_variant_scores_rejects_non_score_set_urn(service: MaveDBService) -> None:
     with pytest.raises(InvalidInputError):
         await service.get_variant_scores("urn:mavedb:00000001-a")
@@ -193,6 +213,25 @@ async def test_get_gene_score_sets(respx_mock: respx.Router, service: MaveDBServ
     assert out["total"] == 1
     assert out["total_scored_variants"] == 12720
     assert out["score_sets"][0]["urn"] == fixtures.SCORE_SET_URN
+
+
+@respx.mock(base_url=BASE)
+async def test_get_gene_score_sets_minimal_is_lean(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F8: minimal must be uniformly lean -> gene id only, [{urn,title}] datasets,
+    # and the coverage block relocated under _meta (off the hot path).
+    respx_mock.get("/genes/UBE2I").mock(
+        return_value=httpx.Response(200, json=fixtures.GENE_RESPONSE)
+    )
+    respx_mock.post("/score-sets/search").mock(
+        return_value=httpx.Response(200, json={"scoreSets": [], "numScoreSets": 0})
+    )
+    out = await service.get_gene_score_sets("UBE2I", response_mode="minimal")
+    assert set(out["gene"]) <= {"symbol", "hgnc_id"}
+    assert set(out["score_sets"][0]) == {"urn", "title"}
+    assert "coverage" not in out  # moved to _meta
+    assert out["_meta"]["coverage"]["union"] == 1
 
 
 @respx.mock(base_url=BASE)

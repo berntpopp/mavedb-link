@@ -187,7 +187,9 @@ class MaveDBService:
             cals = record.get("scoreCalibrations")
             if isinstance(cals, list):
                 raw_calibrations = cals
-        payload = shape_scores(text, start=start, limit=capped, num_variants=num_variants)
+        payload = shape_scores(
+            text, start=start, limit=capped, num_variants=num_variants, response_mode=response_mode
+        )
         payload["urn"] = score_set_urn
         payload["offset"] = payload["start"]
         payload["next_offset"] = payload["next_start"]
@@ -268,13 +270,21 @@ class MaveDBService:
         }
         if degraded:
             coverage["degraded"] = True
-        return {
+        payload: dict[str, Any] = {
             "gene": shaping.shape_gene(gene_raw, response_mode),
-            "total_scored_variants": gene_raw.get("totalScoredVariants"),
             "score_sets": results,
-            "coverage": coverage,
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
+        if response_mode == "minimal":
+            # F8: keep minimal on the identity hot path -- coverage diagnostics and
+            # the scored-variant tally move off the payload into _meta.
+            meta = payload.setdefault("_meta", {})
+            meta["coverage"] = coverage
+            meta["total_scored_variants"] = gene_raw.get("totalScoredVariants")
+        else:
+            payload["total_scored_variants"] = gene_raw.get("totalScoredVariants")
+            payload["coverage"] = coverage
+        return payload
 
     async def get_experiment(
         self, urn: str, *, response_mode: str = shaping.DEFAULT_RESPONSE_MODE

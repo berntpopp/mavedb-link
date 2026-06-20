@@ -92,15 +92,27 @@ def hgvs_matches(row: dict[str, Any], query_lower: str) -> bool:
     return False
 
 
+#: The lean column set returned at response_mode="minimal" (F7b) -- enough to
+#: align with get_mapped_variants and read/classify the score, no HGVS columns.
+_MINIMAL_COLUMNS = ("accession", "variant_index", "score")
+
+
 def shape_scores(
-    text: str, *, start: int, limit: int, num_variants: int | None = None
+    text: str,
+    *,
+    start: int,
+    limit: int,
+    num_variants: int | None = None,
+    response_mode: str = "compact",
 ) -> dict[str, Any]:
     """Parse the CSV page and wrap it in a pagination block.
 
     The MaveDB ``/scores`` endpoint applies ``start``/``limit`` server-side, so
     ``text`` is already a single page. ``truncated`` is conservative: a full page
     (``returned == limit``) signals more rows MAY remain; when the score set's
-    ``num_variants`` is known it is used for an exact bound.
+    ``num_variants`` is known it is used for an exact bound. ``response_mode``
+    ``minimal`` drops the HGVS/extra columns to ``{accession, variant_index,
+    score}`` so a large pull stays under the token cap (F7b).
     """
     columns, rows = parse_scores_csv(text)
     for row in rows:
@@ -108,6 +120,9 @@ def shape_scores(
         # Surface the numeric join key so callers align rows with get_mapped_variants
         # by value, never by fragile row position (F1).
         row["variant_index"] = variant_index_of(accession) if isinstance(accession, str) else None
+    if response_mode == "minimal":
+        rows = [{k: r[k] for k in _MINIMAL_COLUMNS if r.get(k) is not None} for r in rows]
+        columns = list(_MINIMAL_COLUMNS)
     returned = len(rows)
     truncated = start + returned < num_variants if num_variants is not None else returned >= limit
     return {

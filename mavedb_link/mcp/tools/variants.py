@@ -53,10 +53,16 @@ def register_variant_tools(mcp: FastMCP) -> None:
         tags={"mave", "variant", "score", "functional-assay"},
         description=(
             "Return the quantitative variant-by-variant score table for a score set "
-            "(urn:mavedb:...-a-1) as parsed rows: each row carries accession, HGVS "
-            "(hgvs_nt/hgvs_splice/hgvs_pro), the numeric score, and score-set "
-            "specific columns. Paged via start/limit; NA values become null. Page "
-            "forward with start=next_start. "
+            "(urn:mavedb:...-a-1) as parsed rows: each row carries accession, "
+            "variant_index (numeric join key for get_mapped_variants), HGVS "
+            "(hgvs_nt/hgvs_splice/hgvs_pro), the numeric score (+ derived "
+            "classification when calibrated), and score-set specific columns. Paged "
+            "via start/limit; NA values become null. Page forward with "
+            "start=next_start. For large pulls use response_mode='minimal' to drop "
+            "the HGVS columns to {accession, variant_index, score, classification} "
+            "(token-safe); a full ~1000-row page at standard can exceed the MCP "
+            "token cap and be auto-saved to a tool-results file — page via start or "
+            "use get_score_distribution for summary statistics instead. "
             "Signature: get_variant_scores(urn, start=, limit=, drop_na_columns=, response_mode=)."
         ),
     )

@@ -75,6 +75,21 @@ def test_score_set_full_includes_heavy_fields() -> None:
     assert out["dataset_columns"] == {"scoreColumns": ["score"], "countColumns": []}
     assert out["targets"][0]["external_identifiers"][0]["db_name"] == "Ensembl"
     assert out["publications"]["primary"][0]["title"]
+    # full keeps the COMPLETE author list
+    assert out["publications"]["primary"][0]["authors"] == [{"name": "Weile J"}]
+
+
+def test_score_set_standard_caps_authors_and_elides_heavy_text() -> None:
+    # F8: standard is the structured record -- capped author list (first author +
+    # count, no full list) and no giant free-text blobs (those are full-only).
+    out = shaping.shape_score_set(SCORE_SET_RAW, "standard")
+    assert out["targets"][0]["external_identifiers"][0]["db_name"] == "Ensembl"
+    pub = out["publications"]["primary"][0]
+    assert pub["first_author"] == "Weile J"
+    assert pub["author_count"] == 1
+    assert "authors" not in pub  # full list only at full
+    assert "abstract_text" not in out  # heavy free text only at full
+    assert "method_text" not in out
 
 
 def test_score_set_compact_publications_summary() -> None:

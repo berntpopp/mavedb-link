@@ -184,9 +184,15 @@ def build_capabilities() -> dict[str, Any]:
             "infer completeness from list length."
         ),
         "response_mode_semantics": (
-            "standard/full return the complete normalised record; compact "
-            "(default) drops null/empty values and trims to high-signal fields; "
-            "minimal keeps identity anchors only (urn + title/name)."
+            "full returns the complete record incl. heavy free text (abstract/method "
+            "text, dataset columns, score ranges) and full author lists; standard "
+            "returns the structured record but elides those blobs and caps author "
+            "lists to first_author + author_count; compact (default) drops "
+            "null/empty values and trims to high-signal fields; minimal keeps "
+            "identity anchors only (urn + title/name). minimal is uniformly lean: "
+            "get_gene_score_sets minimal returns gene id + [{urn,title}] with "
+            "coverage under _meta; get_variant_scores minimal drops HGVS columns to "
+            "{accession, variant_index, score, classification}."
         ),
         "recommended_workflows": [
             "gene -> get_gene_score_sets -> get_score_set -> get_variant_scores",

@@ -5,7 +5,10 @@ payloads, tiered by ``response_mode`` to control the per-call token cost:
 
 - ``minimal``: identity anchors only.
 - ``compact`` (default): the high-signal fields, with null/empty values dropped.
-- ``standard`` / ``full``: the complete normalised record.
+- ``standard``: the structured record -- identifiers, lineage, dates, capped
+  author lists (first author + count) -- but NOT the heavy free-text blobs.
+- ``full``: the complete record incl. abstract/method text, dataset columns,
+  score ranges, and the full author lists.
 
 Shapers are pure functions over upstream dicts so they unit-test in isolation.
 """
@@ -43,35 +46,55 @@ def _license_short(raw: dict[str, Any]) -> str | None:
     return lic.get("shortName") if isinstance(lic, dict) else None
 
 
-def _shape_publication(pub: dict[str, Any], *, full: bool) -> dict[str, Any]:
-    """Normalise one publication identifier record."""
+def _first_author(authors: Any) -> str | None:
+    """The first author's name from a publication's author list (or ``None``)."""
+    if isinstance(authors, list) and authors:
+        first = authors[0]
+        if isinstance(first, dict):
+            return first.get("name")
+        if isinstance(first, str):
+            return first
+    return None
+
+
+def _shape_publication(pub: dict[str, Any], *, detail: str) -> dict[str, Any]:
+    """Normalise one publication identifier record, tiered by ``detail``.
+
+    ``compact`` keeps the citation anchors; ``standard`` adds title/journal/url and
+    caps the author list to ``first_author`` + ``author_count`` (the full list is
+    ~2.7 KB/record in search results); ``full`` adds the complete ``authors`` list.
+    """
     base: dict[str, Any] = {
         "db_name": pub.get("dbName"),
         "identifier": pub.get("identifier"),
         "publication_year": pub.get("publicationYear"),
         "doi": pub.get("doi"),
     }
-    if full:
+    if detail in ("standard", "full"):
+        authors = pub.get("authors") or []
         base.update(
             {
                 "title": pub.get("title"),
                 "journal": pub.get("publicationJournal"),
                 "url": pub.get("url"),
-                "authors": pub.get("authors"),
+                "first_author": _first_author(authors),
+                "author_count": len(authors) if isinstance(authors, list) else None,
             }
         )
+    if detail == "full":
+        base["authors"] = pub.get("authors")
     return _drop_empty(base)
 
 
-def _shape_publications(raw: dict[str, Any], *, full: bool) -> dict[str, Any]:
-    """Group a record's primary + secondary publications."""
+def _shape_publications(raw: dict[str, Any], *, detail: str) -> dict[str, Any]:
+    """Group a record's primary + secondary publications (tiered by ``detail``)."""
     primary = [
-        _shape_publication(p, full=full) for p in raw.get("primaryPublicationIdentifiers") or []
+        _shape_publication(p, detail=detail) for p in raw.get("primaryPublicationIdentifiers") or []
     ]
     secondary = raw.get("secondaryPublicationIdentifiers") or []
     out: dict[str, Any] = {"primary": primary}
-    if full:
-        out["secondary"] = [_shape_publication(p, full=True) for p in secondary]
+    if detail == "full":
+        out["secondary"] = [_shape_publication(p, detail="full") for p in secondary]
     else:
         out["secondary_count"] = len(secondary)
     return out
@@ -118,16 +141,17 @@ def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project a score-set record to the requested verbosity."""
     if response_mode == "minimal":
         return _drop_empty({"urn": raw.get("urn"), "title": raw.get("title")})
-    full = response_mode in ("standard", "full")
+    full = response_mode == "full"
+    rich = response_mode in ("standard", "full")
     payload: dict[str, Any] = {
         "urn": raw.get("urn"),
         "title": raw.get("title"),
         "short_description": raw.get("shortDescription"),
         "num_variants": raw.get("numVariants"),
         "license": _license_short(raw),
-        "targets": [_shape_target(t, full=full) for t in raw.get("targetGenes") or []],
+        "targets": [_shape_target(t, full=rich) for t in raw.get("targetGenes") or []],
         "experiment_urn": (raw.get("experiment") or {}).get("urn") or raw.get("experimentUrn"),
-        "publications": _shape_publications(raw, full=full),
+        "publications": _shape_publications(raw, detail=response_mode),
         # MaveDB's curated interpretation layer (ACMG/OddsPath/thresholds). Empty
         # for most sets -> dropped by _drop_empty in compact; the decision-relevant
         # field the MCP previously discarded.
@@ -136,13 +160,11 @@ def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
         "published_date": raw.get("publishedDate"),
         "record_url": _web_url("score-sets", raw.get("urn")),
     }
-    if full:
+    if rich:
+        # The structured record (standard+full): identifiers, lineage, dates -- not
+        # the heavy free-text blobs.
         payload.update(
             {
-                "score_ranges": raw.get("scoreRanges"),
-                "abstract_text": raw.get("abstractText"),
-                "method_text": raw.get("methodText"),
-                "dataset_columns": raw.get("datasetColumns"),
                 "doi_identifiers": [d.get("identifier") for d in raw.get("doiIdentifiers") or []],
                 "meta_analyzes_score_set_urns": raw.get("metaAnalyzesScoreSetUrns"),
                 "meta_analyzed_by_score_set_urns": raw.get("metaAnalyzedByScoreSetUrns"),
@@ -158,6 +180,17 @@ def shape_score_set(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
                 ],
             }
         )
+    if full:
+        # The heavy free text + score ranges live at full only (F8).
+        payload.update(
+            {
+                "score_ranges": raw.get("scoreRanges"),
+                "abstract_text": raw.get("abstractText"),
+                "method_text": raw.get("methodText"),
+                "dataset_columns": raw.get("datasetColumns"),
+            }
+        )
+    if rich:
         return payload
     return _drop_empty(payload)
 
@@ -166,7 +199,8 @@ def shape_experiment(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project an experiment record to the requested verbosity."""
     if response_mode == "minimal":
         return _drop_empty({"urn": raw.get("urn"), "title": raw.get("title")})
-    full = response_mode in ("standard", "full")
+    full = response_mode == "full"
+    rich = response_mode in ("standard", "full")
     payload: dict[str, Any] = {
         "urn": raw.get("urn"),
         "title": raw.get("title"),
@@ -175,20 +209,26 @@ def shape_experiment(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
         "score_set_urns": raw.get("scoreSetUrns"),
         "num_score_sets": raw.get("numScoreSets"),
         "keywords": _shape_keywords(raw.get("keywords") or []),
-        "publications": _shape_publications(raw, full=full),
+        "publications": _shape_publications(raw, detail=response_mode),
         "published_date": raw.get("publishedDate"),
         "record_url": _web_url("experiments", raw.get("urn")),
     }
-    if full:
+    if rich:
         payload.update(
             {
-                "abstract_text": raw.get("abstractText"),
-                "method_text": raw.get("methodText"),
                 "doi_identifiers": [d.get("identifier") for d in raw.get("doiIdentifiers") or []],
                 "creation_date": raw.get("creationDate"),
                 "processing_state": raw.get("processingState"),
             }
         )
+    if full:
+        payload.update(
+            {
+                "abstract_text": raw.get("abstractText"),
+                "method_text": raw.get("methodText"),
+            }
+        )
+    if rich:
         return payload
     return _drop_empty(payload)
 
@@ -210,6 +250,8 @@ def _shape_keywords(keywords: list[Any]) -> list[Any]:
 
 def shape_gene(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project a /genes/{symbol} record (gene identity, score sets excluded)."""
+    if response_mode == "minimal":
+        return _drop_empty({"symbol": raw.get("symbol"), "hgnc_id": raw.get("hgncId")})
     payload = {
         "symbol": raw.get("symbol"),
         "name": raw.get("name"),
