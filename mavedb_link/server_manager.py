@@ -33,7 +33,7 @@ class UnifiedServerManager:
         from mavedb_link.mcp.facade import create_mavedb_mcp
 
         mcp = create_mavedb_mcp()
-        mcp_asgi = mcp.http_app(path=settings.mcp_path)
+        mcp_asgi = mcp.http_app(path=settings.mcp_path, stateless_http=True, json_response=True)
 
         original_lifespan = fastapi_app.router.lifespan_context
 
