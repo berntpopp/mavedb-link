@@ -1,0 +1,46 @@
+# Keep the build context small and the image free of secrets.
+# Build context is the repo root (compose `context: ..`).
+
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Virtualenvs
+.venv
+venv
+
+# Python caches / build artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+dist
+build
+
+# Secrets / local env — never bake into an image layer (keep examples)
+.env
+.env.*
+!.env.example
+!.env.docker.example
+docker/.env
+
+# Local data store (SQLite mirror/cache — built/pulled at runtime, not shipped)
+*.sqlite
+*.sqlite-*
+data
+
+# Tests, docs, coverage
+tests
+docs
+htmlcov
+.coverage
+coverage.xml
+
+# Tool caches
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# CI / editor metadata
+.github
+.pre-commit-config.yaml
