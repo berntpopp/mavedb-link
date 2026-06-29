@@ -1,0 +1,66 @@
+# Production docker-compose override (Container & Deployment Hardening Standard v1).
+# Layered on the base file:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# Front the container with a reverse proxy (TLS at the edge); see
+# docker-compose.npm.yml for the Nginx Proxy Manager expose-only overlay.
+
+services:
+  mavedb-link:
+    environment:
+      MAVEDB_LINK_TRANSPORT: unified
+      MAVEDB_LINK_LOG_LEVEL: INFO
+      MAVEDB_LINK_LOG_FORMAT: json
+      MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/data
+      # Keep the lazy mapped-variant cache on the writable volume (read-only rootfs).
+      MAVEDB_LINK_CACHE__DB_PATH: /home/app/data/mavedb_cache.sqlite
+
+    # No published host ports in production; reach the container via the proxy only.
+    # !reset (not []) is required: Compose MERGES list fields across -f overlays,
+    # so a plain `ports: []` would NOT drop the base file's host mapping.
+    ports: !reset []
+
+    # Read-only root filesystem; writes confined to the named data volume
+    # (/home/app/data, inherited from the base file) and an ephemeral tmpfs.
+    read_only: true
+    tmpfs:
+      # TMPDIR=/tmp/mavedb-link (set in the image) — mirror build/download scratch.
+      - /tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    pids_limit: 256
+    init: true
+
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+          pids: 256
+        reservations:
+          memory: 256M
+          cpus: "0.25"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+    # First boot may fetch the prebuilt SQLite mirror artifact before serving.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=mavedb-link,environment=production"
