@@ -1,4 +1,12 @@
-"""Tool-Naming Standard v1 conformance for the registered tool surface."""
+"""Tool-Naming Standard v1.1 conformance for the registered tool surface.
+
+Adopts the ratified two-tier verb canon (2026-06-30):
+  Tier-1 — universal read/query: get, search, list, resolve, find, compare, compute, map
+  Tier-2 — sanctioned domain action/compute: predict, annotate, recode, liftover, analyze,
+            score, submit, export, generate, download
+  ops/meta carve-out — tools tagged 'ops' or 'meta' skip the verb rule (charset/length
+  and no-self-prefix still apply). See docs/TOOL-NAMING-STANDARD-v1.md §Q3.
+"""
 
 from __future__ import annotations
 
@@ -10,19 +18,46 @@ import pytest
 from mavedb_link.mcp.capabilities import TOOLS
 from mavedb_link.mcp.facade import create_mavedb_mcp
 
-#: Canonical verbs allowed for a read-only data backend (Tool-Naming Standard v1).
-CANONICAL_VERBS = ("get", "search", "list", "resolve", "find", "compare", "compute")
+#: Tier-1 — universal read/query canon (Tool-Naming Standard v1.1).
+_TIER1_VERBS = frozenset({"get", "search", "list", "resolve", "find", "compare", "compute", "map"})
+
+#: Tier-2 — sanctioned domain action/compute verbs (fleet-wide, Standard v1.1).
+_TIER2_VERBS = frozenset(
+    {
+        "predict",
+        "annotate",
+        "recode",
+        "liftover",
+        "analyze",
+        "score",
+        "submit",
+        "export",
+        "generate",
+        "download",
+    }
+)
+
+#: Union of all canonical verbs (Tier-1 + Tier-2).
+CANONICAL_VERBS = _TIER1_VERBS | _TIER2_VERBS
+
+#: Tags that exempt a tool from the verb rule (Standard v1.1 §Q3 ops/meta carve-out).
+_OPS_META_TAGS = frozenset({"ops", "meta"})
 
 #: Names that must NOT be exposed (cache management, etc.).
 FORBIDDEN = {"clear_cache", "close", "aclose", "reset"}
 
 
 @pytest.fixture
-def tool_names() -> list[str]:
+def _tool_objects() -> list[Any]:
     import asyncio
 
     mcp = create_mavedb_mcp()
-    return sorted(t.name for t in asyncio.run(mcp.list_tools()))
+    return sorted(asyncio.run(mcp.list_tools()), key=lambda t: t.name)
+
+
+@pytest.fixture
+def tool_names(_tool_objects: list[Any]) -> list[str]:
+    return [t.name for t in _tool_objects]
 
 
 @pytest.fixture
@@ -42,9 +77,18 @@ def test_name_shape(tool_names: list[str]) -> None:
         assert re.fullmatch(r"[a-z0-9_]{1,50}", name), f"bad name shape: {name}"
 
 
-def test_canonical_verb_prefix(tool_names: list[str]) -> None:
-    for name in tool_names:
-        assert name.split("_")[0] in CANONICAL_VERBS, f"non-canonical verb: {name}"
+def test_canonical_verb_prefix(_tool_objects: list[Any]) -> None:
+    """Each tool must start with a Tier-1 or Tier-2 canonical verb.
+
+    Tools tagged 'ops' or 'meta' are exempt from the verb rule but still
+    must pass charset/length and no-self-prefix (Standard v1.1 §Q3 carve-out).
+    """
+    for t in _tool_objects:
+        tags = frozenset(getattr(t, "tags", None) or ())
+        if tags & _OPS_META_TAGS:
+            continue  # ops/meta carve-out: verb rule does not apply
+        verb = t.name.split("_")[0]
+        assert verb in CANONICAL_VERBS, f"non-canonical verb: {t.name!r}"
 
 
 def test_no_self_namespace_prefix(tool_names: list[str]) -> None:
