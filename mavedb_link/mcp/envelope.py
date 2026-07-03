@@ -147,7 +147,14 @@ def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, A
         "message": message,
         "retryable": retryable,
         "recovery_action": recovery,
-        "_meta": {"tool": context.tool_name, "request_id": _request_id()},
+        "_meta": {
+            "tool": context.tool_name,
+            "request_id": _request_id(),
+            # Fleet Response-Envelope Standard v1: the research-use disclaimer is a
+            # per-call _meta flag, not a one-time capability, so every error carries
+            # it too (see _MANDATORY_META_KEYS for how it survives minimal-mode tiering).
+            "unsafe_for_clinical_use": True,
+        },
     }
     if lower_mode:
         envelope["_meta"]["next_commands"] = [_lower_mode_step(context)]
@@ -206,6 +213,7 @@ def build_arg_error_envelope(
                 "tool": tool_name,
                 "request_id": _request_id(),
                 "next_commands": [cmd("get_server_capabilities")],
+                "unsafe_for_clinical_use": True,
             },
         }
     if error_type == "missing_argument":
@@ -229,6 +237,7 @@ def build_arg_error_envelope(
             "tool": tool_name,
             "request_id": _request_id(),
             "next_commands": [cmd("get_server_capabilities")],
+            "unsafe_for_clinical_use": True,
         },
     }
 
@@ -251,6 +260,12 @@ _OBSERVABILITY_KEYS = (
     "mirror_as_of",
 )
 
+#: Keys that must survive ``minimal``-mode tiering even though they are not
+#: observability scalars. Fleet Response-Envelope Standard v1: the research-use
+#: disclaimer is a per-call safety flag, not guidance, so it is never subject to
+#: the ``minimal`` opt-out that drops ``next_commands``/``capabilities_version``.
+_MANDATORY_META_KEYS = ("unsafe_for_clinical_use",)
+
 
 def _shape_meta(meta: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Tier ``_meta`` verbosity by ``response_mode`` while keeping observability uniform.
@@ -259,10 +274,14 @@ def _shape_meta(meta: dict[str, Any], response_mode: str) -> dict[str, Any]:
     ``elapsed_ms``, ``truncated``; ``token_estimate`` is appended afterwards) so a
     caller always has a reliable completeness + latency signal (GAP-5, G7).
     ``minimal`` is the guidance opt-out: it drops ``next_commands`` and
-    ``capabilities_version``; the richer tiers keep the full block.
+    ``capabilities_version``; the richer tiers keep the full block. The
+    ``_MANDATORY_META_KEYS`` (currently just ``unsafe_for_clinical_use``) are
+    special-cased to survive the ``minimal`` filter too -- the safety disclaimer is
+    never guidance a caller can opt out of.
     """
     if response_mode == "minimal":
-        return {k: meta[k] for k in _OBSERVABILITY_KEYS if k in meta}
+        keys = (*_OBSERVABILITY_KEYS, *_MANDATORY_META_KEYS)
+        return {k: meta[k] for k in keys if k in meta}
     return meta
 
 
@@ -392,6 +411,10 @@ async def run_mcp_tool(
                 "truncated": bool(result.get("truncated")),
                 # Honest mirror-vs-live provenance for this call (empty if no mirror).
                 **provenance.snapshot(),
+                # Fleet Response-Envelope Standard v1: per-call research-use
+                # disclaimer, stamped last so no tool body can accidentally
+                # override it via existing_meta.
+                "unsafe_for_clinical_use": True,
             }
             _stamp_capabilities_version(meta)
             result["_meta"] = _shape_meta(meta, ctx.response_mode)
