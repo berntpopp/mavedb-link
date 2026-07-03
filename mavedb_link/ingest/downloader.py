@@ -46,7 +46,12 @@ def _client(client: httpx.Client | None) -> tuple[httpx.Client, bool]:
 
 
 def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) -> DumpRef:
-    """Resolve the newest dump version for a Zenodo concept record id."""
+    """Resolve the newest dump version for a Zenodo concept record id.
+
+    "Newest" follows the publication date first (then version, then record id):
+    from the 2026-06-24 dump on, MaveDB stopped setting ``metadata.version`` on the
+    record, so ranking purely by version number would wrongly stick on the older v4.
+    """
     http, owned = _client(client)
     try:
         resp = http.get(
@@ -70,7 +75,7 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
             http.close()
     if not hits:
         raise DataUnavailableError(f"No Zenodo versions for concept {concept_id}.")
-    best = max(hits, key=_version_key)
+    best = max(hits, key=_recency_key)
     files = best.get("files") or []
     if not files:
         raise DataUnavailableError(f"Zenodo record {best.get('id')} has no files.")
@@ -92,12 +97,24 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
     )
 
 
-def _version_key(hit: dict[str, object]) -> int:
-    meta = hit.get("metadata") or {}
+def _recency_key(hit: dict[str, object]) -> tuple[str, int, int]:
+    """Sort key for 'newest': (publication_date, version, record_id), all desc-friendly.
+
+    Publication date leads because MaveDB no longer stamps ``metadata.version`` on
+    the newest dump; version and record id break same-day ties.
+    """
+    meta = hit.get("metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    published = str(meta.get("publication_date") or "")
     try:
-        return int(str((meta if isinstance(meta, dict) else {}).get("version") or 0))
+        version = int(str(meta.get("version") or 0))
     except (TypeError, ValueError):
-        return 0
+        version = 0
+    try:
+        record_id = int(str(hit.get("id") or 0))
+    except (TypeError, ValueError):
+        record_id = 0
+    return (published, version, record_id)
 
 
 def download_file(
