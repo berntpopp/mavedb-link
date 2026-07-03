@@ -29,7 +29,8 @@ services:
       # Pin a deterministic, non-conflicting host port (fleet convention).
       # mavedb sits beside the variant-effect siblings gnomad (8020) / vep (8021).
       # Override via docker/.env; `make docker-url` prints the live URL.
-      - "${MAVEDB_LINK_HOST_PORT:-8023}:8000"
+      # Loopback-bound: dev/local only; production uses the prod/npm overlays.
+      - "127.0.0.1:${MAVEDB_LINK_HOST_PORT:-8023}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 30s
