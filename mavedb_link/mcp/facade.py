@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from mavedb_link import __version__
 from mavedb_link.mcp.capabilities import register_capability_resources
 from mavedb_link.mcp.middleware import ArgValidationMiddleware
 from mavedb_link.mcp.resources import MAVEDB_SERVER_INSTRUCTIONS
@@ -22,6 +23,7 @@ def create_mavedb_mcp() -> FastMCP:
     """Build a FastMCP instance with all mavedb-link tools, resources, middleware."""
     mcp = FastMCP(
         name="mavedb-link",
+        version=__version__,
         instructions=MAVEDB_SERVER_INSTRUCTIONS,
         mask_error_details=True,
     )
