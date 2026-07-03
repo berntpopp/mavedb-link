@@ -68,6 +68,54 @@ def test_resolve_latest_picks_max_version() -> None:
     assert ref.url.endswith("v4.zip")
 
 
+def _zenodo_versionless_newest() -> dict:
+    # Real shape as of 2026-06-25: the newest dump (a .tar.gz) carries no
+    # metadata.version, while older records still do. "Latest" must follow the
+    # publication_date, not the (missing) version number.
+    return {
+        "hits": {
+            "hits": [
+                {
+                    "id": 18511521,
+                    "metadata": {"version": "4", "publication_date": "2026-02-06"},
+                    "files": [
+                        {
+                            "key": "mavedb-dump.20260206153444.zip",
+                            "size": 9,
+                            "checksum": "md5:zip",
+                            "links": {"self": "https://zenodo.org/files/v4.zip"},
+                        }
+                    ],
+                },
+                {
+                    "id": 20840937,
+                    "metadata": {"version": None, "publication_date": "2026-06-25"},
+                    "files": [
+                        {
+                            "key": "mavedb-dump.2026062418131.tar.gz",
+                            "size": 12,
+                            "checksum": "md5:tgz",
+                            "links": {"self": "https://zenodo.org/files/dump.tar.gz"},
+                        }
+                    ],
+                },
+            ]
+        }
+    }
+
+
+def test_resolve_latest_prefers_newest_even_without_version_number() -> None:
+    with respx.mock(base_url="https://zenodo.org/api") as mock:
+        mock.get("/records").mock(
+            return_value=httpx.Response(200, json=_zenodo_versionless_newest())
+        )
+        ref = resolve_latest_dump("11201736")
+    # The versionless 2026-06-25 tar.gz is newer than the v4 zip; pick it.
+    assert ref.record_id == "20840937"
+    assert ref.filename == "mavedb-dump.2026062418131.tar.gz"
+    assert ref.url.endswith("dump.tar.gz")
+
+
 def test_download_verifies_md5(tmp_path: Path) -> None:
     body = b"hello world"
     good = hashlib.md5(body).hexdigest()  # noqa: S324 (integrity, not security)

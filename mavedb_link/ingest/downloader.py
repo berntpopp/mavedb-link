@@ -1,13 +1,14 @@
 """Resolve + download the CC0 MaveDB bulk dump from Zenodo (sync, for the CLI).
 
 The Zenodo concept record (DOI 10.5281/zenodo.11201736) versions the dump; we
-resolve the highest version, then stream its zip to disk verifying the published
-md5. The download is large (~1.8 GB) so it streams in chunks and never buffers
-the whole file in memory.
+resolve the highest version, then stream the dump archive to disk verifying the
+published md5. The container format is whatever Zenodo published -- a ``.zip``
+through v4, a ``.tar.gz`` from the 2026-06-24 dump onward -- and the filename is
+taken from the Zenodo record, so the builder auto-detects it. The download is
+large (~1.8 GB) so it streams in chunks and never buffers the whole file in memory.
 
-The current v4 dump's verified zip member listing omits per-set annotations CSVs;
-mapped VRS/ClinGen data is therefore backfilled lazily from the live API into the
-on-disk mapped-variant cache.
+Some dumps omit the per-set annotations CSVs; mapped VRS/ClinGen data is then
+backfilled lazily from the live API into the on-disk mapped-variant cache.
 """
 
 from __future__ import annotations
@@ -45,7 +46,12 @@ def _client(client: httpx.Client | None) -> tuple[httpx.Client, bool]:
 
 
 def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) -> DumpRef:
-    """Resolve the newest dump version for a Zenodo concept record id."""
+    """Resolve the newest dump version for a Zenodo concept record id.
+
+    "Newest" follows the publication date first (then version, then record id):
+    from the 2026-06-24 dump on, MaveDB stopped setting ``metadata.version`` on the
+    record, so ranking purely by version number would wrongly stick on the older v4.
+    """
     http, owned = _client(client)
     try:
         resp = http.get(
@@ -69,7 +75,7 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
             http.close()
     if not hits:
         raise DataUnavailableError(f"No Zenodo versions for concept {concept_id}.")
-    best = max(hits, key=_version_key)
+    best = max(hits, key=_recency_key)
     files = best.get("files") or []
     if not files:
         raise DataUnavailableError(f"Zenodo record {best.get('id')} has no files.")
@@ -85,18 +91,30 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
         version=str((best.get("metadata") or {}).get("version") or ""),
         published=str((best.get("metadata") or {}).get("publication_date") or ""),
         url=url,
-        filename=str(file.get("key") or "mavedb-dump.zip"),
+        filename=str(file.get("key") or "mavedb-dump.tar.gz"),
         md5=md5,
         size=file.get("size"),
     )
 
 
-def _version_key(hit: dict[str, object]) -> int:
-    meta = hit.get("metadata") or {}
+def _recency_key(hit: dict[str, object]) -> tuple[str, int, int]:
+    """Sort key for 'newest': (publication_date, version, record_id), all desc-friendly.
+
+    Publication date leads because MaveDB no longer stamps ``metadata.version`` on
+    the newest dump; version and record id break same-day ties.
+    """
+    meta = hit.get("metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    published = str(meta.get("publication_date") or "")
     try:
-        return int(str((meta if isinstance(meta, dict) else {}).get("version") or 0))
+        version = int(str(meta.get("version") or 0))
     except (TypeError, ValueError):
-        return 0
+        version = 0
+    try:
+        record_id = int(str(hit.get("id") or 0))
+    except (TypeError, ValueError):
+        record_id = 0
+    return (published, version, record_id)
 
 
 def download_file(

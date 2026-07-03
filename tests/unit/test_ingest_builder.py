@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from mavedb_link.ingest.builder import build_database
-from tests.dump_fixture import CALIBRATED_URN, DUMP_AS_OF, write_mini_dump
+from tests.dump_fixture import (
+    CALIBRATED_URN,
+    DUMP_AS_OF,
+    write_mini_dump,
+    write_mini_dump_targz,
+)
 from tests.fixtures import EXPERIMENT_SET_URN, EXPERIMENT_URN, SCORE_SET_URN
 
 
@@ -24,6 +29,33 @@ def _build(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     summary = build_database(dump, db_path, source_md5="deadbeef", zenodo_record="18511521")
     assert db_path.exists()
     return db_path, summary
+
+
+def test_build_reads_targz_dump_like_zip(tmp_path: Path) -> None:
+    # MaveDB's Zenodo bulk dump switched .zip -> .tar.gz (2026-06-24); the builder
+    # must ingest the tarball with the same result the zip path produces.
+    dump = write_mini_dump_targz(tmp_path)
+    db_path = tmp_path / "mavedb.sqlite"
+    summary = build_database(dump, db_path, source_md5="deadbeef", zenodo_record="20840937")
+    assert db_path.exists()
+    assert summary["score_set_count"] == 2
+    assert summary["experiment_count"] == 1
+    assert summary["experiment_set_count"] == 1
+    assert summary["mapped_variant_count"] == 2
+    assert summary["dump_as_of"] == DUMP_AS_OF
+    con = sqlite3.connect(db_path)
+    try:
+        scores_csv = con.execute(
+            "SELECT scores_csv FROM score_set_data WHERE urn = ?", (SCORE_SET_URN,)
+        ).fetchone()[0]
+        mapped = con.execute(
+            "SELECT vrs_id FROM mapped_variant WHERE variant_urn = ?", (f"{CALIBRATED_URN}#1",)
+        ).fetchone()
+    finally:
+        con.close()
+    # CSV members were denamespaced from the tarball just like the zip path.
+    assert scores_csv.splitlines()[0] == "accession,hgvs_nt,hgvs_splice,hgvs_pro,score,sd,exp.score"
+    assert mapped[0] == "ga4gh:VA.MINI_digest1"
 
 
 def test_build_summary_and_meta(tmp_path: Path) -> None:

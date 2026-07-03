@@ -89,10 +89,11 @@ score set (CC0 1.0 / CC BY 4.0 / CC BY-SA 4.0).
 ## Local mirror (primary) + live API (backup)
 
 To make lookups fast and offline, `mavedb-link` can serve from a **local SQLite
-mirror** built from the CC0 [MaveDB Zenodo bulk dump](https://zenodo.org/records/15653325)
-(concept DOI `10.5281/zenodo.11201736`), falling back to the live REST API on any
-mirror-miss (e.g. a record newer than the snapshot). Without a mirror it runs
-pure-live — no setup required.
+mirror** built from the CC0 [MaveDB Zenodo bulk dump](https://doi.org/10.5281/zenodo.11201736)
+(concept DOI `10.5281/zenodo.11201736`, always resolving to the newest version —
+a `.zip` through v4, a `.tar.gz` from 2026-06-24 on), falling back to the live REST
+API on any mirror-miss (e.g. a record newer than the snapshot). Without a mirror it
+runs pure-live — no setup required.
 
 ```bash
 make data-build     # download the latest Zenodo dump + build data/mavedb.sqlite
@@ -108,7 +109,7 @@ to make public reads fast/offline and do not change upstream/domain data.
 
 Score-set/experiment records, the scores/counts tables, full-text search, the
 score distribution, and the `get_gene_score_sets` score-set listing are served
-from the local index. The verified Zenodo v4 zip member listing omits
+from the local index. The Zenodo bulk dump (zip or tar.gz) omits
 `csv/*.annotations.csv`, so the VRS/ClinGen mapped-variant layer is backfilled
 lazily from the live API per score set into an on-disk cache; repeat
 `get_mapped_variants`, `find_variant(variant_urn=)`, and target-relative

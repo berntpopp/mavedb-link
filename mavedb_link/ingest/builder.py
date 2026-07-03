@@ -1,4 +1,4 @@
-"""Build the local SQLite mirror from a MaveDB bulk-dump zip.
+"""Build the local SQLite mirror from a MaveDB bulk-dump archive.
 
 Streams ``main.json`` (nested experimentSets -> experiments -> scoreSets) and the
 per-set ``csv/`` members into a fresh SQLite database, then atomically swaps it
@@ -7,10 +7,13 @@ are stored as the upstream camelCase JSON (the shapers consume them unchanged);
 nested score sets/experiments are enriched with their parent URNs to match the
 live record shape.
 
-The schema still accepts ``annotations`` CSV members when present, but the current
-Zenodo v4 dump's verified zip listing omits them. In that case the mirror's
-mapped-variant index is empty and HybridClient lazily backfills VRS/ClinGen rows
-from the live API into the mapped-variant cache.
+The dump container is format-agnostic: MaveDB shipped a ``.zip`` through v4 and
+switched to ``.tar.gz`` for the 2026-06-24 dump, so :func:`build_database`
+auto-detects either (by extension, falling back to magic bytes) and reads members
+uniformly. The schema still accepts ``annotations`` CSV members when present, but
+some dumps omit them; in that case the mirror's mapped-variant index is empty and
+HybridClient lazily backfills VRS/ClinGen rows from the live API into the
+mapped-variant cache.
 """
 
 from __future__ import annotations
@@ -18,13 +21,16 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tarfile
 import tempfile
 import time
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
 from mavedb_link.ingest.parsing import (
@@ -34,6 +40,90 @@ from mavedb_link.ingest.parsing import (
     extract_scores,
     parse_annotations,
 )
+
+
+class _DumpReader(Protocol):
+    """Uniform read access to a dump archive, regardless of container format."""
+
+    names: set[str]
+
+    def read(self, name: str) -> bytes:
+        """Return the raw bytes of one member."""
+        ...
+
+
+class _ZipArchive:
+    """A ``.zip`` dump: members are read on demand via the central directory."""
+
+    def __init__(self, zf: zipfile.ZipFile) -> None:
+        self._zf = zf
+        self.names = set(zf.namelist())
+
+    def read(self, name: str) -> bytes:
+        return self._zf.read(name)
+
+
+class _DirArchive:
+    """A dump extracted to disk (the ``.tar.gz`` path): members are files.
+
+    Tarballs don't support cheap random access on a gzip stream, so we extract
+    once (streaming, low peak memory) and then read members as plain files --
+    matching the zip path's per-member, one-CSV-at-a-time access pattern.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self.names = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+
+    def read(self, name: str) -> bytes:
+        return (self._root / name).read_bytes()
+
+
+def _is_tar_dump(dump_path: Path) -> bool:
+    """True if the dump is a tarball (``.tar.gz``/``.tgz``/...), else a zip.
+
+    Prefer the extension; fall back to magic bytes for an unknown suffix so a
+    mislabelled download is still read correctly.
+    """
+    name = dump_path.name.lower()
+    if name.endswith((".tar.gz", ".tgz", ".tar", ".tar.bz2", ".tar.xz")):
+        return True
+    if name.endswith(".zip"):
+        return False
+    with open(dump_path, "rb") as fh:
+        head = fh.read(512)
+    if head[:4] == b"PK\x03\x04":  # zip local-file signature
+        return False
+    if head[:2] == b"\x1f\x8b":  # gzip container (assume a gzipped tar)
+        return True
+    return head[257:262] == b"ustar"  # uncompressed tar header magic
+
+
+def _dump_root(extracted: Path) -> Path:
+    """The directory holding ``main.json`` (descend one wrapping dir if present)."""
+    if (extracted / "main.json").exists():
+        return extracted
+    subdirs = [p for p in extracted.iterdir() if p.is_dir()]
+    if len(subdirs) == 1 and (subdirs[0] / "main.json").exists():
+        return subdirs[0]
+    return extracted
+
+
+@contextmanager
+def _open_dump(dump_path: Path) -> Iterator[_DumpReader]:
+    """Open a dump archive (zip or tar.gz) as a uniform member reader."""
+    if _is_tar_dump(dump_path):
+        with (
+            tempfile.TemporaryDirectory(dir=dump_path.parent, suffix=".dump") as tmp,
+            tarfile.open(dump_path, mode="r:*") as tf,
+        ):
+            extracted = Path(tmp)
+            # filter="data" refuses absolute paths, traversal, and special files.
+            tf.extractall(extracted, filter="data")
+            yield _DirArchive(_dump_root(extracted))
+    else:
+        with zipfile.ZipFile(dump_path) as zf:
+            yield _ZipArchive(zf)
 
 
 def _schema_sql() -> str:
@@ -94,7 +184,7 @@ def _count_mapping_state(coverage: dict[str, int], score_set: dict[str, Any]) ->
 
 def _insert_score_set(
     con: sqlite3.Connection,
-    zf: zipfile.ZipFile,
+    zf: _DumpReader,
     zip_names: set[str],
     score_set: dict[str, Any],
 ) -> int:
@@ -186,7 +276,7 @@ def _insert_score_set(
     return mapped_count
 
 
-def _read_member(zf: zipfile.ZipFile, zip_names: set[str], urn: str, suffix: str) -> str | None:
+def _read_member(zf: _DumpReader, zip_names: set[str], urn: str, suffix: str) -> str | None:
     """Read one CSV member on demand (denamespaced), or None if absent.
 
     Read per-member rather than caching the whole dump, so peak memory stays at
@@ -207,15 +297,15 @@ def build_database(
     zenodo_record: str | None = None,
     zenodo_version: str | None = None,
 ) -> dict[str, Any]:
-    """Build ``db_path`` from the dump zip atomically; return a provenance summary."""
+    """Build ``db_path`` from the dump archive atomically; return a provenance summary."""
     started = time.monotonic()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        with zipfile.ZipFile(dump_path) as zf:
-            zip_names = set(zf.namelist())
+        with _open_dump(dump_path) as zf:
+            zip_names = zf.names
             main = json.loads(zf.read("main.json"))
             summary = _populate(tmp_path, main, zf, zip_names, started)
         _write_meta(
@@ -231,7 +321,7 @@ def build_database(
 def _populate(
     tmp_path: Path,
     main: dict[str, Any],
-    zf: zipfile.ZipFile,
+    zf: _DumpReader,
     zip_names: set[str],
     started: float,
 ) -> dict[str, Any]:

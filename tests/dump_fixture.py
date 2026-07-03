@@ -9,7 +9,9 @@ build-time denamespacing back to the live header).
 
 from __future__ import annotations
 
+import io
 import json
+import tarfile
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -84,8 +86,8 @@ def _csv_name(urn: str, suffix: str) -> str:
     return f"csv/{urn.replace(':', '-')}.{suffix}.csv"
 
 
-def write_mini_dump(directory: Path) -> Path:
-    """Write a minimal but structurally faithful dump zip; return its path."""
+def _dump_members() -> list[tuple[str, str]]:
+    """The (name, text) archive members shared by the zip and tar.gz fixtures."""
     main_json = {
         "title": "MaveDB public data",
         "asOf": DUMP_AS_OF,
@@ -103,12 +105,36 @@ def write_mini_dump(directory: Path) -> Path:
             }
         ],
     }
+    return [
+        ("main.json", json.dumps(main_json)),
+        ("LICENSE.txt", "CC0 1.0 Universal"),
+        (_csv_name(SCORE_SET_RAW["urn"], "scores"), _UBE2I_SCORES_NS),
+        (_csv_name(SCORE_SET_RAW["urn"], "counts"), _UBE2I_COUNTS_NS),
+        (_csv_name(CALIBRATED_URN, "scores"), _CALIBRATED_SCORES_NS),
+        (_csv_name(CALIBRATED_URN, "annotations"), _CALIBRATED_ANNOTATIONS_NS),
+    ]
+
+
+def write_mini_dump(directory: Path) -> Path:
+    """Write a minimal but structurally faithful dump zip; return its path."""
     zip_path = directory / "mavedb-dump.mini.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("main.json", json.dumps(main_json))
-        zf.writestr("LICENSE.txt", "CC0 1.0 Universal")
-        zf.writestr(_csv_name(SCORE_SET_RAW["urn"], "scores"), _UBE2I_SCORES_NS)
-        zf.writestr(_csv_name(SCORE_SET_RAW["urn"], "counts"), _UBE2I_COUNTS_NS)
-        zf.writestr(_csv_name(CALIBRATED_URN, "scores"), _CALIBRATED_SCORES_NS)
-        zf.writestr(_csv_name(CALIBRATED_URN, "annotations"), _CALIBRATED_ANNOTATIONS_NS)
+        for name, text in _dump_members():
+            zf.writestr(name, text)
     return zip_path
+
+
+def write_mini_dump_targz(directory: Path) -> Path:
+    """Write the same dump as a gzip-compressed tarball; return its path.
+
+    MaveDB's Zenodo bulk dump switched from ``.zip`` (v4) to ``.tar.gz`` (2026-06-24),
+    so the builder must ingest either container with identical results.
+    """
+    tar_path = directory / "mavedb-dump.mini.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as tf:
+        for name, text in _dump_members():
+            data = text.encode("utf-8")
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return tar_path
