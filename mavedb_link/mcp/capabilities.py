@@ -170,7 +170,7 @@ def build_capabilities() -> dict[str, Any]:
             "PRIMARY source when present; the live API is the backup. Score-set/"
             "experiment records, the scores/counts tables, full-text search, the "
             "score distribution, and gene score-set listings are served from a local "
-            "index. The verified Zenodo v4 zip omits csv/*.annotations.csv, so "
+            "index. The Zenodo bulk dump (zip or tar.gz) omits csv/*.annotations.csv, so "
             "VRS/ClinGen mapped variants are lazily fetched from live per score set "
             "and written to the local mapped-variant cache; repeats then reuse that "
             "cache. A mirror/cache miss (e.g. a record newer than the snapshot) "

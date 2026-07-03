@@ -1,13 +1,14 @@
 """Resolve + download the CC0 MaveDB bulk dump from Zenodo (sync, for the CLI).
 
 The Zenodo concept record (DOI 10.5281/zenodo.11201736) versions the dump; we
-resolve the highest version, then stream its zip to disk verifying the published
-md5. The download is large (~1.8 GB) so it streams in chunks and never buffers
-the whole file in memory.
+resolve the highest version, then stream the dump archive to disk verifying the
+published md5. The container format is whatever Zenodo published -- a ``.zip``
+through v4, a ``.tar.gz`` from the 2026-06-24 dump onward -- and the filename is
+taken from the Zenodo record, so the builder auto-detects it. The download is
+large (~1.8 GB) so it streams in chunks and never buffers the whole file in memory.
 
-The current v4 dump's verified zip member listing omits per-set annotations CSVs;
-mapped VRS/ClinGen data is therefore backfilled lazily from the live API into the
-on-disk mapped-variant cache.
+Some dumps omit the per-set annotations CSVs; mapped VRS/ClinGen data is then
+backfilled lazily from the live API into the on-disk mapped-variant cache.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ def resolve_latest_dump(concept_id: str, *, client: httpx.Client | None = None) 
         version=str((best.get("metadata") or {}).get("version") or ""),
         published=str((best.get("metadata") or {}).get("publication_date") or ""),
         url=url,
-        filename=str(file.get("key") or "mavedb-dump.zip"),
+        filename=str(file.get("key") or "mavedb-dump.tar.gz"),
         md5=md5,
         size=file.get("size"),
     )
