@@ -17,10 +17,13 @@ raised exception into the flat error dict via the module-private ``_error_envelo
 helper (exercised here only indirectly, through ``run_mcp_tool``'s except branch,
 since it is not part of the public API).
 
-This test locks the envelope shape mavedb-link ACTUALLY ships today. It intentionally
-does NOT assert ``unsafe_for_clinical_use`` is present: as of this writing neither the
-success nor the error path stamps that key anywhere in ``_meta`` -- see the drift note
-below each test.
+This test locks the envelope shape mavedb-link ships today, including the per-call
+research-use disclaimer: ``_meta.unsafe_for_clinical_use`` is now stamped ``True`` on
+BOTH the success and the error path, at EVERY ``response_mode`` -- including
+``minimal``, which otherwise strips ``_meta`` down to the bare observability scalars
+(``tool``/``request_id``/``elapsed_ms``/``truncated``/``token_estimate``). The
+disclaimer is special-cased in ``envelope._MANDATORY_META_KEYS`` so it survives that
+filter; see the ``minimal``-mode test below.
 """
 
 from __future__ import annotations
@@ -61,13 +64,34 @@ async def test_success_envelope_is_flat_banner_with_uniform_meta() -> None:
     assert meta["truncated"] is False
     assert isinstance(meta["token_estimate"], int)
 
-    # DRIFT vs the ideal Response-Envelope Standard v1 contract: the standard calls
-    # for `_meta.unsafe_for_clinical_use: True` on every response. mavedb-link does
-    # not stamp this key anywhere today -- the research-use disclaimer is only
-    # static text (mavedb_link/mcp/resources.py, README.md), never an in-band _meta
-    # flag. Locking the current (non-conformant) shape here so any future addition
-    # of the key is a deliberate, visible change to this test.
-    assert "unsafe_for_clinical_use" not in meta
+    # Fleet Response-Envelope Standard v1: the per-call research-use disclaimer is
+    # an in-band _meta flag on every successful response, not just static text.
+    assert meta["unsafe_for_clinical_use"] is True
+
+
+async def test_success_envelope_carries_disclaimer_at_minimal_mode() -> None:
+    """``minimal`` strips ``_meta`` to bare observability -- the disclaimer survives.
+
+    ``minimal`` is the guidance opt-out (drops ``next_commands``,
+    ``capabilities_version``), but the safety disclaimer is not guidance a caller
+    can opt out of, so it must still be present.
+    """
+
+    async def call() -> dict[str, Any]:
+        return {"urn": "urn:mavedb:00000001-a-1", "title": "Example score set"}
+
+    ctx = McpErrorContext(
+        _REAL_TOOL,
+        arguments={"urn": "urn:mavedb:00000001-a-1"},
+        response_mode="minimal",
+    )
+    env = await run_mcp_tool(_REAL_TOOL, call, context=ctx)
+
+    meta = env["_meta"]
+    assert meta["unsafe_for_clinical_use"] is True
+    # Confirms the guidance opt-out still holds -- only the disclaimer is exempted.
+    assert "next_commands" not in meta
+    assert "capabilities_version" not in meta
 
 
 async def test_error_envelope_is_flat_never_nested() -> None:
@@ -98,6 +122,24 @@ async def test_error_envelope_is_flat_never_nested() -> None:
     meta = env["_meta"]
     assert meta["tool"] == _REAL_TOOL
 
-    # Same drift as the success path: no `unsafe_for_clinical_use` key on the error
-    # `_meta` either. Locking ground truth, not the ideal contract.
-    assert "unsafe_for_clinical_use" not in meta
+    # Same fleet standard as the success path: the disclaimer is on the error
+    # `_meta` too, not just success responses.
+    assert meta["unsafe_for_clinical_use"] is True
+
+
+async def test_error_envelope_carries_disclaimer_at_minimal_mode() -> None:
+    """The disclaimer survives ``minimal``-mode tiering on the error path too."""
+
+    async def call() -> dict[str, Any]:
+        raise NotFoundError("No matching MaveDB record found for urn:mavedb:99999999-a-1.")
+
+    ctx = McpErrorContext(
+        _REAL_TOOL,
+        arguments={"urn": "urn:mavedb:99999999-a-1"},
+        response_mode="minimal",
+    )
+    env = await run_mcp_tool(_REAL_TOOL, call, context=ctx)
+
+    meta = env["_meta"]
+    assert meta["unsafe_for_clinical_use"] is True
+    assert "next_commands" not in meta

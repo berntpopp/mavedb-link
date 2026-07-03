@@ -80,6 +80,8 @@ async def test_meta_minimal_is_lean_but_observable() -> None:
     # ...but guidance is the explicit opt-out at minimal.
     assert "next_commands" not in meta
     assert "capabilities_version" not in meta
+    # The research-use disclaimer is not guidance -- it survives minimal too.
+    assert meta["unsafe_for_clinical_use"] is True
 
 
 async def test_meta_truncated_reflects_body_flag() -> None:
