@@ -13,6 +13,7 @@ services:
       MAVEDB_LINK_PORT: 8000
       MAVEDB_LINK_TRANSPORT: unified
       MAVEDB_LINK_MCP_PATH: /mcp
+      MAVEDB_LINK_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1"]'
       MAVEDB_LINK_LOG_FORMAT: json
       # Local SQLite mirror (primary source; live API is the backup). The named
       # volume persists the built/pulled mirror across restarts. On first start
@@ -32,7 +33,7 @@ services:
       # Loopback-bound: dev/local only; production uses the prod/npm overlays.
       - "127.0.0.1:${MAVEDB_LINK_HOST_PORT:-8023}:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3

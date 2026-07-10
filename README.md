@@ -70,6 +70,12 @@ The `claude mcp add --transport http` flag is the client-side MCP transport for
 the `/mcp` endpoint. Run this server with `server.py --transport unified` for
 router/MCP clients; `server.py --transport http` is REST/health-only.
 
+HTTP deployments enforce exact Host and Origin allowlists. Configure
+`MAVEDB_LINK_ALLOWED_HOSTS` as a JSON list containing the public reverse-proxy
+hostname in addition to loopback defaults; wildcards are rejected.
+`MAVEDB_LINK_ALLOWED_ORIGINS` defaults to `[]`, which permits requests without
+an `Origin` header. CORS configuration remains separate.
+
 For Claude Desktop (stdio): `uv run python mcp_server.py`.
 
 ## Data model
