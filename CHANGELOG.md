@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-10
+
 ### Added
 
 - Per-call research-use disclaimer: `_meta.unsafe_for_clinical_use` is now
@@ -17,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also an in-band `_meta` flag per the fleet's Response-Envelope Standard v1.
   This is additive only -- no envelope keys were renamed, removed, or
   restructured, and no version literal changed.
+
+### Security
+
+- Hardened remote artifact ingestion with validated manual redirect handling,
+  incremental metadata and download limits, trusted digest and size checks,
+  streamed SHA-256 provenance, atomic installation, bounded decompression, and
+  strict tar/ZIP member policies that reject traversal, duplicates, links, and
+  special files.
 
 ## [0.1.2] - 2026-07-03
 
