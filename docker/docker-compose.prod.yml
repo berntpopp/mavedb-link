@@ -11,6 +11,7 @@ services:
       MAVEDB_LINK_TRANSPORT: unified
       MAVEDB_LINK_LOG_LEVEL: INFO
       MAVEDB_LINK_LOG_FORMAT: json
+      MAVEDB_LINK_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","mavedb-link.genefoundry.org"]'
       MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/data
       # Keep the lazy mapped-variant cache on the writable volume (read-only rootfs).
       MAVEDB_LINK_CACHE__DB_PATH: /home/app/data/mavedb_cache.sqlite
@@ -52,7 +53,7 @@ services:
 
     # First boot may fetch the prebuilt SQLite mirror artifact before serving.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 20s
       timeout: 5s
       retries: 5
