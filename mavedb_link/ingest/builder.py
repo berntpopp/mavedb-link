@@ -21,18 +21,21 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import stat
 import tarfile
 import tempfile
 import time
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
+from mavedb_link.exceptions import DataUnavailableError
 from mavedb_link.ingest.parsing import (
     compute_distribution,
     denamespace_csv,
@@ -40,6 +43,15 @@ from mavedb_link.ingest.parsing import (
     extract_scores,
     parse_annotations,
 )
+
+
+@dataclass(frozen=True)
+class ArchiveLimits:
+    """Entry and expanded-byte bounds for a bulk-dump archive."""
+
+    max_entries: int
+    max_member_bytes: int
+    max_expanded_bytes: int
 
 
 class _DumpReader(Protocol):
@@ -55,12 +67,27 @@ class _DumpReader(Protocol):
 class _ZipArchive:
     """A ``.zip`` dump: members are read on demand via the central directory."""
 
-    def __init__(self, zf: zipfile.ZipFile) -> None:
+    def __init__(
+        self, zf: zipfile.ZipFile, members: dict[str, zipfile.ZipInfo], limits: ArchiveLimits
+    ) -> None:
         self._zf = zf
-        self.names = set(zf.namelist())
+        self._members = members
+        self._limits = limits
+        self.names = set(members)
 
     def read(self, name: str) -> bytes:
-        return self._zf.read(name)
+        info = self._members[name]
+        output = bytearray()
+        with self._zf.open(info) as source:
+            while chunk := source.read(
+                min(1 << 20, self._limits.max_member_bytes - len(output) + 1)
+            ):
+                output.extend(chunk)
+                if len(output) > self._limits.max_member_bytes:
+                    raise DataUnavailableError(
+                        f"archive member {name} exceeds {self._limits.max_member_bytes} bytes"
+                    )
+        return bytes(output)
 
 
 class _DirArchive:
@@ -110,7 +137,7 @@ def _dump_root(extracted: Path) -> Path:
 
 
 @contextmanager
-def _open_dump(dump_path: Path) -> Iterator[_DumpReader]:
+def _open_dump(dump_path: Path, *, limits: ArchiveLimits) -> Iterator[_DumpReader]:
     """Open a dump archive (zip or tar.gz) as a uniform member reader."""
     if _is_tar_dump(dump_path):
         with (
@@ -118,12 +145,122 @@ def _open_dump(dump_path: Path) -> Iterator[_DumpReader]:
             tarfile.open(dump_path, mode="r:*") as tf,
         ):
             extracted = Path(tmp)
-            # filter="data" refuses absolute paths, traversal, and special files.
-            tf.extractall(extracted, filter="data")
+            tar_members = _preflight_tar(tf, limits)
+            _extract_tar_bounded(tf, tar_members, extracted, limits)
             yield _DirArchive(_dump_root(extracted))
     else:
         with zipfile.ZipFile(dump_path) as zf:
-            yield _ZipArchive(zf)
+            zip_members = _preflight_zip(zf, limits)
+            yield _ZipArchive(zf, zip_members, limits)
+
+
+def _safe_member_name(name: str) -> str:
+    path = PurePosixPath(name)
+    if not path.parts or path.is_absolute() or ".." in path.parts or "\x00" in name:
+        raise DataUnavailableError(f"unsafe archive member: {name}")
+    return path.as_posix()
+
+
+def _check_archive_limits(entries: list[tuple[str, int]], limits: ArchiveLimits) -> None:
+    if len(entries) > limits.max_entries:
+        raise DataUnavailableError(f"archive has more than {limits.max_entries} entries")
+    total = 0
+    main_count = 0
+    for name, size in entries:
+        if size > limits.max_member_bytes:
+            raise DataUnavailableError(
+                f"archive member {name} exceeds {limits.max_member_bytes} bytes"
+            )
+        total += size
+        if total > limits.max_expanded_bytes:
+            raise DataUnavailableError(
+                f"archive expanded size exceeds {limits.max_expanded_bytes} bytes"
+            )
+        if PurePosixPath(name).name == "main.json":
+            main_count += 1
+    if main_count != 1:
+        raise DataUnavailableError("archive must contain exactly one main.json")
+
+
+def _add_unique(name: str, seen: set[str]) -> str:
+    normalized = _safe_member_name(name)
+    if normalized in seen:
+        raise DataUnavailableError(f"duplicate archive member: {normalized}")
+    seen.add(normalized)
+    return normalized
+
+
+def _preflight_tar(
+    archive: tarfile.TarFile, limits: ArchiveLimits
+) -> list[tuple[str, tarfile.TarInfo]]:
+    approved: list[tuple[str, tarfile.TarInfo]] = []
+    entries: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for info in archive.getmembers():
+        name = _add_unique(info.name, seen)
+        if info.issym() or info.islnk():
+            raise DataUnavailableError(f"archive links are not allowed: {name}")
+        if not (info.isfile() or info.isdir()):
+            raise DataUnavailableError(f"archive special files are not allowed: {name}")
+        entries.append((name, info.size if info.isfile() else 0))
+        approved.append((name, info))
+    _check_archive_limits(entries, limits)
+    return approved
+
+
+def _extract_tar_bounded(
+    archive: tarfile.TarFile,
+    approved: list[tuple[str, tarfile.TarInfo]],
+    destination: Path,
+    limits: ArchiveLimits,
+) -> None:
+    total = 0
+    for name, info in approved:
+        target = destination.joinpath(*PurePosixPath(name).parts)
+        if info.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        source = archive.extractfile(info)
+        if source is None:
+            raise DataUnavailableError(f"archive member {name} could not be read")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        written = 0
+        with source, target.open("wb") as output:
+            while chunk := source.read(min(1 << 20, limits.max_member_bytes - written + 1)):
+                written += len(chunk)
+                total += len(chunk)
+                if written > limits.max_member_bytes:
+                    raise DataUnavailableError(
+                        f"archive member {name} exceeds {limits.max_member_bytes} bytes"
+                    )
+                if total > limits.max_expanded_bytes:
+                    raise DataUnavailableError(
+                        f"archive expanded size exceeds {limits.max_expanded_bytes} bytes"
+                    )
+                output.write(chunk)
+        if written != info.size:
+            raise DataUnavailableError(
+                f"archive member {name} size mismatch: expected {info.size}, received {written}"
+            )
+
+
+def _preflight_zip(archive: zipfile.ZipFile, limits: ArchiveLimits) -> dict[str, zipfile.ZipInfo]:
+    approved: dict[str, zipfile.ZipInfo] = {}
+    entries: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for info in archive.infolist():
+        name = _add_unique(info.filename, seen)
+        mode = info.external_attr >> 16
+        file_type = stat.S_IFMT(mode)
+        if file_type == stat.S_IFLNK:
+            raise DataUnavailableError(f"archive links are not allowed: {name}")
+        if file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
+            raise DataUnavailableError(f"archive special files are not allowed: {name}")
+        entries.append((name, 0 if info.is_dir() else info.file_size))
+        if not info.is_dir():
+            approved[name] = info
+    _check_archive_limits(entries, limits)
+    return approved
 
 
 def _schema_sql() -> str:
@@ -293,23 +430,40 @@ def build_database(
     db_path: Path,
     *,
     source_md5: str | None = None,
+    source_sha256: str | None = None,
     source_url: str | None = None,
     zenodo_record: str | None = None,
     zenodo_version: str | None = None,
+    archive_limits: ArchiveLimits | None = None,
 ) -> dict[str, Any]:
     """Build ``db_path`` from the dump archive atomically; return a provenance summary."""
+    if archive_limits is None:
+        from mavedb_link.config import settings
+
+        archive_limits = ArchiveLimits(
+            max_entries=settings.mirror.max_archive_entries,
+            max_member_bytes=settings.mirror.max_archive_member_bytes,
+            max_expanded_bytes=settings.mirror.max_archive_expanded_bytes,
+        )
     started = time.monotonic()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=db_path.parent, suffix=".sqlite.tmp")
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        with _open_dump(dump_path) as zf:
+        with _open_dump(dump_path, limits=archive_limits) as zf:
             zip_names = zf.names
             main = json.loads(zf.read("main.json"))
             summary = _populate(tmp_path, main, zf, zip_names, started)
         _write_meta(
-            tmp_path, summary, source_md5, source_url, zenodo_record, zenodo_version, started
+            tmp_path,
+            summary,
+            source_md5,
+            source_sha256,
+            source_url,
+            zenodo_record,
+            zenodo_version,
+            started,
         )
         os.replace(tmp_path, db_path)
         return summary
@@ -387,6 +541,7 @@ def _write_meta(
     tmp_path: Path,
     summary: dict[str, Any],
     source_md5: str | None,
+    source_sha256: str | None,
     source_url: str | None,
     zenodo_record: str | None,
     zenodo_version: str | None,
@@ -397,9 +552,9 @@ def _write_meta(
     try:
         con.execute(
             "INSERT INTO meta (id, schema_version, dump_as_of, zenodo_record, zenodo_version, "
-            "source_url, source_md5, experiment_set_count, experiment_count, score_set_count, "
+            "source_url, source_md5, source_sha256, experiment_set_count, experiment_count, score_set_count, "
             "mapped_variant_count, mapping_coverage_json, build_utc, build_duration_s) "
-            "VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 SCHEMA_VERSION,
                 summary["dump_as_of"],
@@ -407,6 +562,7 @@ def _write_meta(
                 zenodo_version,
                 source_url,
                 source_md5,
+                source_sha256,
                 summary["experiment_set_count"],
                 summary["experiment_count"],
                 summary["score_set_count"],

@@ -38,12 +38,20 @@ def _config() -> MirrorConfig:
 def _download_and_build(cfg: MirrorConfig, ref: DumpRef) -> dict[str, object]:
     dump_path = cfg.data_dir / ref.filename
     typer.echo(f"Downloading {ref.filename} (v{ref.version}, {ref.size} bytes) ...")
-    download_file(ref.url, dump_path, expected_md5=ref.md5)
+    source_sha256 = download_file(
+        ref.url,
+        dump_path,
+        expected_md5=ref.md5,
+        expected_size=ref.size,
+        max_bytes=cfg.max_dump_bytes,
+        max_seconds=cfg.max_download_seconds,
+    )
     with build_lock(cfg.data_dir / ".build.lock"):
         summary = build_database(
             dump_path,
             cfg.db_path,
             source_md5=ref.md5,
+            source_sha256=source_sha256,
             source_url=ref.url,
             zenodo_record=ref.record_id,
             zenodo_version=ref.version,
@@ -65,14 +73,25 @@ def build(
             summary = build_database(dump, cfg.db_path)
         typer.echo(f"Built {cfg.db_path}: {summary['score_set_count']} score sets.")
         return
-    _download_and_build(cfg, resolve_latest_dump(cfg.zenodo_concept_id))
+    _download_and_build(
+        cfg,
+        resolve_latest_dump(
+            cfg.zenodo_concept_id,
+            max_dump_bytes=cfg.max_dump_bytes,
+            max_metadata_bytes=cfg.max_metadata_bytes,
+        ),
+    )
 
 
 @app.command()
 def refresh() -> None:
     """Rebuild only if Zenodo has a newer dump version than the local mirror."""
     cfg = _config()
-    ref = resolve_latest_dump(cfg.zenodo_concept_id)
+    ref = resolve_latest_dump(
+        cfg.zenodo_concept_id,
+        max_dump_bytes=cfg.max_dump_bytes,
+        max_metadata_bytes=cfg.max_metadata_bytes,
+    )
     repo = MirrorRepository.open(cfg.db_path)
     if repo is not None:
         current = repo.meta().get("zenodo_record")
@@ -114,14 +133,21 @@ def bootstrap() -> None:
     try:
         if cfg.bundle_url:
             typer.echo("Pulling prebuilt mirror artifact ...")
-            bundle.pull(cfg.github_repo, cfg.bundle_asset_name, cfg.bundle_url, cfg.db_path)
+            _pull_bundle(cfg)
             typer.echo(f"Installed prebuilt mirror at {cfg.db_path}.")
             return
     except MaveDBError as exc:
         typer.echo(f"Prebuilt pull failed ({exc}); falling back.")
     try:
         if cfg.build_local:
-            _download_and_build(cfg, resolve_latest_dump(cfg.zenodo_concept_id))
+            _download_and_build(
+                cfg,
+                resolve_latest_dump(
+                    cfg.zenodo_concept_id,
+                    max_dump_bytes=cfg.max_dump_bytes,
+                    max_metadata_bytes=cfg.max_metadata_bytes,
+                ),
+            )
             return
     except MaveDBError as exc:
         typer.echo(f"Local build failed ({exc}).")
@@ -132,7 +158,7 @@ def bootstrap() -> None:
 def pull() -> None:
     """Download + install the latest prebuilt mirror artifact from GitHub Releases."""
     cfg = _config()
-    bundle.pull(cfg.github_repo, cfg.bundle_asset_name, cfg.bundle_url, cfg.db_path)
+    _pull_bundle(cfg)
     typer.echo(f"Installed prebuilt mirror at {cfg.db_path}.")
 
 
@@ -142,6 +168,20 @@ def pack() -> None:
     cfg = _config()
     out, sha = bundle.pack(cfg.db_path, cfg.data_dir / cfg.bundle_asset_name)
     typer.echo(f"Packed {out} (+ {sha.name}).")
+
+
+def _pull_bundle(cfg: MirrorConfig) -> None:
+    bundle.pull(
+        cfg.github_repo,
+        cfg.bundle_asset_name,
+        cfg.bundle_url,
+        cfg.db_path,
+        expected_sha256=cfg.bundle_expected_sha256,
+        max_compressed_bytes=cfg.max_bundle_bytes,
+        max_expanded_bytes=cfg.max_database_bytes,
+        max_metadata_bytes=cfg.max_metadata_bytes,
+        max_seconds=cfg.max_download_seconds,
+    )
 
 
 @app.command()
