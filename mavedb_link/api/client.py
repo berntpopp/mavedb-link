@@ -113,7 +113,7 @@ class MaveDBClient:
                             "User-Agent": self._config.user_agent,
                             "Accept": "application/json",
                         },
-                        follow_redirects=True,
+                        follow_redirects=False,
                     )
         return self._client
 
@@ -121,6 +121,8 @@ class MaveDBClient:
     def _raise_for_status(response: httpx.Response) -> None:
         """Map a non-2xx response to a typed exception (2xx returns ``None``)."""
         status = response.status_code
+        if 300 <= status < 400:
+            raise ServiceUnavailableError(f"MaveDB API redirect (HTTP {status}) was rejected.")
         if status < 400:
             return
         detail = _extract_detail(response)

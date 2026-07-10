@@ -101,6 +101,50 @@ class MirrorConfig(BaseModel):
     bundle_asset_name: str = Field(
         default="mavedb.sqlite.zst", description="Release asset name for the prebuilt mirror."
     )
+    bundle_expected_sha256: str | None = Field(
+        default=None,
+        description="Required SHA-256 for an explicit bundle URL when no valid sidecar exists.",
+    )
+    max_dump_bytes: int = Field(
+        default=4 * 1024**3,
+        gt=0,
+        description="Maximum Zenodo dump bytes; 4 GiB is over twice the 1.8 GB measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_DUMP_BYTES.",
+    )
+    max_bundle_bytes: int = Field(
+        default=2 * 1024**3,
+        gt=0,
+        description="Maximum compressed bundle bytes; 2 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_BUNDLE_BYTES.",
+    )
+    max_database_bytes: int = Field(
+        default=8 * 1024**3,
+        gt=0,
+        description="Maximum expanded database bytes; 8 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_DATABASE_BYTES.",
+    )
+    max_archive_entries: int = Field(
+        default=10_000,
+        gt=0,
+        description="Maximum dump archive entries; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_ENTRIES.",
+    )
+    max_archive_member_bytes: int = Field(
+        default=2 * 1024**3,
+        gt=0,
+        description="Maximum expanded archive member bytes; 2 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_MEMBER_BYTES.",
+    )
+    max_archive_expanded_bytes: int = Field(
+        default=16 * 1024**3,
+        gt=0,
+        description="Maximum total expanded archive bytes; 16 GiB exceeds twice the measured dump 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_EXPANDED_BYTES.",
+    )
+    max_metadata_bytes: int = Field(
+        default=1024**2,
+        gt=0,
+        description="Maximum release metadata or checksum bytes; override with MAVEDB_LINK_MIRROR__MAX_METADATA_BYTES.",
+    )
+    max_download_seconds: float = Field(
+        default=7200,
+        gt=0,
+        description="Maximum total artifact download seconds; override with MAVEDB_LINK_MIRROR__MAX_DOWNLOAD_SECONDS.",
+    )
     build_local: bool = Field(
         default=False, description="Fall back to a local build if the prebuilt pull fails."
     )

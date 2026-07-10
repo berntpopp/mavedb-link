@@ -12,7 +12,7 @@ from tests.dump_fixture import write_mini_dump
 
 
 def test_schema_version_is_three() -> None:
-    assert MIRROR_SCHEMA_VERSION == 3
+    assert MIRROR_SCHEMA_VERSION == 4
 
 
 def test_extract_hgvs_rows_normalizes_and_scopes() -> None:

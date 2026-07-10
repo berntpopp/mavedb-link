@@ -21,7 +21,7 @@ ZENODO_CONCEPT_ID = "11201736"
 #: Local mirror SQLite schema version. Bump when the schema or stored shapes
 #: change (invalidates older prebuilt artifacts). Lives here (not in the builder)
 #: so the repository can read it without importing the ingest chain.
-MIRROR_SCHEMA_VERSION = 3
+MIRROR_SCHEMA_VERSION = 4
 
 #: On-disk mapped-variant cache version. The cache key is (score_set_urn,
 #: data_version) where data_version = f"{MAPPED_CACHE_VERSION}:{mirror_token}"; bump

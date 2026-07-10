@@ -8,12 +8,18 @@ precomputed, and the annotations CSV becomes a cross-dataset mapped-variant inde
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
+import tarfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
-from mavedb_link.ingest.builder import build_database
+import pytest
+
+from mavedb_link.exceptions import DataUnavailableError
+from mavedb_link.ingest.builder import ArchiveLimits, _open_dump, build_database
 from tests.dump_fixture import (
     CALIBRATED_URN,
     DUMP_AS_OF,
@@ -26,7 +32,13 @@ from tests.fixtures import EXPERIMENT_SET_URN, EXPERIMENT_URN, SCORE_SET_URN
 def _build(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     dump = write_mini_dump(tmp_path)
     db_path = tmp_path / "mavedb.sqlite"
-    summary = build_database(dump, db_path, source_md5="deadbeef", zenodo_record="18511521")
+    summary = build_database(
+        dump,
+        db_path,
+        source_md5="deadbeef",
+        source_sha256="feedface",
+        zenodo_record="18511521",
+    )
     assert db_path.exists()
     return db_path, summary
 
@@ -73,7 +85,7 @@ def test_build_summary_and_meta(tmp_path: Path) -> None:
     con = sqlite3.connect(db_path)
     try:
         row = con.execute(
-            "SELECT dump_as_of, score_set_count, source_md5, zenodo_record, schema_version, "
+            "SELECT dump_as_of, score_set_count, source_md5, source_sha256, zenodo_record, schema_version, "
             "mapping_coverage_json "
             "FROM meta WHERE id = 1"
         ).fetchone()
@@ -82,9 +94,10 @@ def test_build_summary_and_meta(tmp_path: Path) -> None:
     assert row[0] == DUMP_AS_OF
     assert row[1] == 2
     assert row[2] == "deadbeef"
-    assert row[3] == "18511521"
-    assert isinstance(row[4], int) and row[4] >= 1
-    assert json.loads(row[5]) == summary["mapping_coverage"]
+    assert row[3] == "feedface"
+    assert row[4] == "18511521"
+    assert isinstance(row[5], int) and row[5] >= 1
+    assert json.loads(row[6]) == summary["mapping_coverage"]
 
 
 def test_score_set_record_is_camelcase_and_parent_enriched(tmp_path: Path) -> None:
@@ -205,3 +218,91 @@ def test_build_is_atomic_replace(tmp_path: Path) -> None:
     assert summary["score_set_count"] == 2
     leftovers = list(tmp_path.glob("*.tmp")) + list(tmp_path.glob("*.sqlite-*"))
     assert not leftovers
+
+
+def _limits(**overrides: int) -> ArchiveLimits:
+    values = {
+        "max_entries": 10,
+        "max_member_bytes": 1024,
+        "max_expanded_bytes": 4096,
+    }
+    values.update(overrides)
+    return ArchiveLimits(**values)
+
+
+def _make_tar(tmp_path: Path, members: list[tuple[str, bytes]]) -> Path:
+    path = tmp_path / "test.tar.gz"
+    with tarfile.open(path, "w:gz") as archive:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return path
+
+
+def _make_zip(tmp_path: Path, members: list[tuple[str, bytes]]) -> Path:
+    path = tmp_path / "test.zip"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in members:
+            archive.writestr(name, data)
+    return path
+
+
+@pytest.mark.parametrize("name", ["../escape.json", "/absolute.json"])
+def test_archive_rejects_unsafe_member_name(tmp_path: Path, name: str) -> None:
+    archive = _make_tar(tmp_path, [(name, b"{}"), ("main.json", b"{}")])
+    with (
+        pytest.raises(DataUnavailableError, match="unsafe archive member"),
+        _open_dump(archive, limits=_limits()),
+    ):
+        pytest.fail("unsafe archive was opened")
+
+
+def test_archive_rejects_duplicate_normalized_names(tmp_path: Path) -> None:
+    archive = _make_zip(tmp_path, [("./main.json", b"{}"), ("main.json", b"{}")])
+    with (
+        pytest.raises(DataUnavailableError, match="duplicate archive member"),
+        _open_dump(archive, limits=_limits()),
+    ):
+        pytest.fail("duplicate archive was opened")
+
+
+def test_archive_rejects_total_expansion(tmp_path: Path) -> None:
+    archive = _make_zip(tmp_path, [("main.json", b"12345"), ("scores.csv", b"67890")])
+    with (
+        pytest.raises(DataUnavailableError, match="expanded size exceeds 8 bytes"),
+        _open_dump(archive, limits=_limits(max_expanded_bytes=8)),
+    ):
+        pytest.fail("oversized archive was opened")
+
+
+def test_archive_rejects_link_member(tmp_path: Path) -> None:
+    archive = tmp_path / "link.tar.gz"
+    with tarfile.open(archive, "w:gz") as tf:
+        link = tarfile.TarInfo("main.json")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../../etc/passwd"
+        tf.addfile(link)
+    with (
+        pytest.raises(DataUnavailableError, match="links are not allowed"),
+        _open_dump(archive, limits=_limits()),
+    ):
+        pytest.fail("link archive was opened")
+
+
+def test_archive_rejects_entry_count(tmp_path: Path) -> None:
+    archive = _make_zip(tmp_path, [("main.json", b"{}"), ("extra.json", b"{}")])
+    with (
+        pytest.raises(DataUnavailableError, match="more than 1 entries"),
+        _open_dump(archive, limits=_limits(max_entries=1)),
+    ):
+        pytest.fail("archive with too many entries was opened")
+
+
+def test_archive_rejects_oversized_member(tmp_path: Path) -> None:
+    archive = _make_tar(tmp_path, [("main.json", b"12345")])
+    with (
+        pytest.raises(DataUnavailableError, match=r"main\.json exceeds 4 bytes"),
+        _open_dump(archive, limits=_limits(max_member_bytes=4)),
+    ):
+        pytest.fail("archive with oversized member was opened")

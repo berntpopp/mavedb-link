@@ -11,6 +11,7 @@ CREATE TABLE meta (
     zenodo_version        TEXT,          -- e.g. "4"
     source_url            TEXT,
     source_md5            TEXT,
+    source_sha256         TEXT,
     experiment_set_count  INTEGER,
     experiment_count      INTEGER,
     score_set_count       INTEGER,

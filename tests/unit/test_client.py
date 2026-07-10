@@ -130,3 +130,19 @@ async def test_get_version(respx_mock: respx.Router, client: MaveDBClient) -> No
     data = await client.get_version()
     assert data["version"] == "2026.2.4"
     assert route.called
+
+
+@respx.mock
+async def test_api_redirect_is_not_followed() -> None:
+    target_url = "https://evil.example/api"
+    target = respx.get(target_url).mock(return_value=httpx.Response(200, json={}))
+    respx.get(f"{BASE}/api/version").mock(
+        return_value=httpx.Response(302, headers={"Location": target_url})
+    )
+    redirecting = MaveDBClient(MaveDBApiConfig(base_url=BASE, max_retries=0))
+    try:
+        with pytest.raises(ServiceUnavailableError, match="redirect"):
+            await redirecting.get_version()
+        assert target.called is False
+    finally:
+        await redirecting.aclose()
