@@ -19,10 +19,25 @@ from typing import Any
 
 from mavedb_link.constants import MAVEDB_WEB_URL
 from mavedb_link.identifiers import score_set_urn_of_variant, variant_index_of
+from mavedb_link.mcp.untrusted_content import fence_prose
 from mavedb_link.services.calibration import coerce_score, shape_calibrations
 
 RESPONSE_MODES: tuple[str, ...] = ("minimal", "compact", "standard", "full")
 DEFAULT_RESPONSE_MODE = "compact"
+
+
+def _fence_prose(value: Any, *, record_id: str) -> dict[str, Any] | None:
+    """Fence one MaveDB depositor free-text field as a v1.1 untrusted_text object.
+
+    Depositor prose (short/abstract/method text, collection description) is
+    externally sourced and is typed as data — never instructions — at the MCP
+    boundary (Response-Envelope Standard v1.1). Returns ``None`` when the upstream
+    value is not a populated string, so the existing drop-empty / rich-passthrough
+    behaviour is preserved; otherwise the JSON-serialised fenced object. Limit
+    enforcement runs once over the WHOLE response at the envelope boundary
+    (``mavedb_link.mcp.envelope.run_mcp_tool``), not per shaped record.
+    """
+    return fence_prose(value, source="mavedb", record_id=record_id)
 
 
 def _is_empty(value: Any) -> bool:
@@ -167,11 +182,14 @@ def shape_score_set(
         return _drop_empty({"urn": raw.get("urn"), "title": raw.get("title")})
     full = response_mode == "full"
     rich = response_mode in ("standard", "full")
+    urn = raw.get("urn")
     targets = raw.get("targetGenes") or []
     payload: dict[str, Any] = {
-        "urn": raw.get("urn"),
+        "urn": urn,
         "title": raw.get("title"),
-        "short_description": raw.get("shortDescription"),
+        "short_description": _fence_prose(
+            raw.get("shortDescription"), record_id=f"{urn}#short_description"
+        ),
         "num_variants": raw.get("numVariants"),
         "license": _license_short(raw),
         "targets": (
@@ -193,7 +211,9 @@ def shape_score_set(
         if raw.get("scoreCalibrations"):
             payload["has_calibrations"] = True
     else:
-        payload["score_calibrations"] = shape_calibrations(raw.get("scoreCalibrations"), full=full)
+        payload["score_calibrations"] = shape_calibrations(
+            raw.get("scoreCalibrations"), full=full, record_id_base=urn or ""
+        )
     if rich:
         # The structured record (standard+full): identifiers, lineage, dates -- not
         # the heavy free-text blobs.
@@ -215,12 +235,15 @@ def shape_score_set(
             }
         )
     if full:
-        # The heavy free text + score ranges live at full only (F8).
+        # The heavy free text + score ranges live at full only (F8). Depositor prose
+        # is fenced as v1.1 untrusted_text (typed data, never instructions).
         payload.update(
             {
                 "score_ranges": raw.get("scoreRanges"),
-                "abstract_text": raw.get("abstractText"),
-                "method_text": raw.get("methodText"),
+                "abstract_text": _fence_prose(
+                    raw.get("abstractText"), record_id=f"{urn}#abstract_text"
+                ),
+                "method_text": _fence_prose(raw.get("methodText"), record_id=f"{urn}#method_text"),
                 "dataset_columns": raw.get("datasetColumns"),
             }
         )
@@ -235,10 +258,13 @@ def shape_experiment(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
         return _drop_empty({"urn": raw.get("urn"), "title": raw.get("title")})
     full = response_mode == "full"
     rich = response_mode in ("standard", "full")
+    urn = raw.get("urn")
     payload: dict[str, Any] = {
-        "urn": raw.get("urn"),
+        "urn": urn,
         "title": raw.get("title"),
-        "short_description": raw.get("shortDescription"),
+        "short_description": _fence_prose(
+            raw.get("shortDescription"), record_id=f"{urn}#short_description"
+        ),
         "experiment_set_urn": raw.get("experimentSetUrn"),
         "score_set_urns": raw.get("scoreSetUrns"),
         "num_score_sets": raw.get("numScoreSets"),
@@ -258,8 +284,10 @@ def shape_experiment(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     if full:
         payload.update(
             {
-                "abstract_text": raw.get("abstractText"),
-                "method_text": raw.get("methodText"),
+                "abstract_text": _fence_prose(
+                    raw.get("abstractText"), record_id=f"{urn}#abstract_text"
+                ),
+                "method_text": _fence_prose(raw.get("methodText"), record_id=f"{urn}#method_text"),
             }
         )
     if rich:
@@ -427,7 +455,8 @@ def shape_collection(
     payload: dict[str, Any] = {
         "urn": raw.get("urn"),
         "name": raw.get("name"),
-        "description": raw.get("description"),
+        # Curator collection description is externally sourced prose: fence it.
+        "description": _fence_prose(raw.get("description"), record_id=raw.get("urn") or ""),
         "badge_name": raw.get("badgeName"),
         "num_experiments": len(experiment_urns),
         "num_score_sets": total,

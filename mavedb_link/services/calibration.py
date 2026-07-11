@@ -19,6 +19,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from mavedb_link.mcp.untrusted_content import fence_prose
+
 #: The functional class assigned when a score falls in no calibrated bin.
 INDETERMINATE = "indeterminate"
 
@@ -202,13 +204,18 @@ def _shape_classification(fc: dict[str, Any], *, full: bool) -> dict[str, Any]:
 
 
 def shape_calibrations(
-    calibrations: list[dict[str, Any]] | None, *, full: bool
+    calibrations: list[dict[str, Any]] | None, *, full: bool, record_id_base: str = ""
 ) -> list[dict[str, Any]]:
     """Normalise the ``scoreCalibrations`` block to tidy snake_case.
 
     ``full`` adds the bin ``id`` and the calibration ``notes`` /
     ``baseline_score_description``; threshold sources are always compacted to
     ``{db_name, identifier, title}`` (the heavy author lists are dropped).
+
+    ``notes`` and ``baseline_score_description`` are externally sourced depositor
+    prose, so they are fenced as v1.1 ``untrusted_text`` objects (typed data, never
+    instructions). ``record_id_base`` is the parent score-set/variant URN used to
+    stamp their provenance ``record_id``.
     """
     out: list[dict[str, Any]] = []
     for calibration in calibrations or []:
@@ -226,8 +233,16 @@ def shape_calibrations(
             ],
         }
         if full:
-            shaped["baseline_score_description"] = calibration.get("baselineScoreDescription")
-            shaped["notes"] = calibration.get("notes")
+            shaped["baseline_score_description"] = fence_prose(
+                calibration.get("baselineScoreDescription"),
+                source="mavedb",
+                record_id=f"{record_id_base}#baselineScoreDescription",
+            )
+            shaped["notes"] = fence_prose(
+                calibration.get("notes"),
+                source="mavedb",
+                record_id=f"{record_id_base}#notes",
+            )
             shaped["urn"] = calibration.get("urn")
         out.append(_drop_none(shaped))
     return out

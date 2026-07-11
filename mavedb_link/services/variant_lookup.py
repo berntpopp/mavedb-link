@@ -199,5 +199,7 @@ def _wrap(
     # interpretation; the heavy full threshold ladder is gated to full only, never
     # duplicated alongside the matched band at compact/standard.
     if calibrations and response_mode == "full":
-        payload["calibrations"] = shape_calibrations(calibrations, full=True)
+        payload["calibrations"] = shape_calibrations(
+            calibrations, full=True, record_id_base=score_set_urn
+        )
     return payload

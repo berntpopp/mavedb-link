@@ -432,8 +432,18 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
         return dict(cached)  # a copy so a caller cannot mutate the shared entry
     try:
         result = await client.post_json("/hgvs/validate", json={"variant": candidate})
-    except InvalidInputError as exc:  # 400/422: invalid, surface the reason
-        payload = {"variant": candidate, "valid": False, "message": exc.message}
+    except InvalidInputError:  # 400/422: invalid, but NEVER echo the upstream body
+        # A caller-influenced HGVS string can make MaveDB reflect hostile prose
+        # (incl. control/zero-width/bidi) into the 4xx body; return a fixed,
+        # upstream-body-free reason instead of the upstream detail.
+        payload = {
+            "variant": candidate,
+            "valid": False,
+            "message": (
+                "MaveDB rejected the HGVS string as invalid. Check the accession, "
+                "reference bases, and coordinate syntax, then retry."
+            ),
+        }
     else:
         payload = {
             "variant": candidate,

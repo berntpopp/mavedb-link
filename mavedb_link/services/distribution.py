@@ -99,7 +99,9 @@ async def score_distribution(
         "histogram": _histogram(values, bins=DISTRIBUTION_BINS),
     }
     if isinstance(raw_calibrations, list) and raw_calibrations and response_mode == "full":
-        payload["calibrations"] = shape_calibrations(raw_calibrations, full=True)
+        payload["calibrations"] = shape_calibrations(
+            raw_calibrations, full=True, record_id_base=score_set_urn
+        )
     if score is not None:
         query: dict[str, Any] = {
             "score": score,

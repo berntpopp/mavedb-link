@@ -21,7 +21,7 @@ def test_tools_unique_and_counted() -> None:
 def test_error_taxonomy_complete() -> None:
     caps = build_capabilities()
     assert caps["error_codes"] == ERROR_CODES
-    assert len(ERROR_CODES) == 7
+    assert len(ERROR_CODES) == 8
 
 
 def test_capabilities_version_is_stable_content_hash() -> None:

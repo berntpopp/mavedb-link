@@ -40,6 +40,59 @@ _ARR = {"type": "array"}
 _ARR_NULL = {"type": ["array", "null"]}
 _OBJ = {"type": "object", "additionalProperties": True}
 
+#: A v1.1 untrusted_text fenced object (Response-Envelope Standard v1.1): externally
+#: sourced depositor prose typed as data with a ``kind`` literal, so hosts and the
+#: router treat the subtree opaque (never as instructions). Nullable because
+#: ``response_mode`` may omit the field for a given record.
+_UNTRUSTED_TEXT_NULL = {
+    "type": ["object", "null"],
+    "additionalProperties": True,
+    "properties": {
+        "kind": {"const": "untrusted_text"},
+        "text": _STR,
+        "provenance": _OBJ,
+        "raw_sha256": _STR,
+    },
+}
+
+#: Discovery list-item schemas. Declared so the fenced free-text fields carry the
+#: ``kind`` literal for list rows too, not just the single-record tools. Permissive
+#: (``additionalProperties: true``) because ``response_mode`` projects other fields.
+_SCORE_SET_ITEM = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "urn": _STR,
+        "short_description": _UNTRUSTED_TEXT_NULL,
+        "abstract_text": _UNTRUSTED_TEXT_NULL,
+        "method_text": _UNTRUSTED_TEXT_NULL,
+    },
+}
+_EXPERIMENT_ITEM = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "urn": _STR,
+        "short_description": _UNTRUSTED_TEXT_NULL,
+        "abstract_text": _UNTRUSTED_TEXT_NULL,
+        "method_text": _UNTRUSTED_TEXT_NULL,
+    },
+}
+_SCORE_SET_ARR = {"type": "array", "items": _SCORE_SET_ITEM}
+_EXPERIMENT_ARR = {"type": "array", "items": _EXPERIMENT_ITEM}
+
+#: Calibration (thresholds ladder) item. Its full-mode ``baseline_score_description``
+#: and ``notes`` are externally sourced prose, fenced as v1.1 untrusted_text.
+_CALIBRATION_ITEM = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "baseline_score_description": _UNTRUSTED_TEXT_NULL,
+        "notes": _UNTRUSTED_TEXT_NULL,
+    },
+}
+_CALIBRATION_ARR = {"type": "array", "items": _CALIBRATION_ITEM}
+
 #: Shared pagination keys for list payloads (offset-based).
 _PAGE = {
     "total": _INT_NULL,
@@ -74,14 +127,17 @@ DIAGNOSTICS_SCHEMA = _envelope(
 
 SEARCH_SCORE_SETS_SCHEMA = _envelope(
     query=_STR_NULL,
-    results=_ARR,
+    results=_SCORE_SET_ARR,
     **_PAGE,
 )
 
 SCORE_SET_SCHEMA = _envelope(
     urn=_STR,
     title=_STR_NULL,
-    short_description=_STR_NULL,
+    # Depositor prose, fenced as v1.1 untrusted_text (typed data, never instructions).
+    short_description=_UNTRUSTED_TEXT_NULL,
+    abstract_text=_UNTRUSTED_TEXT_NULL,
+    method_text=_UNTRUSTED_TEXT_NULL,
     num_variants=_INT_NULL,
     license=_STR_NULL,
     targets=_ARR,
@@ -89,7 +145,7 @@ SCORE_SET_SCHEMA = _envelope(
     publications=_OBJ,
     # MaveDB's curated interpretation layer: per-bin functional-class thresholds,
     # ACMG criterion + evidence strength, OddsPath, baseline (WT) anchor.
-    score_calibrations=_ARR,
+    score_calibrations=_CALIBRATION_ARR,
     record_url=_STR_NULL,
 )
 
@@ -97,7 +153,7 @@ VARIANT_SCORES_SCHEMA = _envelope(
     urn=_STR,
     columns=_ARR,
     rows=_ARR,  # each row may carry a derived `classification` (primary calibration)
-    calibrations=_ARR,  # thresholds block so the score column is interpretable
+    calibrations=_CALIBRATION_ARR,  # thresholds block so the score column is interpretable
     returned=_INT,
     start=_INT,
     offset=_INT,
@@ -118,13 +174,13 @@ VARIANT_SCORE_SCHEMA = _envelope(
     # each variant: {variant_urn, variant_index, score_set_urn, hgvs_nt, hgvs_pro,
     # score, classifications?, (standard/full) score_data/count_data/mapped_variants}
     variants=_ARR,
-    calibrations=_ARR,  # thresholds block, present when the set is calibrated
+    calibrations=_CALIBRATION_ARR,  # thresholds block, present when the set is calibrated
 )
 
 GENE_SCORE_SETS_SCHEMA = _envelope(
     gene=_OBJ,
     total_scored_variants=_INT_NULL,
-    score_sets=_ARR,
+    score_sets=_SCORE_SET_ARR,
     coverage=_OBJ,
     **_PAGE,
 )
@@ -132,7 +188,10 @@ GENE_SCORE_SETS_SCHEMA = _envelope(
 EXPERIMENT_SCHEMA = _envelope(
     urn=_STR,
     title=_STR_NULL,
-    short_description=_STR_NULL,
+    # Depositor prose, fenced as v1.1 untrusted_text (typed data, never instructions).
+    short_description=_UNTRUSTED_TEXT_NULL,
+    abstract_text=_UNTRUSTED_TEXT_NULL,
+    method_text=_UNTRUSTED_TEXT_NULL,
     experiment_set_urn=_STR_NULL,
     score_set_urns=_ARR_NULL,
     num_score_sets=_INT_NULL,
@@ -143,7 +202,7 @@ EXPERIMENT_SCHEMA = _envelope(
 
 SEARCH_EXPERIMENTS_SCHEMA = _envelope(
     query=_STR_NULL,
-    results=_ARR,
+    results=_EXPERIMENT_ARR,
     **_PAGE,
 )
 
@@ -161,7 +220,8 @@ MAPPED_VARIANTS_SCHEMA = _envelope(
 COLLECTION_SCHEMA = _envelope(
     urn=_STR,
     name=_STR_NULL,
-    description=_STR_NULL,
+    # Curator collection description, fenced as v1.1 untrusted_text.
+    description=_UNTRUSTED_TEXT_NULL,
     num_experiments=_INT,
     num_score_sets=_INT,
     experiment_urns=_ARR_NULL,
@@ -208,6 +268,6 @@ SCORE_DISTRIBUTION_SCHEMA = _envelope(
     q3=_NUM_NULL,
     stdev=_NUM_NULL,
     histogram=_ARR,
-    calibrations=_ARR,
+    calibrations=_CALIBRATION_ARR,
     query=_OBJ,  # {score, percentile, classifications?} when a query score is given
 )

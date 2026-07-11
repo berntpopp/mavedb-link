@@ -119,20 +119,28 @@ class MaveDBClient:
 
     @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
-        """Map a non-2xx response to a typed exception (2xx returns ``None``)."""
+        """Map a non-2xx response to a typed exception (2xx returns ``None``).
+
+        The upstream response BODY is deliberately NOT interpolated into the
+        exception message: a caller-influenced query can make MaveDB reflect
+        hostile prose (incl. control/zero-width/bidi/NUL) into a 4xx/5xx body,
+        and echoing it verbatim would smuggle attacker-controlled text into a
+        caller-visible message. Fixed, upstream-body-free messages are raised
+        instead (the HTTP status is a safe, non-attacker-controlled scalar); the
+        body is not logged either, preserving the no-PII-in-logs invariant.
+        """
         status = response.status_code
         if 300 <= status < 400:
             raise ServiceUnavailableError(f"MaveDB API redirect (HTTP {status}) was rejected.")
         if status < 400:
             return
-        detail = _extract_detail(response)
         if status == 404:
-            raise NotFoundError(detail or "MaveDB record not found.")
+            raise NotFoundError("MaveDB record not found.")
         if status in (400, 422):
-            raise InvalidInputError(detail or "MaveDB rejected the request as invalid.")
+            raise InvalidInputError("MaveDB rejected the request as invalid.")
         if status == 429:
-            raise RateLimitError(detail or "MaveDB rate limit hit.")
-        raise ServiceUnavailableError(f"MaveDB API error (HTTP {status}). {detail}".strip())
+            raise RateLimitError("MaveDB rate limit hit.")
+        raise ServiceUnavailableError(f"MaveDB API error (HTTP {status}).")
 
     async def _send(
         self,
@@ -163,7 +171,7 @@ class MaveDBClient:
                 if response is not None:
                     return response
                 raise ServiceUnavailableError(
-                    f"MaveDB API unreachable after {attempt + 1} attempts: {last_exc}"
+                    f"MaveDB API unreachable after {attempt + 1} attempts."
                 ) from last_exc
             # Full jitter de-synchronises a concurrent burst's retries.
             await asyncio.sleep(random.uniform(0, min(delay, _BACKOFF_MAX_SECONDS)))  # noqa: S311
@@ -248,23 +256,6 @@ def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:
         else (raw.get("mappedVariants") if isinstance(raw, dict) else None)
     )
     return [it for it in (items or []) if isinstance(it, dict)]
-
-
-def _extract_detail(response: httpx.Response) -> str:
-    """Best-effort human detail from a FastAPI-style error body."""
-    try:
-        body = response.json()
-    except Exception:
-        return response.text[:200].strip()
-    if isinstance(body, dict):
-        detail = body.get("detail")
-        if isinstance(detail, str):
-            return detail[:280]
-        if isinstance(detail, list) and detail:
-            first = detail[0]
-            if isinstance(first, dict) and "msg" in first:
-                return str(first["msg"])[:280]
-    return ""
 
 
 def _cache_key(prefix: str, path: str, params: dict[str, Any] | None) -> str:

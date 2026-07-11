@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -103,6 +104,23 @@ async def test_envelope_reports_mixed_when_one_read_is_live(hybrid: HybridClient
     assert env["_meta"]["data_source"] == "mixed"
 
 
+def _normalize_fence_timestamps(value: Any) -> Any:
+    """Blank the per-serve ``retrieved_at`` in every fenced untrusted_text object.
+
+    A fenced object stamps ``provenance.retrieved_at`` with the serialization moment
+    (Response-Envelope Standard v1.1), so two independent serves of the SAME record
+    differ only by that timestamp. The mirror<->live interchangeability invariant is
+    about the DATA, so the timestamp is normalised before the structural comparison.
+    """
+    if isinstance(value, dict):
+        if value.get("kind") == "untrusted_text" and isinstance(value.get("provenance"), dict):
+            value = {**value, "provenance": {**value["provenance"], "retrieved_at": None}}
+        return {k: _normalize_fence_timestamps(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_fence_timestamps(v) for v in value]
+    return value
+
+
 async def test_mirror_and_live_score_set_are_shape_identical(hybrid: HybridClient) -> None:
     # The invariant: a mirror-served payload is interchangeable with the live one.
     from mavedb_link.api.client import MaveDBClient
@@ -119,7 +137,8 @@ async def test_mirror_and_live_score_set_are_shape_identical(hybrid: HybridClien
             )
     finally:
         await live.aclose()
-    assert mirror_out == live_out
+    # Fenced prose carries a per-serve retrieved_at; the DATA is interchangeable.
+    assert _normalize_fence_timestamps(mirror_out) == _normalize_fence_timestamps(live_out)
 
 
 async def test_mapped_variants_served_from_mirror(hybrid: HybridClient) -> None:

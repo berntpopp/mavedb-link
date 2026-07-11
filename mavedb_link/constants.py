@@ -57,6 +57,7 @@ ERROR_CODES: list[str] = [
     "data_unavailable",
     "rate_limited",
     "upstream_unavailable",
+    "response_too_large",
     "internal_error",
 ]
 

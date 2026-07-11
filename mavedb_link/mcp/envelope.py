@@ -30,6 +30,12 @@ from mavedb_link.exceptions import (
 )
 from mavedb_link.mcp import metrics
 from mavedb_link.mcp.next_commands import cmd, default_error_next_commands
+from mavedb_link.mcp.untrusted_content import (
+    UntrustedTextLimitError,
+    collect_untrusted_texts,
+    enforce_untrusted_text_limits,
+    sanitize_message,
+)
 from mavedb_link.services.shaping import DEFAULT_RESPONSE_MODE
 
 logger = logging.getLogger(__name__)
@@ -75,7 +81,10 @@ def _capabilities_version() -> str | None:
 
 
 def _safe_message(exc: BaseException) -> str:
-    return (str(exc) or exc.__class__.__name__)[:280]
+    # Sanitize: the exception text may transit developer strings only (upstream
+    # bodies are severed at the API client), but strip forbidden code points as a
+    # defensive backstop for any caller-visible message.
+    return sanitize_message(str(exc) or exc.__class__.__name__)
 
 
 def _classify(exc: BaseException) -> tuple[str, str]:
@@ -94,6 +103,14 @@ def _classify(exc: BaseException) -> tuple[str, str]:
         return "rate_limited", "Upstream rate limit hit. Retry shortly."
     if isinstance(exc, ServiceUnavailableError):
         return "upstream_unavailable", "The MaveDB API is temporarily unavailable."
+    if isinstance(exc, UntrustedTextLimitError):
+        # Response-Envelope v1.1 §Limits: an over-ceiling untrusted payload is an
+        # explicit, typed error (never silent omission), steered to a smaller call.
+        return (
+            "response_too_large",
+            "The response exceeded the untrusted-text size/count limit. Re-call with a "
+            "smaller limit= or a lower response_mode.",
+        )
     if isinstance(exc, PydanticValidationError):
         first = exc.errors()[0]
         loc = ".".join(str(p) for p in first["loc"]) or "input"
@@ -113,7 +130,7 @@ def classify_exception(exc: BaseException) -> tuple[str, str]:
 def _recovery_action(error_code: str) -> str:
     if error_code in _RETRYABLE:
         return "retry_backoff"
-    if error_code in {"invalid_input", "not_found", "ambiguous_query"}:
+    if error_code in {"invalid_input", "not_found", "ambiguous_query", "response_too_large"}:
         return "reformulate_input"
     return "switch_tool"
 
@@ -144,7 +161,8 @@ def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, A
     envelope: dict[str, Any] = {
         "success": False,
         "error_code": error_code,
-        "message": message,
+        # Defensive: no forbidden code points reach the caller, whatever the path.
+        "message": sanitize_message(message),
         "retryable": retryable,
         "recovery_action": recovery,
         "_meta": {
@@ -203,7 +221,7 @@ def build_arg_error_envelope(
         return {
             "success": False,
             "error_code": "invalid_input",
-            "message": message[:280],
+            "message": sanitize_message(message),
             "retryable": False,
             "recovery_action": "reformulate_input",
             "field": loc,
@@ -422,6 +440,16 @@ async def run_mcp_tool(
             # budget guard may flag/steer an over-budget response (1.3/1.4).
             result["_meta"]["token_estimate"] = _estimate_tokens(result)
             _apply_budget_guard(result, ctx)
+            # Response-Envelope v1.1 §Limits: bound the FINAL (post-budget-trim)
+            # payload's fenced prose across every row -- per-object + total bytes,
+            # not per shaped record. A breach raises UntrustedTextLimitError, mapped
+            # to a typed `response_too_large` error (never silent omission). Runs
+            # after the budget guard so a page it already trimmed is measured as
+            # shipped, not pre-trim. The object-count ceiling is lifted well above
+            # the real max (list tools cap at 100 rows x 3 fenced prose fields ~= 300
+            # objects) so a legitimate full-mode list is never falsely rejected; the
+            # per-object (2 MiB) and total (8 MiB) byte ceilings stay at the standard.
+            enforce_untrusted_text_limits(collect_untrusted_texts(result), max_objects=10_000)
             metrics.record(tool_name, elapsed, ok=success)
         return result
     except Exception as exc:  # broad catch is the error-boundary contract

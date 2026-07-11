@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-11
+
+### Security
+
+- Adopt Response-Envelope Standard v1.1 untrusted-content fencing for MaveDB
+  depositor/curator prose. Externally sourced free text is now emitted as a typed
+  `untrusted_text` object (`kind`/`text`/`provenance`/`raw_sha256`) at the MCP
+  serialization boundary, so hosts and the router treat retrieved content as
+  data — never instructions. NFC normalization strips only the ratified
+  control/zero-width/bidirectional code points; scientific symbols, tabs, and
+  newlines are preserved, and `raw_sha256` digests the pre-normalization bytes.
+  Defense in depth; research use only.
+- Enforce the v1.1 untrusted-text limits over the WHOLE response (fenced
+  object-count and total bytes across all rows), applied after the token-budget
+  guard at the envelope boundary. A breach returns a typed `response_too_large`
+  error (new error code) rather than silently omitting content.
+- Never echo attacker-influenceable upstream error bodies into caller-visible
+  strings. Upstream 4xx/5xx response bodies are severed at the API client
+  (`_raise_for_status` raises fixed, status-keyed messages; the body is neither
+  surfaced nor logged), `get_hgvs_validation` returns a fixed rejection reason,
+  and diagnostics no longer exposes raw upstream detail. A defensive
+  `sanitize_message` strips the fence's forbidden control/zero-width/bidi/NUL
+  code points from every caller-visible message/error string (error envelopes,
+  diagnostics, HGVS validation) as belt-and-suspenders.
+
+### Changed (BREAKING)
+
+- The following MaveDB free-text fields change type from `string` to the v1.1
+  `untrusted_text` object: `get_score_set` `short_description` / `abstract_text`
+  / `method_text`; `get_experiment` `short_description` / `abstract_text` /
+  `method_text`; `search_score_sets` (and `get_gene_score_sets`) row
+  `short_description` (plus `abstract_text` / `method_text` in full mode);
+  `get_collection` `description`; and the calibration ladder's
+  `baseline_score_description` / `notes` wherever it is emitted
+  (`get_score_set` `score_calibrations`, and the `calibrations` block of
+  `get_variant_scores` / `get_variant_score` / `get_score_distribution`).
+  Consumers that read these as bare strings must update to read `.text` from the
+  typed object. No sibling field duplicates the prose. The tool output schemas
+  declare the `kind: untrusted_text` literal, including list-item schemas for the
+  discovery arrays (`search_score_sets`/`get_gene_score_sets`/`search_experiments`)
+  and the calibration array items.
+
 ## [0.3.0] - 2026-07-10
 
 ### Security

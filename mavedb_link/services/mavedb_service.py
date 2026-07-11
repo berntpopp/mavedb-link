@@ -34,6 +34,7 @@ from mavedb_link.identifiers import (
     looks_like_gene_symbol,
     validate_score_set_urn,
 )
+from mavedb_link.mcp.untrusted_content import sanitize_message
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
 from mavedb_link.services.calibration import (
     INDETERMINATE,
@@ -188,12 +189,13 @@ class MaveDBService:
                     row["classification"] = verdict
             # GAP-D: the threshold ladder is record-level data identical on every
             # page, so re-shipping it per page wastes ~95% of a small page's tokens.
-            # Emit it once (the first page, start=0) -- or whenever the caller asks
-            # for everything via full -- while the per-row matched classification
-            # rides on every page so the score column stays interpretable.
+            # Emit it once (first page, start=0) or when the caller asks for full;
+            # the per-row matched classification rides on every page regardless.
             if start == 0 or response_mode == "full":
                 payload["calibrations"] = shape_calibrations(
-                    raw_calibrations, full=response_mode in ("standard", "full")
+                    raw_calibrations,
+                    full=response_mode in ("standard", "full"),
+                    record_id_base=score_set_urn,
                 )
         return payload
 
@@ -575,7 +577,8 @@ class MaveDBService:
             version = await self._client.get_version()
         except Exception as exc:  # diagnostics REPORTS upstream failure, never raises
             diag["api_reachable"] = False
-            diag["error"] = str(exc)[:200]
+            # No upstream body reaches this response (severed at client); sanitize too.
+            diag["error"] = sanitize_message(str(exc))[:200]
             return diag
         if isinstance(version, dict):
             diag["api_name"] = version.get("name")
