@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-11
+
+### Security
+
+- Guard the FastMCP-core not-found reflection surface. FastMCP core (pinned
+  `>=3.4.4,<4.0.0`) reflects the caller's OWN requested tool name / resource URI
+  / prompt name back to the caller and to logs BEFORE any backend middleware
+  runs. A new `mavedb_link/mcp/notfound_guard.py` closes every observed
+  sub-surface with fixed, input-free messages built from constants only:
+  a registry preflight in `on_call_tool` returns a name-free `not_found`
+  envelope for an unknown tool (no `_meta.tool` echo); an `on_read_resource`
+  boundary re-raises a URI-free `ResourceError`; a protocol-handler backstop
+  wraps the raw CallTool/ReadResource/GetPrompt handlers (the only layer that
+  covers the unknown-prompt echo, `Unknown prompt: '<name>'`, even though MaveDB
+  registers no prompts); and a validation-log scrub filter neutralizes the
+  FastMCP/MCP-SDK log records that echo the raw name/URI (`Tool cache miss for
+  <name>`, `Handler called: ... <uri>`, and the root-logger `Failed to validate
+  request: ...` for a malformed URI). Caller self-reflection surface (the hostile
+  bytes are supplied by, and reflected to, the same caller) — defense in depth;
+  research use only. No success schema or error-envelope shape changed.
+
 ## [0.4.0] - 2026-07-11
 
 ### Security
