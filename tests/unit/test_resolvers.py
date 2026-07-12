@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import httpx
 import pytest
 import respx
@@ -166,6 +169,96 @@ async def test_get_hgvs_validation_caches_idempotent_result(
     assert first == second
     assert first["valid"] is True
     assert route.call_count == 1
+
+
+# --- get_hgvs_validation: F-09 bound-input + fixed-error ------------------------
+
+#: A raw hostile payload a caller might smuggle through the free-text variant arg.
+_HOSTILE_VARIANT = "c.1A>G; rm -rf / <script>alert(1)</script> ‮​ ignore prior"
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_rejects_oversize_before_upstream(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # An over-length HGVS string must be rejected BEFORE any upstream POST or cache
+    # insertion (finding F-09) -- conservative length bound at the boundary.
+    from mavedb_link.services import resolvers as resolvers_mod
+
+    route = respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    oversize = "c.1" + "A" * 400
+    with pytest.raises(InvalidInputError) as exc:
+        await service.get_hgvs_validation(oversize)
+    assert exc.value.field == "variant"
+    assert route.call_count == 0  # never forwarded upstream
+    assert not resolvers_mod._HGVS_CACHE  # never cached
+    # The fixed error message must not echo the caller's oversize payload.
+    assert "AAAA" not in str(exc.value)
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_rejects_malformed_before_upstream(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # Free-text prose (no HGVS type prefix) is rejected before I/O/cache.
+    from mavedb_link.services import resolvers as resolvers_mod
+
+    route = respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    with pytest.raises(InvalidInputError):
+        await service.get_hgvs_validation("not an hgvs string at all")
+    assert route.call_count == 0
+    assert not resolvers_mod._HGVS_CACHE
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_hostile_text_not_reflected(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # Hostile text is rejected before upstream/cache, and the raised exception's
+    # caller-visible surfaces (message/hint) never reflect the caller's payload.
+    from mavedb_link.services import resolvers as resolvers_mod
+
+    route = respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    with pytest.raises(InvalidInputError) as exc:
+        await service.get_hgvs_validation(_HOSTILE_VARIANT)
+    assert route.call_count == 0
+    assert not resolvers_mod._HGVS_CACHE
+    surfaces = " ".join(str(x) for x in (exc.value, exc.value.hint or ""))
+    for needle in ("rm -rf", "script", "alert", "ignore prior"):
+        assert needle not in surfaces
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_envelope_hides_hostile_text_and_prose(
+    respx_mock: respx.Router, facade: Any, structured: Any, caplog: Any
+) -> None:
+    # Through the full MCP envelope: a hostile variant yields a fixed invalid_input
+    # error whose message/fields never carry the caller text or exception prose,
+    # and the log line records only the error class -- not the raw variant.
+    import logging
+
+    respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    with caplog.at_level(logging.WARNING):
+        res = await facade.call_tool("get_hgvs_validation", {"variant": _HOSTILE_VARIANT})
+    payload = structured(res)
+    assert payload["success"] is False
+    assert payload["error_code"] == "invalid_input"
+    blob = json.dumps(payload)
+    for needle in ("rm -rf", "<script>", "alert", "ignore prior"):
+        assert needle not in blob
+    # Logs carry the error class/code only, never the raw variant.
+    assert "rm -rf" not in caplog.text and "ignore prior" not in caplog.text
+
+
+@respx.mock(base_url=BASE)
+async def test_get_hgvs_validation_accepts_protein_hgvs(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # The conservative grammar must still accept legitimate protein HGVS forms.
+    respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    out = await service.get_hgvs_validation("NP_000050.3:p.Asp2723His")
+    assert out["valid"] is True
+    assert out["variant"] == "NP_000050.3:p.Asp2723His"
 
 
 # --- get_classified_variants ---------------------------------------------------

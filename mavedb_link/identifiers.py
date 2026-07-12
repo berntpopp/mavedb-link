@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 
+from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
 from mavedb_link.exceptions import InvalidInputError
 
 _BASE = r"urn:mavedb:\d{8}"
@@ -121,5 +122,51 @@ def validate_score_set_urn(value: str) -> str:
             "Not a score-set URN. Expected 'urn:mavedb:00000001-a-1'.",
             field="urn",
             hint="Find a score-set URN via search_score_sets or get_gene_score_sets.",
+        )
+    return candidate
+
+
+#: Conservative HGVS grammar (finding F-09). NOT a full HGVS parser -- just enough
+#: to admit real HGVS expressions and reject prose / injection / control text
+#: BEFORE any upstream call, cache insertion, or structured echo. Shape: an
+#: OPTIONAL accession prefix (e.g. ``NM_000059.4:``), then a mandatory HGVS type
+#: prefix (``c.``/``g.``/``m.``/``n.``/``o.``/``p.``/``r.``), then a bounded body of
+#: HGVS-legal characters only (letters/digits plus ``._>+*()=?;[]-``). No
+#: whitespace, ``<``, ``/``, quotes, control/zero-width/bidi code points, or a
+#: second ``:`` can pass -- so a hostile payload never reaches the validator/cache.
+_HGVS_RE = re.compile(
+    r"(?:[A-Za-z0-9_.]{1,32}:)?"  # optional accession, e.g. NM_000059.4:
+    r"[cgmnopr]\."  # HGVS type prefix
+    r"[A-Za-z0-9_.>+*()=?;\[\]-]{1,220}"  # bounded variant body
+)
+
+
+def validate_hgvs_variant(value: str) -> str:
+    """Return a trimmed, length- and grammar-checked HGVS string, or raise.
+
+    The bound is applied BEFORE any I/O, cache use, or structured echo (finding
+    F-09). Every rejection raises :class:`InvalidInputError` with a FIXED,
+    caller-safe message that never contains the caller's input; only the
+    separately validated string is returned for the structured ``variant`` field.
+    """
+    candidate = value.strip()
+    if not candidate:
+        raise InvalidInputError(
+            "Provide an HGVS string to validate.",
+            field="variant",
+            hint="e.g. 'NM_000059.4:c.8167G>A' or 'NP_000050.3:p.Asp2723His'.",
+        )
+    if len(candidate) > MAX_HGVS_VARIANT_CHARS:
+        raise InvalidInputError(
+            "HGVS string is too long.",
+            field="variant",
+            hint="Pass a single HGVS expression, e.g. 'NM_000059.4:c.8167G>A'.",
+        )
+    if _HGVS_RE.fullmatch(candidate) is None:
+        raise InvalidInputError(
+            "Not a recognizable HGVS string. Expected a type prefix such as 'c.', "
+            "'g.', 'p.', 'n.', 'm.', 'o.', or 'r.', optionally with an accession.",
+            field="variant",
+            hint="e.g. 'NM_000059.4:c.8167G>A' or 'NP_000050.3:p.Asp2723His'.",
         )
     return candidate

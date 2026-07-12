@@ -28,6 +28,7 @@ from mavedb_link.exceptions import AmbiguousQueryError, InvalidInputError, NotFo
 from mavedb_link.identifiers import (
     is_variant_urn,
     score_set_urn_of_variant,
+    validate_hgvs_variant,
     validate_score_set_urn,
     variant_index_of,
 )
@@ -420,13 +421,12 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
     (e.g. reference-base disagreement, missing accession) so the caller can fix
     it before a lookup fails.
     """
-    candidate = variant.strip()
-    if not candidate:
-        raise InvalidInputError(
-            "Provide an HGVS string to validate.",
-            field="variant",
-            hint="e.g. 'NM_000059.4:c.8167G>A' or 'NP_000050.3:p.Asp2723His'.",
-        )
+    # F-09: bound length + syntax BEFORE any cache lookup, upstream POST, or echo.
+    # The returned candidate is a separately validated identifier, safe to place in
+    # the structured ``variant`` field; a rejection raises a FIXED, caller-safe
+    # InvalidInputError (never echoing the caller's text) that the MCP envelope maps
+    # to an ``invalid_input`` frame.
+    candidate = validate_hgvs_variant(variant)
     cached = _HGVS_CACHE.get(candidate)
     if cached is not None:
         return dict(cached)  # a copy so a caller cannot mutate the shared entry

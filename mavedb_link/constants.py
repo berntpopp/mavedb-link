@@ -86,6 +86,10 @@ DEFAULT_FIND_LIMIT = 25
 #: get_variant_score per set). The mirror serves the common case; this caps the
 #: live-miss path so a popular gene cannot fan out unboundedly.
 HGVS_PROBE_CAP = 10
+#: Conservative upper bound on a caller-supplied HGVS string (finding F-09). A real
+#: accession-prefixed HGVS expression is well under this; the cap rejects oversize /
+#: hostile free text before any upstream call, cache insertion, or structured echo.
+MAX_HGVS_VARIANT_CHARS = 256
 MAX_CLASSIFIED_LIMIT = 1000
 DEFAULT_CLASSIFIED_LIMIT = 100
 MAX_COLLECTION_LIMIT = 500
