@@ -23,6 +23,7 @@ from mavedb_link.exceptions import InvalidInputError, NotFoundError
 from mavedb_link.identifiers import (
     is_variant_urn,
     score_set_urn_of_variant,
+    validate_hgvs_variant,
     validate_score_set_urn,
 )
 from mavedb_link.services.calibration import classify_score, shape_calibrations
@@ -56,7 +57,12 @@ async def get_variant_score(
             hint="Variant URNs are the 'accession'/'variant_urn' of get_variant_scores "
             "and get_mapped_variants.",
         )
-    return await _resolve_by_hgvs(client, score_set_urn, hgvs.strip(), response_mode)
+    # F-09 gate2: bound the RAW hgvs length + syntax BEFORE the strip/normalize and the
+    # upstream score-table scan. A whitespace-padded oversized string would otherwise
+    # strip to a short valid core and slip past to the upstream call/cache; validating
+    # the raw input up front rejects it with a FIXED, caller-safe invalid_input error.
+    hgvs_candidate = validate_hgvs_variant(hgvs)
+    return await _resolve_by_hgvs(client, score_set_urn, hgvs_candidate, response_mode)
 
 
 async def _raw_calibrations(

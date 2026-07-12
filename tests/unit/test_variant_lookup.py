@@ -279,3 +279,27 @@ async def test_get_variant_score_requires_hgvs_for_score_set(service: MaveDBServ
 async def test_get_variant_score_rejects_experiment_urn(service: MaveDBService) -> None:
     with pytest.raises(InvalidInputError):
         await service.get_variant_score("urn:mavedb:00000001-a", hgvs="c.2T>G")
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_variant_score_rejects_whitespace_padded_oversize_hgvs_before_upstream(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F-09 gate2 (Codex re-gate): get_variant_score(hgvs=) must bound the RAW hgvs
+    # length BEFORE any strip/normalize or the upstream score-table scan. A valid core
+    # padded with thousands of leading whitespace has a RAW length over the bound, yet
+    # strip() shrinks it under the cap -- so it must be rejected up front and NEVER
+    # forwarded upstream (the earlier F-09 fix bounded get_hgvs_validation only).
+    from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
+
+    route = respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
+        return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
+    )
+    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + "c.2T>G"
+    assert len(padded) > MAX_HGVS_VARIANT_CHARS
+    with pytest.raises(InvalidInputError) as exc:
+        await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs=padded)
+    assert exc.value.field == "variant"
+    assert route.call_count == 0  # never forwarded upstream (no score-table scan / cache read)
+    # The fixed error must not echo the caller's (stripped) payload.
+    assert "c.2T>G" not in str(exc.value)

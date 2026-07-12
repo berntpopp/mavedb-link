@@ -349,9 +349,14 @@ async def find_variant(
     """
     extra: dict[str, Any] = {}
     if hgvs and hgvs.strip():
-        idents, truncated = await _vrs_from_hgvs(client, hgvs, gene)
+        # F-09 gate2: bound the RAW hgvs length + syntax BEFORE any strip/normalize,
+        # mirror cache lookup, or capped live probe. A whitespace-padded oversized string
+        # would otherwise strip to a short valid core and reach the mirror/upstream anyway;
+        # validating the raw input up front rejects it with a FIXED invalid_input error.
+        hgvs_candidate = validate_hgvs_variant(hgvs)
+        idents, truncated = await _vrs_from_hgvs(client, hgvs_candidate, gene)
         resolved_by = "hgvs"
-        extra = {"hgvs_input": hgvs.strip(), "probe_truncated": truncated}
+        extra = {"hgvs_input": hgvs_candidate, "probe_truncated": truncated}
     else:
         ident, resolved_by = await _resolve_cross_dataset_ident(client, vrs_id, variant_urn)
         idents = [ident]

@@ -98,3 +98,48 @@ async def test_find_variant_hgvs_miss_requires_gene_for_live_probe() -> None:
     client = _MirrorClient([])  # mirror miss
     with pytest.raises(InvalidInputError):
         await resolvers.find_variant(client, hgvs="p.Asp2723His", enrich=False)
+
+
+class _CountingMirror:
+    """Mirror stub that counts every cache lookup and upstream fetch it services."""
+
+    def __init__(self) -> None:
+        self.vrs_calls = 0
+        self.get_json_calls = 0
+
+    def vrs_for_hgvs(
+        self, core: str, full: str | None = None, *, gene: str | None = None
+    ) -> list[dict[str, Any]]:
+        self.vrs_calls += 1
+        return [
+            {
+                "variant_urn": "urn:mavedb:1-a-1#1",
+                "score_set_urn": "urn:mavedb:1-a-1",
+                "vrs_id": "ga4gh:VA.x",
+            }
+        ]
+
+    async def get_json(self, path: str, *, params: Any = None) -> Any:
+        self.get_json_calls += 1
+        return []
+
+
+@pytest.mark.asyncio
+async def test_find_variant_rejects_whitespace_padded_oversize_hgvs_before_mirror() -> None:
+    # F-09 gate2 (Codex re-gate): find_variant(hgvs=) must bound the RAW hgvs length
+    # BEFORE any strip/normalize, mirror cache lookup, or live probe. A valid core padded
+    # with thousands of leading whitespace exceeds the bound yet strips under the cap --
+    # it must be rejected up front so the mirror cache is never consulted and nothing is
+    # forwarded upstream (the earlier F-09 fix bounded get_hgvs_validation only).
+    from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
+
+    client = _CountingMirror()
+    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + "p.Asp2723His"
+    assert len(padded) > MAX_HGVS_VARIANT_CHARS
+    with pytest.raises(InvalidInputError) as exc:
+        await resolvers.find_variant(client, hgvs=padded, gene="BRCA1", enrich=False)
+    assert exc.value.field == "variant"
+    assert client.vrs_calls == 0  # mirror hgvs cache never consulted
+    assert client.get_json_calls == 0  # nothing forwarded upstream
+    # The fixed error must not echo the caller's (stripped) payload.
+    assert "p.Asp2723His" not in str(exc.value)
