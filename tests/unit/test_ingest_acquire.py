@@ -202,17 +202,24 @@ def test_bundle_pack_and_pull_roundtrip(tmp_path: Path) -> None:
 
     dest = tmp_path / "pulled" / "mavedb.sqlite"
     with respx.mock() as mock:
-        mock.get("https://api.github.com/repos/berntpopp/mavedb-link/releases/latest").mock(
+        mock.get("https://api.github.com/repos/berntpopp/mavedb-link/releases").mock(
             return_value=httpx.Response(
                 200,
-                json={
-                    "assets": [
-                        {
-                            "name": "mavedb.sqlite.zst",
-                            "browser_download_url": "https://github.com/berntpopp/mavedb-link/releases/download/v1/mavedb.sqlite.zst",
-                        }
-                    ]
-                },
+                json=[
+                    # Newest release is a CODE release carrying no assets -- the real shape
+                    # of this repo, and what used to make the pull fail closed to live-only.
+                    {"tag_name": "v0.4.1", "draft": False, "assets": []},
+                    {
+                        "tag_name": "data-2026-06-24",
+                        "draft": False,
+                        "assets": [
+                            {
+                                "name": "mavedb.sqlite.zst",
+                                "browser_download_url": "https://github.com/berntpopp/mavedb-link/releases/download/v1/mavedb.sqlite.zst",
+                            }
+                        ],
+                    },
+                ],
             )
         )
         asset_url = (
@@ -260,7 +267,7 @@ def test_bundle_missing_checksum_fails_closed(tmp_path: Path) -> None:
 
 @respx.mock
 def test_github_metadata_limit_stops_streaming() -> None:
-    respx.get("https://api.github.com/repos/berntpopp/mavedb-link/releases/latest").mock(
+    respx.get("https://api.github.com/repos/berntpopp/mavedb-link/releases").mock(
         return_value=httpx.Response(200, stream=_ExplodesAfterLimit())
     )
     with pytest.raises(DataUnavailableError, match="metadata exceeded 5 bytes"):
@@ -339,3 +346,88 @@ def test_cli_bootstrap_degrades_to_live_only(
     result = runner.invoke(app, ["bootstrap"])
     assert result.exit_code == 0
     assert "live-only" in result.output
+
+
+@respx.mock
+def test_resolve_skips_asset_less_code_releases() -> None:
+    """'latest' must mean the newest release that CARRIES the asset.
+
+    Regression: the resolver read /releases/latest and scanned only that release's assets.
+    The mirror bundle ships in its own dated data-* release, so every code release made
+    /releases/latest an asset-less release and the pull failed with "No asset ... in the
+    latest release". bootstrap then degraded to live-only while the container still
+    reported healthy -- a silent inversion of the mirror-primary posture.
+    """
+    respx.get("https://api.github.com/repos/berntpopp/mavedb-link/releases").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"tag_name": "v0.4.1", "draft": False, "assets": []},
+                {"tag_name": "v0.4.0", "draft": False, "assets": []},
+                {
+                    "tag_name": "data-2026-06-24",
+                    "draft": False,
+                    "assets": [
+                        {
+                            "name": "mavedb.sqlite.zst",
+                            "browser_download_url": "https://github.com/berntpopp/mavedb-link/releases/download/data-2026-06-24/mavedb.sqlite.zst",
+                            "digest": "sha256:" + "a" * 64,
+                            "size": 1234,
+                        }
+                    ],
+                },
+            ],
+        )
+    )
+    asset = bundle.resolve_release_asset("berntpopp/mavedb-link", "mavedb.sqlite.zst", "latest")
+    assert asset.url.endswith("/data-2026-06-24/mavedb.sqlite.zst")
+    assert asset.sha256 == "a" * 64
+    assert asset.size == 1234
+
+
+@respx.mock
+def test_resolve_fails_closed_when_no_release_carries_the_asset() -> None:
+    """A genuinely absent bundle must still fail closed, not pick something else."""
+    respx.get("https://api.github.com/repos/berntpopp/mavedb-link/releases").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"tag_name": "v1", "draft": False, "assets": [{"name": "other.zst"}]}],
+        )
+    )
+    with pytest.raises(DataUnavailableError, match="publishes an asset"):
+        bundle.resolve_release_asset("berntpopp/mavedb-link", "mavedb.sqlite.zst", "latest")
+
+
+@respx.mock
+def test_resolve_skips_draft_releases() -> None:
+    """A half-cut draft must never be selected over a published bundle."""
+    respx.get("https://api.github.com/repos/berntpopp/mavedb-link/releases").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "tag_name": "draft",
+                    "draft": True,
+                    "assets": [
+                        {
+                            "name": "mavedb.sqlite.zst",
+                            "browser_download_url": "https://github.com/x/y/releases/download/draft/mavedb.sqlite.zst",
+                        }
+                    ],
+                },
+                {
+                    "tag_name": "data-2026-06-24",
+                    "draft": False,
+                    "assets": [
+                        {
+                            "name": "mavedb.sqlite.zst",
+                            "browser_download_url": "https://github.com/x/y/releases/download/data-2026-06-24/mavedb.sqlite.zst",
+                        }
+                    ],
+                },
+            ],
+        )
+    )
+    asset = bundle.resolve_release_asset("berntpopp/mavedb-link", "mavedb.sqlite.zst", "latest")
+    assert "/draft/" not in asset.url
+    assert asset.url.endswith("/data-2026-06-24/mavedb.sqlite.zst")

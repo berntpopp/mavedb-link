@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import zstandard
@@ -67,6 +68,19 @@ def pack(db_path: Path, out_path: Path | None = None, *, level: int = 19) -> tup
     return out, sha_path
 
 
+def _as_release_asset(asset: dict[str, Any]) -> ReleaseAsset:
+    """Build a validated ReleaseAsset from one GitHub asset entry."""
+    url: str = asset["browser_download_url"]
+    raw_digest = str(asset.get("digest") or "")
+    match = re.fullmatch(r"sha256:([0-9a-fA-F]{64})", raw_digest)
+    size = asset.get("size")
+    return ReleaseAsset(
+        url=url,
+        sha256=match.group(1).lower() if match else None,
+        size=size if isinstance(size, int) and size > 0 else None,
+    )
+
+
 def resolve_release_asset(
     github_repo: str,
     asset_name: str,
@@ -75,13 +89,23 @@ def resolve_release_asset(
     client: httpx.Client | None = None,
     max_metadata_bytes: int | None = None,
 ) -> ReleaseAsset:
-    """Resolve the download URL for the prebuilt asset ('latest' or explicit)."""
+    """Resolve the download URL for the prebuilt asset ('latest' or explicit).
+
+    'latest' means the newest release that actually CARRIES the asset -- not
+    ``/releases/latest``. The mirror bundle ships in its own dated ``data-*`` release, so
+    ``/releases/latest`` is normally a code release with no assets at all, and cutting any
+    code release silently broke the pull: bootstrap fell back to "live-only" while the
+    container still reported healthy, quietly inverting the documented mirror-primary /
+    live-backup posture into live-only.
+    """
     if bundle_url and bundle_url != "latest":
         return ReleaseAsset(bundle_url)
     http = client or httpx.Client(timeout=30.0, follow_redirects=False)
     try:
         metadata_limit = _mirror_limit("max_metadata_bytes", max_metadata_bytes)
-        with http.stream("GET", f"{_GITHUB_API}/repos/{github_repo}/releases/latest") as resp:
+        with http.stream(
+            "GET", f"{_GITHUB_API}/repos/{github_repo}/releases", params={"per_page": 30}
+        ) as resp:
             if 300 <= resp.status_code < 400:
                 raise ServiceUnavailableError("GitHub release metadata redirect was rejected")
             resp.raise_for_status()
@@ -91,7 +115,7 @@ def resolve_release_asset(
                 label="GitHub release metadata",
                 chunk_size=_CHUNK,
             )
-        assets = json.loads(body).get("assets", [])
+        releases = json.loads(body)
     except httpx.HTTPError as exc:
         raise ServiceUnavailableError(f"Could not query GitHub releases: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -99,19 +123,19 @@ def resolve_release_asset(
     finally:
         if client is None:
             http.close()
-    for asset in assets:
-        if asset.get("name") == asset_name:
-            url: str = asset["browser_download_url"]
-            raw_digest = str(asset.get("digest") or "")
-            match = re.fullmatch(r"sha256:([0-9a-fA-F]{64})", raw_digest)
-            digest = match.group(1).lower() if match else None
-            size = asset.get("size")
-            return ReleaseAsset(
-                url=url,
-                sha256=digest,
-                size=size if isinstance(size, int) and size > 0 else None,
-            )
-    raise DataUnavailableError(f"No asset '{asset_name}' in the latest release of {github_repo}.")
+
+    if not isinstance(releases, list):
+        raise DataUnavailableError("GitHub returned invalid release metadata JSON")
+
+    # Newest first, as GitHub returns them. Drafts are never published to anonymous
+    # callers, but skip them defensively so a half-cut release is never selected.
+    for release in releases:
+        if not isinstance(release, dict) or release.get("draft"):
+            continue
+        for asset in release.get("assets") or []:
+            if isinstance(asset, dict) and asset.get("name") == asset_name:
+                return _as_release_asset(asset)
+    raise DataUnavailableError(f"No release of {github_repo} publishes an asset '{asset_name}'.")
 
 
 def pull(
