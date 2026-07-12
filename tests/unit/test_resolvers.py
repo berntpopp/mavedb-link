@@ -197,6 +197,29 @@ async def test_get_hgvs_validation_rejects_oversize_before_upstream(
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
+async def test_get_hgvs_validation_rejects_whitespace_padded_oversize_before_upstream(
+    respx_mock: respx.Router, service: MaveDBService
+) -> None:
+    # F-09 residual: a VALID HGVS core padded with thousands of whitespace has a RAW
+    # length over the bound, yet strip() would shrink it under the cap. The raw length
+    # must be checked BEFORE any strip/normalization so the oversize input is rejected
+    # and never processed, forwarded upstream, or cached (Codex adversarial gate).
+    from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
+    from mavedb_link.services import resolvers as resolvers_mod
+
+    route = respx_mock.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))
+    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + "NM_000059.4:c.8167G>A"
+    assert len(padded) > MAX_HGVS_VARIANT_CHARS
+    with pytest.raises(InvalidInputError) as exc:
+        await service.get_hgvs_validation(padded)
+    assert exc.value.field == "variant"
+    assert route.call_count == 0  # never forwarded upstream
+    assert not resolvers_mod._HGVS_CACHE  # never cached
+    # The fixed error message must not echo the caller's (stripped) payload either.
+    assert "NM_000059" not in str(exc.value)
+
+
+@respx.mock(base_url=BASE, assert_all_called=False)
 async def test_get_hgvs_validation_rejects_malformed_before_upstream(
     respx_mock: respx.Router, service: MaveDBService
 ) -> None:

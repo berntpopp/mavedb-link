@@ -149,6 +149,17 @@ def validate_hgvs_variant(value: str) -> str:
     caller-safe message that never contains the caller's input; only the
     separately validated string is returned for the structured ``variant`` field.
     """
+    # F-09 gate: bound the RAW input BEFORE strip()/normalization. A huge
+    # whitespace-padded (or otherwise oversized) string would otherwise strip down
+    # to a short valid core and slip past a post-strip length check -- reaching the
+    # cache/upstream anyway. Reject oversized raw input up front so it is never
+    # processed at all.
+    if len(value) > MAX_HGVS_VARIANT_CHARS:
+        raise InvalidInputError(
+            "HGVS string is too long.",
+            field="variant",
+            hint="Pass a single HGVS expression, e.g. 'NM_000059.4:c.8167G>A'.",
+        )
     candidate = value.strip()
     if not candidate:
         raise InvalidInputError(
@@ -156,12 +167,8 @@ def validate_hgvs_variant(value: str) -> str:
             field="variant",
             hint="e.g. 'NM_000059.4:c.8167G>A' or 'NP_000050.3:p.Asp2723His'.",
         )
-    if len(candidate) > MAX_HGVS_VARIANT_CHARS:
-        raise InvalidInputError(
-            "HGVS string is too long.",
-            field="variant",
-            hint="Pass a single HGVS expression, e.g. 'NM_000059.4:c.8167G>A'.",
-        )
+    # No post-strip length check is needed: strip() never grows the string, so the
+    # raw bound above already caps the trimmed candidate.
     if _HGVS_RE.fullmatch(candidate) is None:
         raise InvalidInputError(
             "Not a recognizable HGVS string. Expected a type prefix such as 'c.', "
