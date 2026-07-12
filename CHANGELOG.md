@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-12
+
+### Security
+
+- Redact upstream HGVS-resolution failures before they reach caller-visible
+  error envelopes, including the live fallback path.
+
 ## [0.4.1] - 2026-07-11
 
 ### Security

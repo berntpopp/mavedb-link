@@ -164,8 +164,8 @@ async def _resolve_by_hgvs(
             "or validate the string with get_hgvs_validation."
         )
         raise NotFoundError(
-            f"No variant matching hgvs '{hgvs}' in {score_set_urn} (scanned {len(rows)} "
-            f"rows). {hint} Or pass a full variant URN ('{score_set_urn}#<index>')."
+            "No matching variant was found in the selected score set. "
+            f"{hint} Or pass a full variant URN."
         )
     calibrations = await _raw_calibrations(client, score_set_urn)
     if response_mode in _FULL_MODES:

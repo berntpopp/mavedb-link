@@ -273,9 +273,8 @@ async def _live_probe_hgvs(client: MaveDBClient, hgvs: str, gene: str) -> tuple[
                     found.add(str(vrs))
     if not found:
         raise NotFoundError(
-            f"No variant matching HGVS '{hgvs}' (with a genome-mapped VRS) was found in "
-            f"the first {min(len(urns), HGVS_PROBE_CAP)} score set(s) for {gene}. Confirm "
-            "the HGVS spelling, or call get_gene_score_sets(symbol) and probe "
+            "No genome-mapped variant was found in the probed score sets. Confirm the "
+            "HGVS spelling, or call get_gene_score_sets(symbol) and probe "
             "get_variant_score(urn, hgvs=) directly."
         )
     return sorted(found), truncated
@@ -304,8 +303,8 @@ async def _vrs_from_hgvs(
         if vrs:
             if len(vrs) > 1 and not (gene and gene.strip()):
                 raise AmbiguousQueryError(
-                    f"HGVS '{candidate}' maps to {len(vrs)} distinct variants across score "
-                    "sets. Re-run with gene= to disambiguate.",
+                    "Multiple distinct variants matched the HGVS query across score sets. "
+                    "Re-run with gene= to disambiguate.",
                     candidates=_hgvs_candidates(rows),
                 )
             return vrs, False
@@ -318,8 +317,8 @@ async def _vrs_from_hgvs(
                 return vrs, False
     if not (gene and gene.strip()):
         raise InvalidInputError(
-            f"HGVS '{candidate}' is not in the local mirror; resolving it live needs gene= "
-            "(to scope which score sets to probe).",
+            "The HGVS query is not in the local mirror; resolving it live requires gene= "
+            "to scope which score sets to probe.",
             field="gene",
             hint="Pass gene='BRCA1' (the HGNC symbol the variant belongs to).",
         )
