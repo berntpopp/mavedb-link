@@ -126,20 +126,30 @@ class _CountingMirror:
 
 @pytest.mark.asyncio
 async def test_find_variant_rejects_whitespace_padded_oversize_hgvs_before_mirror() -> None:
-    # F-09 gate2 (Codex re-gate): find_variant(hgvs=) must bound the RAW hgvs length
-    # BEFORE any strip/normalize, mirror cache lookup, or live probe. A valid core padded
-    # with thousands of leading whitespace exceeds the bound yet strips under the cap --
-    # it must be rejected up front so the mirror cache is never consulted and nothing is
-    # forwarded upstream (the earlier F-09 fix bounded get_hgvs_validation only).
+    # F-09 gate3 (Codex re-gate): find_variant(hgvs=) must validate the RAW, UN-STRIPPED
+    # hgvs FIRST -- the raw-length bound has to apply to the exact string the caller sent,
+    # BEFORE any strip/normalize, mirror cache lookup, or live probe. A valid short core
+    # padded with thousands of leading spaces exceeds the bound yet STRIPS back to a
+    # perfectly valid core, so a caller that stripped before validating would accept it and
+    # forward it upstream. The padding is therefore present in what the caller passes: a
+    # strip-then-validate regression would let it reach the mirror and this test would fail.
     from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
+    from mavedb_link.identifiers import validate_hgvs_variant
+
+    core = "p.Asp2723His"
+    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + core
+    assert len(padded) > MAX_HGVS_VARIANT_CHARS
+    # Positive control: the un-padded core IS a valid HGVS the validator accepts and returns
+    # normalized -- so the ONLY thing making `padded` illegal is its raw (pre-strip) length,
+    # and stripping first would recover exactly that accepted core (proving the regression).
+    assert validate_hgvs_variant(core) == core
+    assert padded.strip() == core
 
     client = _CountingMirror()
-    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + "p.Asp2723His"
-    assert len(padded) > MAX_HGVS_VARIANT_CHARS
     with pytest.raises(InvalidInputError) as exc:
         await resolvers.find_variant(client, hgvs=padded, gene="BRCA1", enrich=False)
     assert exc.value.field == "variant"
     assert client.vrs_calls == 0  # mirror hgvs cache never consulted
     assert client.get_json_calls == 0  # nothing forwarded upstream
     # The fixed error must not echo the caller's (stripped) payload.
-    assert "p.Asp2723His" not in str(exc.value)
+    assert core not in str(exc.value)

@@ -49,7 +49,7 @@ async def get_variant_score(
     if is_variant_urn(candidate):
         return await _resolve_by_urn(client, candidate, response_mode)
     score_set_urn = validate_score_set_urn(candidate)
-    if not hgvs or not hgvs.strip():
+    if not hgvs:
         raise InvalidInputError(
             "Provide hgvs= (e.g. 'c.8168A>G' or 'p.Arg1699Trp') to look up one "
             "variant, or pass a full variant URN ('urn:mavedb:...-a-1#<index>').",
@@ -57,10 +57,12 @@ async def get_variant_score(
             hint="Variant URNs are the 'accession'/'variant_urn' of get_variant_scores "
             "and get_mapped_variants.",
         )
-    # F-09 gate2: bound the RAW hgvs length + syntax BEFORE the strip/normalize and the
-    # upstream score-table scan. A whitespace-padded oversized string would otherwise
-    # strip to a short valid core and slip past to the upstream call/cache; validating
-    # the raw input up front rejects it with a FIXED, caller-safe invalid_input error.
+    # F-09 gate3: validate the RAW, UN-STRIPPED hgvs FIRST -- the caller must never
+    # strip/shrink it before the validator sees it, so the raw-length bound
+    # (validate_hgvs_variant checks len BEFORE strip) applies to the exact string the
+    # caller received, BEFORE the strip/normalize and the upstream score-table scan. A
+    # whitespace-padded oversized string (short valid core) is rejected up front with a
+    # FIXED, caller-safe invalid_input error; downstream uses only the validator's return.
     hgvs_candidate = validate_hgvs_variant(hgvs)
     return await _resolve_by_hgvs(client, score_set_urn, hgvs_candidate, response_mode)
 

@@ -285,21 +285,30 @@ async def test_get_variant_score_rejects_experiment_urn(service: MaveDBService) 
 async def test_get_variant_score_rejects_whitespace_padded_oversize_hgvs_before_upstream(
     respx_mock: respx.Router, service: MaveDBService
 ) -> None:
-    # F-09 gate2 (Codex re-gate): get_variant_score(hgvs=) must bound the RAW hgvs
-    # length BEFORE any strip/normalize or the upstream score-table scan. A valid core
-    # padded with thousands of leading whitespace has a RAW length over the bound, yet
-    # strip() shrinks it under the cap -- so it must be rejected up front and NEVER
-    # forwarded upstream (the earlier F-09 fix bounded get_hgvs_validation only).
+    # F-09 gate3 (Codex re-gate): get_variant_score(hgvs=) must validate the RAW,
+    # UN-STRIPPED hgvs FIRST -- the raw-length bound applies to the exact string the caller
+    # sent, BEFORE any strip/normalize or the upstream score-table scan. A valid short core
+    # padded with thousands of leading spaces has a RAW length over the bound yet STRIPS
+    # back to a valid core, so a caller that stripped before validating would accept and
+    # forward it. The padding is present in what the caller passes, so a strip-then-validate
+    # regression would let it reach upstream and this test (route.call_count == 0) fails.
     from mavedb_link.constants import MAX_HGVS_VARIANT_CHARS
+    from mavedb_link.identifiers import validate_hgvs_variant
 
+    core = "c.2T>G"
     route = respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
     )
-    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + "c.2T>G"
+    padded = " " * (MAX_HGVS_VARIANT_CHARS + 1000) + core
     assert len(padded) > MAX_HGVS_VARIANT_CHARS
+    # Positive control: the un-padded core validates fine and returns normalized -- so ONLY
+    # the raw (pre-strip) length makes `padded` illegal, and a strip-first caller would
+    # recover exactly that accepted core and forward it upstream (the regression).
+    assert validate_hgvs_variant(core) == core
+    assert padded.strip() == core
     with pytest.raises(InvalidInputError) as exc:
         await service.get_variant_score(fixtures.SCORE_SET_URN, hgvs=padded)
     assert exc.value.field == "variant"
     assert route.call_count == 0  # never forwarded upstream (no score-table scan / cache read)
     # The fixed error must not echo the caller's (stripped) payload.
-    assert "c.2T>G" not in str(exc.value)
+    assert core not in str(exc.value)

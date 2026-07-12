@@ -348,11 +348,13 @@ async def find_variant(
     ``classifications``.
     """
     extra: dict[str, Any] = {}
-    if hgvs and hgvs.strip():
-        # F-09 gate2: bound the RAW hgvs length + syntax BEFORE any strip/normalize,
-        # mirror cache lookup, or capped live probe. A whitespace-padded oversized string
-        # would otherwise strip to a short valid core and reach the mirror/upstream anyway;
-        # validating the raw input up front rejects it with a FIXED invalid_input error.
+    if hgvs:
+        # F-09 gate3: validate the RAW, UN-STRIPPED hgvs FIRST. The caller must never
+        # strip/shrink the input before the validator sees it, so the raw-length bound
+        # (validate_hgvs_variant checks len BEFORE strip) applies to the exact string the
+        # caller received -- BEFORE any strip/normalize, mirror cache lookup, or capped live
+        # probe. A whitespace-padded oversized HGVS (short valid core) is rejected up front
+        # with a FIXED invalid_input error; downstream uses only the validator's return.
         hgvs_candidate = validate_hgvs_variant(hgvs)
         idents, truncated = await _vrs_from_hgvs(client, hgvs_candidate, gene)
         resolved_by = "hgvs"
