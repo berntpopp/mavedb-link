@@ -33,6 +33,14 @@ class _MirrorClient:
         return self._rows
 
 
+class _LiveProbeClient(_MirrorClient):
+    async def get_json(self, _path: str, *, params: Any = None) -> dict[str, Any]:
+        return {"scoreSets": [{"urn": _SCORE_SET_URN}]}
+
+    async def get_text(self, _path: str, *, params: Any = None) -> str:
+        return "accession,hgvs_nt,score\nurn:mavedb:00000001-a-1#1,c.1A>T,0.2\n"
+
+
 async def _error_envelope(
     tool_name: str, call: Callable[[], Awaitable[dict[str, Any]]]
 ) -> dict[str, Any]:
@@ -88,6 +96,31 @@ async def test_hgvs_resolution_failures_do_not_reflect_input(
         envelope = await _error_envelope("find_variant", call)
 
     assert envelope["error_code"] == expected_code
+    assert envelope["retryable"] is False
+    assert envelope["recovery_action"] == "reformulate_input"
+    assert _HOSTILE_HGVS not in json.dumps(envelope)
+    assert _HOSTILE_HGVS not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_live_hgvs_probe_miss_does_not_reflect_input(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The changed live-probe no-match path keeps the HGVS private too."""
+    client = _LiveProbeClient([])
+
+    async def call() -> dict[str, Any]:
+        await resolvers._vrs_from_hgvs(client, _HOSTILE_HGVS, "BRCA1")
+        raise AssertionError("the no-match probe must raise")
+
+    with pytest.raises(NotFoundError) as exc:
+        await call()
+    assert _HOSTILE_HGVS not in str(exc.value)
+
+    with caplog.at_level(logging.WARNING):
+        envelope = await _error_envelope("find_variant", call)
+
+    assert envelope["error_code"] == "not_found"
     assert envelope["retryable"] is False
     assert envelope["recovery_action"] == "reformulate_input"
     assert _HOSTILE_HGVS not in json.dumps(envelope)
