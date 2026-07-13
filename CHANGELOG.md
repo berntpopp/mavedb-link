@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-07-13
+
+### Fixed
+
+- Release evidence now states the data contract this repository actually
+  declares. The reusable release workflow hardcoded `data-independent` and a
+  fixed `data_requirements: {"mode":"none"}`, so every published manifest
+  claimed mavedb-link binds to no data at all, while `container-release.json`
+  declares `data-bound` with an immutable pinned MaveDB mirror bundle
+  (`data-2026-06-24`) and its digest. Because `_require_data_binding` returns
+  early for a data-independent contract, the binding assertion in the evidence
+  chain was silently skipped as well.
+- Re-pin both container workflows to the corrected container standard
+  (`86b11f7e`), which sources the contract and the exact data identity from
+  `container-release.json` and seals them into the capture artifact. This is an
+  evidence-only re-release: the v0.4.3 image and attestations were sound.
+
 ## [0.4.3] - 2026-07-13
 
 ### Added
