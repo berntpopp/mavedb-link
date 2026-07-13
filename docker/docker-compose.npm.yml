@@ -1,27 +1,43 @@
-# Nginx Proxy Manager deployment overlay for mavedb-link.
-#
-# Self-contained (used standalone, not layered on docker-compose.yml): one
-# unified container serves the FastAPI REST API on / and the MCP streamable-HTTP
-# transport on /mcp via a single port (8000). NPM reverse-proxies to the fixed
-# container_name on the shared external npm_default network. Mirrors the
-# GeneFoundry gnomad/vep/hpo/metadome/orphanet -link fleet pattern.
-#
-#   docker compose -f docker/docker-compose.npm.yml --env-file .env.docker up -d --build
 name: mavedb-link-npm
 
+x-image: &image
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: mavedb-link:latest
+
+x-data: &data
+  MAVEDB_LINK_ENVIRONMENT: production
+  MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/reference/current
+  MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /home/app/reference
+  MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
+  MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
+  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
+  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
+  MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
+  MAVEDB_LINK_CACHE__DB_PATH: /home/app/cache/mavedb_cache.sqlite
+
 services:
+  mavedb_data_init:
+    <<: *image
+    entrypoint: ["mavedb-link-data", "pull"]
+    environment: *data
+    volumes:
+      - mavedb-reference:/home/app/reference:rw
+    restart: "no"
+    networks: [mavedb_link_internal_net]
+
   mavedb_link:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        MAVEDB_LINK_GIT_SHA: ${MAVEDB_LINK_GIT_SHA:-unknown}
-        MAVEDB_LINK_BUILT_AT: ${MAVEDB_LINK_BUILT_AT:-}
-    image: mavedb-link:latest
+    <<: *image
     container_name: mavedb-link-npm
+    depends_on:
+      mavedb_data_init:
+        condition: service_completed_successfully
     expose:
       - "8000"
     environment:
+      <<: *data
       MAVEDB_LINK_HOST: 0.0.0.0
       MAVEDB_LINK_PORT: 8000
       MAVEDB_LINK_TRANSPORT: unified
@@ -29,57 +45,33 @@ services:
       MAVEDB_LINK_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","mavedb-link.genefoundry.org"]'
       MAVEDB_LINK_LOG_LEVEL: ${LOG_LEVEL_API:-INFO}
       MAVEDB_LINK_LOG_FORMAT: json
-      # Local SQLite mirror (primary source; live API is the backup). The named
-      # volume persists the built/pulled mirror across restarts. On first start
-      # the entrypoint pulls the prebuilt artifact (bundle_url=latest); set
-      # BUILD_LOCAL=true to build from the Zenodo dump instead.
-      MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/data
-      # Keep the lazy mapped-variant cache writable under read_only rootfs.
-      MAVEDB_LINK_CACHE__DB_PATH: /home/app/data/mavedb_cache.sqlite
-      # MAVEDB_LINK_MIRROR__BUILD_LOCAL: "true"
-      # MAVEDB_LINK_MIRROR__ENABLED: "false"
-      # MAVEDB_LINK_API__BASE_URL: https://api.mavedb.org/api/v1
     volumes:
-      - mavedb-data:/home/app/data
+      - mavedb-reference:/home/app/reference:ro
+      - mavedb-cache:/home/app/cache:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      # First boot may fetch the prebuilt SQLite mirror artifact from GitHub.
-      start_period: 180s
+      start_period: 30s
     restart: unless-stopped
     read_only: true
-    tmpfs:
-      - /tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777
-    networks:
-      - mavedb_link_internal_net
-      - npm_proxy_network
+    tmpfs: [/tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777]
+    networks: [mavedb_link_internal_net, npm_proxy_network]
     deploy:
       resources:
         limits:
           memory: ${MAVEDB_API_MEMORY_LIMIT:-1g}
           cpus: ${MAVEDB_API_CPU_LIMIT:-1.0}
           pids: 256
-        reservations:
-          memory: 256m
-          cpus: 0.25
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
-        labels: "service=mavedb-link,environment=production,proxy=npm"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
     pids_limit: 256
     init: true
 
 volumes:
-  mavedb-data:
-    driver: local
+  mavedb-reference:
+  mavedb-cache:
 
 networks:
   mavedb_link_internal_net:

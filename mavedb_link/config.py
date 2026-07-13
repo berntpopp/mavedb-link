@@ -7,10 +7,11 @@ and an optional ``.env`` file. The only data source is the live MaveDB REST API.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mavedb_link import __version__
@@ -19,6 +20,9 @@ from mavedb_link.constants import (
     MAPPED_CACHE_LRU_SETS,
     ZENODO_CONCEPT_ID,
 )
+
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_RELEASE_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}$")
 
 
 class MaveDBApiConfig(BaseModel):
@@ -95,9 +99,13 @@ class MirrorConfig(BaseModel):
         default="berntpopp/mavedb-link", description="Repo hosting prebuilt artifact releases."
     )
     bundle_url: str = Field(
-        default="latest",
+        default="",
         description="Prebuilt artifact: 'latest', an explicit URL, or '' (disabled).",
     )
+    development_latest: bool = False
+    bundle_release_tag: str | None = None
+    bundle_path: Path | None = None
+    reference_root: Path = Path("data")
     bundle_asset_name: str = Field(
         default="mavedb.sqlite.zst", description="Release asset name for the prebuilt mirror."
     )
@@ -105,6 +113,8 @@ class MirrorConfig(BaseModel):
         default=None,
         description="Required SHA-256 for an explicit bundle URL when no valid sidecar exists.",
     )
+    bundle_expected_expanded_sha256: str | None = None
+    bundle_expected_schema_version: str | None = None
     max_dump_bytes: int = Field(
         default=4 * 1024**3,
         gt=0,
@@ -192,6 +202,7 @@ class ServerSettings(BaseSettings):
     host: str = Field(default="127.0.0.1", description="Server host.")
     port: int = Field(default=8000, ge=1024, le=65535, description="Server port.")
     reload: bool = Field(default=False, description="Enable auto-reload in development.")
+    environment: Literal["development", "production"] = "development"
 
     transport: Literal["unified", "http", "stdio"] = Field(
         default="unified",
@@ -257,6 +268,41 @@ class ServerSettings(BaseSettings):
         if any(any(marker in host for marker in "*?[]") for host in v):
             raise ValueError("wildcard patterns are not allowed in allowed_hosts")
         return v
+
+    @model_validator(mode="after")
+    def validate_data_identity(self) -> ServerSettings:
+        mirror = self.mirror
+        if mirror.bundle_url == "latest" and not mirror.development_latest:
+            raise ValueError("bundle_url=latest requires development_latest=true")
+        if self.environment != "production":
+            return self
+        if mirror.development_latest:
+            raise ValueError("production rejects development_latest")
+        if not mirror.bundle_release_tag or not _RELEASE_TAG_RE.fullmatch(
+            mirror.bundle_release_tag
+        ):
+            raise ValueError("production requires an exact bundle release tag")
+        if mirror.bundle_path is None:
+            marker = f"/download/{mirror.bundle_release_tag}/"
+            if not mirror.bundle_url.startswith("https://") or marker not in mirror.bundle_url:
+                raise ValueError("production bundle URL must bind the exact release tag")
+        if not mirror.bundle_expected_sha256 or not _SHA256_RE.fullmatch(
+            mirror.bundle_expected_sha256
+        ):
+            raise ValueError("production requires an exact compressed SHA-256")
+        if not mirror.bundle_expected_expanded_sha256 or not _SHA256_RE.fullmatch(
+            mirror.bundle_expected_expanded_sha256
+        ):
+            raise ValueError("production requires an exact expanded SHA-256")
+        if mirror.bundle_expected_schema_version != "4.0.0":
+            raise ValueError("production requires compatible schema version 4.0.0")
+        try:
+            self.cache.db_path.resolve().relative_to(mirror.reference_root.resolve())
+        except ValueError:
+            pass
+        else:
+            raise ValueError("cache path must be outside the immutable reference root")
+        return self
 
 
 settings = ServerSettings()

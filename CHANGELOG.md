@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-07-13
+
+### Changed
+
+- Adopt the GeneFoundry container-release caller workflow and code-only
+  production image release configuration bound to the published MaveDB
+  `data-2026-06-24` external mirror artifact.
+
 ## [0.4.2] - 2026-07-12
 
 ### Security

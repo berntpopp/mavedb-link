@@ -27,7 +27,17 @@ docker/.env
 # Local data store (SQLite mirror/cache — built/pulled at runtime, not shipped)
 *.sqlite
 *.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.zst
+*.zst.sha256
 data
+*.zip
+*.txt.gz
+*.tsv.gz
+*.jsonl.gz
 
 # Tests, docs, coverage
 tests

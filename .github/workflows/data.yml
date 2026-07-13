@@ -1,76 +1,124 @@
 name: Build & publish mirror
 
-# Build the local SQLite mirror from the latest CC0 MaveDB Zenodo bulk dump and
-# publish it as a prebuilt artifact (mavedb.sqlite.zst + .sha256) on a GitHub
-# Release, tagged by the dump's snapshot date. Deployments then pull this instead
-# of rebuilding the ~1.8 GB dump on every start. Runs monthly and on demand.
-#
-# Triggered by maintainers (or the schedule) after merge -- it is not invoked
-# automatically by code changes. Requires no secrets beyond the default
-# GITHUB_TOKEN (contents: write).
-
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Override release tag (default: data-<dump snapshot date>)"
-        required: false
-        type: string
   schedule:
-    - cron: "0 4 1 * *" # 04:00 UTC on the 1st of each month
+    - cron: "0 4 1 * *"
 
-permissions:
-  contents: write
-
-concurrency:
-  group: mirror-publish
-  cancel-in-progress: false
+permissions: {}
 
 jobs:
-  build-publish:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
     env:
       MAVEDB_LINK_MIRROR__DATA_DIR: data
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-
-      - name: Install runtime dependencies
-        run: uv sync --frozen --no-dev
-
-      - name: Build mirror from the latest Zenodo dump
-        run: uv run mavedb-link-data build
-
-      - name: Report mirror provenance
-        run: uv run mavedb-link-data status
-
-      - name: Derive release tag from the dump snapshot date
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with: {python-version: "3.12"}
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with: {version: "0.8.7", enable-cache: false}
+      - run: uv sync --frozen --no-dev
+      - name: Build and pack without credentials
+        run: |
+          set -euo pipefail
+          uv run mavedb-link-data build
+          uv run mavedb-link-data pack
+      - name: Create exact release metadata
         id: meta
         run: |
-          as_of=$(uv run python -c "from mavedb_link.data.repository import MirrorRepository as R; print((R.open('data/mavedb.sqlite').meta().get('dump_as_of') or 'unknown')[:10])")
-          tag="${{ inputs.tag }}"
-          [ -n "$tag" ] || tag="data-${as_of}"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Release tag: ${tag}"
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib, json, sqlite3
+          from datetime import UTC, datetime
+          from pathlib import Path
+          db=Path("data/mavedb.sqlite"); asset=Path("data/mavedb.sqlite.zst")
+          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
+          meta=dict(con.execute("select * from meta where id=1").fetchone()); con.close()
+          tag=f"data-{str(meta['dump_as_of'])[:10]}"
+          file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
+          tree=hashlib.sha256(f"mavedb.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
+          payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
+                   "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
+                   "expanded_size":db.stat().st_size,"schema_version":"4.0.0",
+                   "source_sha256":meta["source_sha256"],"source_url":meta["source_url"],
+                   "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
+                   "score_set_count":meta["score_set_count"],
+                   "mapped_variant_count":meta["mapped_variant_count"]}
+          Path("data/bundle-metadata.json").write_text(json.dumps(payload,sort_keys=True)+"\n")
+          with Path("data/SHA256SUMS").open("w") as out:
+              for path in sorted(Path("data").glob("mavedb.sqlite.zst*")):
+                  out.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+              path=Path("data/bundle-metadata.json")
+              out.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+          Path("tag.txt").write_text(tag)
+          PY
+          echo "tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        with:
+          name: mavedb-data-${{ steps.meta.outputs.tag }}
+          path: |
+            data/mavedb.sqlite.zst
+            data/mavedb.sqlite.zst.sha256
+            data/bundle-metadata.json
+            data/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Pack the artifact (zstd + sha256 sidecar)
-        run: uv run mavedb-link-data pack
-
-      - name: Publish to GitHub Releases
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: data-release
+    concurrency:
+      group: mavedb-data-${{ needs.build.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7
+        with:
+          name: mavedb-data-${{ needs.build.outputs.tag }}
+          path: dist
+      - name: Verify transferred bytes
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Create an empty draft or prove an identical rerun
+        id: draft
         run: |
-          gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1 \
-            || gh release create "${{ steps.meta.outputs.tag }}" \
-                 --title "${{ steps.meta.outputs.tag }}" \
-                 --notes "Prebuilt MaveDB SQLite mirror built from the CC0 Zenodo bulk dump (snapshot ${{ steps.meta.outputs.tag }}). CC0 1.0."
-          gh release upload "${{ steps.meta.outputs.tag }}" \
-            data/mavedb.sqlite.zst data/mavedb.sqlite.zst.sha256 --clobber
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/tmp/release.json 2>/dev/null; then
+            test "$(jq -r .isDraft /tmp/release.json)" = true || { echo "published release collision: $TAG" >&2; exit 1; }
+            mkdir -p /tmp/existing
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/existing || true
+            if test -f /tmp/existing/SHA256SUMS && cmp -s dist/SHA256SUMS /tmp/existing/SHA256SUMS; then
+              echo "upload=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable MaveDB CC0 reference mirror; research use only."
+          echo "upload=true" >> "$GITHUB_OUTPUT"
+      - name: Upload without replacement
+        if: steps.draft.outputs.upload == 'true'
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
+      - name: Attest exact release assets
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: "dist/*"
+      - name: Publish once and verify immutable assets
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
+          while read -r _ asset; do gh release verify-asset "$TAG" "dist/$asset" --repo "$GITHUB_REPOSITORY"; done < dist/SHA256SUMS

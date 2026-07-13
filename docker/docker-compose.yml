@@ -1,43 +1,55 @@
+name: mavedb-link
+
+x-image: &image
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: production
+  image: mavedb-link:latest
+
+x-data-environment: &data-environment
+  MAVEDB_LINK_ENVIRONMENT: development
+  MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/reference/current
+  MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /home/app/reference
+  MAVEDB_LINK_MIRROR__BUNDLE_URL: latest
+  MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "true"
+
 services:
+  mavedb-data-init:
+    <<: *image
+    entrypoint: ["mavedb-link-data", "bootstrap"]
+    environment: *data-environment
+    volumes:
+      - mavedb-reference:/home/app/reference:rw
+    restart: "no"
+
   mavedb-link:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        MAVEDB_LINK_GIT_SHA: ${MAVEDB_LINK_GIT_SHA:-unknown}
-        MAVEDB_LINK_BUILT_AT: ${MAVEDB_LINK_BUILT_AT:-}
-    image: mavedb-link:latest
-    restart: unless-stopped
+    <<: *image
+    depends_on:
+      mavedb-data-init:
+        condition: service_completed_successfully
     environment:
+      <<: *data-environment
       MAVEDB_LINK_HOST: 0.0.0.0
       MAVEDB_LINK_PORT: 8000
       MAVEDB_LINK_TRANSPORT: unified
       MAVEDB_LINK_MCP_PATH: /mcp
       MAVEDB_LINK_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1"]'
       MAVEDB_LINK_LOG_FORMAT: json
-      # Local SQLite mirror (primary source; live API is the backup). The named
-      # volume persists the built/pulled mirror across restarts. On first start
-      # the entrypoint pulls the prebuilt artifact (bundle_url=latest); set
-      # BUILD_LOCAL=true to build from the Zenodo dump instead.
-      MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/data
-      # MAVEDB_LINK_MIRROR__BUILD_LOCAL: "true"
-      # MAVEDB_LINK_MIRROR__ENABLED: "false"   # disable the mirror (pure live)
-      # Override the upstream API if needed:
-      # MAVEDB_LINK_API__BASE_URL: https://api.mavedb.org/api/v1
+      MAVEDB_LINK_CACHE__DB_PATH: /home/app/cache/mavedb_cache.sqlite
     volumes:
-      - mavedb-data:/home/app/data
+      - mavedb-reference:/home/app/reference:ro
+      - mavedb-cache:/home/app/cache:rw
     ports:
-      # Pin a deterministic, non-conflicting host port (fleet convention).
-      # mavedb sits beside the variant-effect siblings gnomad (8020) / vep (8021).
-      # Override via docker/.env; `make docker-url` prints the live URL.
-      # Loopback-bound: dev/local only; production uses the prod/npm overlays.
       - "127.0.0.1:${MAVEDB_LINK_HOST_PORT:-8023}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
-  mavedb-data:
+  mavedb-reference:
+  mavedb-cache:
