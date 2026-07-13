@@ -12,7 +12,18 @@
     "container_port": 8000,
     "health_path": "/health",
     "mcp_path": "/mcp",
-    "startup_timeout_seconds": 300
+    "startup_timeout_seconds": 300,
+    "auxiliary": [
+      {
+        "name": "mavedb-data-init",
+        "role": "init",
+        "egress": "approved-networks",
+        "writable_targets": [
+          "/data",
+          "/tmp"
+        ]
+      }
+    ]
   },
   "data": {
     "mode": "external-reference",
@@ -29,7 +40,7 @@
     ]
   },
   "runtime_cache": {
-    "path": "/home/app/cache/mavedb_cache.sqlite",
+    "path": "/data/cache/mavedb_cache.sqlite",
     "eviction": "Deletable mapped-variant cache; repopulates from live MaveDB without losing authoritative mirror data.",
     "deletable_without_authoritative_data_loss": true
   },

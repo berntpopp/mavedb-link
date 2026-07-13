@@ -8,15 +8,15 @@ x-image: &image
 
 x-data: &data
   MAVEDB_LINK_ENVIRONMENT: production
-  MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/reference/current
-  MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /home/app/reference
+  MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
+  MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
   MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
   MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
   MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
   MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
   MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
   MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
-  MAVEDB_LINK_CACHE__DB_PATH: /home/app/cache/mavedb_cache.sqlite
+  MAVEDB_LINK_CACHE__DB_PATH: /data/cache/mavedb_cache.sqlite
 
 services:
   mavedb_data_init:
@@ -24,7 +24,7 @@ services:
     entrypoint: ["mavedb-link-data", "pull"]
     environment: *data
     volumes:
-      - mavedb-reference:/home/app/reference:rw
+      - mavedb-data:/data
     restart: "no"
     networks: [mavedb_link_internal_net]
 
@@ -46,8 +46,7 @@ services:
       MAVEDB_LINK_LOG_LEVEL: ${LOG_LEVEL_API:-INFO}
       MAVEDB_LINK_LOG_FORMAT: json
     volumes:
-      - mavedb-reference:/home/app/reference:ro
-      - mavedb-cache:/home/app/cache:rw
+      - mavedb-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
       interval: 30s
@@ -56,7 +55,7 @@ services:
       start_period: 30s
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777]
+    tmpfs: [/tmp:rw,noexec,nosuid,size=512m,mode=1777]
     networks: [mavedb_link_internal_net, npm_proxy_network]
     deploy:
       resources:
@@ -70,8 +69,7 @@ services:
     init: true
 
 volumes:
-  mavedb-reference:
-  mavedb-cache:
+  mavedb-data:
 
 networks:
   mavedb_link_internal_net:

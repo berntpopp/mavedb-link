@@ -58,12 +58,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MAVEDB_LINK_PORT=8000 \
     MAVEDB_LINK_TRANSPORT=unified \
     MAVEDB_LINK_MCP_PATH=/mcp \
-    MAVEDB_LINK_MIRROR__DATA_DIR=/home/app/reference/current \
-    MAVEDB_LINK_MIRROR__REFERENCE_ROOT=/home/app/reference \
-    MAVEDB_LINK_CACHE__DB_PATH=/home/app/cache/mavedb_cache.sqlite \
+    MAVEDB_LINK_MIRROR__DATA_DIR=/data/reference/current \
+    MAVEDB_LINK_MIRROR__REFERENCE_ROOT=/data/reference \
+    MAVEDB_LINK_CACHE__DB_PATH=/data/cache/mavedb_cache.sqlite \
     MAVEDB_LINK_GIT_SHA="${VCS_REF}" \
     MAVEDB_LINK_BUILT_AT="${BUILD_DATE}" \
-    TMPDIR=/tmp/mavedb-link
+    TMPDIR=/tmp
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -73,8 +73,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN groupadd --system app && \
     useradd --system --gid app --home /home/app --create-home app && \
-    mkdir -p /tmp/mavedb-link /home/app/reference /home/app/cache && \
-    chown -R app:app /tmp/mavedb-link /home/app
+    mkdir -p /data && \
+    chown -R app:app /data /home/app
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -133,12 +133,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MAVEDB_LINK_PORT=8000 \
     MAVEDB_LINK_TRANSPORT=unified \
     MAVEDB_LINK_MCP_PATH=/mcp \
-    MAVEDB_LINK_MIRROR__DATA_DIR=/home/app/reference/current \
-    MAVEDB_LINK_MIRROR__REFERENCE_ROOT=/home/app/reference \
-    MAVEDB_LINK_CACHE__DB_PATH=/home/app/cache/mavedb_cache.sqlite \
+    MAVEDB_LINK_MIRROR__DATA_DIR=/data/reference/current \
+    MAVEDB_LINK_MIRROR__REFERENCE_ROOT=/data/reference \
+    MAVEDB_LINK_CACHE__DB_PATH=/data/cache/mavedb_cache.sqlite \
     MAVEDB_LINK_GIT_SHA="${VCS_REF}" \
     MAVEDB_LINK_BUILT_AT="${BUILD_DATE}" \
-    TMPDIR=/tmp/mavedb-link
+    TMPDIR=/tmp
 
 WORKDIR /home/app/web
 USER app

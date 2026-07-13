@@ -9,11 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.3] - 2026-07-13
 
+### Added
+
+- Split mirror materialization out of the server: a one-shot `mavedb-data-init`
+  sidecar downloads and verifies the pinned MaveDB bundle into `/data/reference`
+  and exits; `mavedb-link` waits for `service_completed_successfully` before it
+  serves.
+- Declare the sidecar in `container-release.json` under `service.auxiliary` with
+  its `init` role, `approved-networks` egress (the bundle is fetched from GitHub
+  Releases), and its exact `writable_targets` (`/data`, `/tmp`), so the central
+  fleet compose gate authorizes it **by role, never by name**.
+
 ### Changed
 
 - Adopt the GeneFoundry container-release caller workflow and code-only
   production image release configuration bound to the published MaveDB
   `data-2026-06-24` external mirror artifact.
+- Production now runs `mavedb-link-data pull` in the init sidecar rather than
+  `bootstrap`, so advancing the pinned bundle installs exactly that release
+  instead of reusing whatever mirror the volume already holds.
+- Consolidate storage onto the two writable targets the fleet compose policy
+  approves. The immutable mirror (`/data/reference`, opened `mode=ro`) and the
+  deletable mapped-variant cache (`/data/cache`) now share the single `mavedb-data`
+  volume at `/data`, and scratch is a size-capped tmpfs at `/tmp` (was
+  `/tmp/mavedb-link`, which the image's `TMPDIR` now also points at). The cache
+  stays outside the reference root, which the production config still enforces.
+- Harden both services to the Container & Deployment Hardening Standard:
+  digest-pinned untagged image, `read_only` rootfs, `cap_drop: [ALL]`,
+  `no-new-privileges`, `deploy.resources.limits` (cpus/memory/pids) instead of the
+  service-level `pids_limit`, no `deploy.resources.reservations`, bounded
+  `json-file` logging, no published ports, and the standard `GF_HEALTHCHECK_HOST`
+  healthcheck.
+- Inline the compose service definitions: top-level `x-*` anchors are emitted
+  verbatim by `docker compose config` and are rejected as unapproved fields.
 
 ## [0.4.2] - 2026-07-12
 

@@ -1,57 +1,101 @@
+# Production overlay for mavedb-link (Container & Deployment Hardening Standard v1).
+#
+#   MAVEDB_LINK_IMAGE=ghcr.io/berntpopp/mavedb-link@sha256:<digest> \
+#   MAVEDB_DATA_BUNDLE_URL=https://github.com/berntpopp/mavedb-link/releases/download/data-YYYY-MM-DD/mavedb.sqlite.zst \
+#   MAVEDB_DATA_RELEASE_TAG=data-YYYY-MM-DD \
+#   MAVEDB_DATA_SHA256=<compressed sha256> \
+#   MAVEDB_DATA_EXPANDED_SHA256=<expanded sha256> \
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# mavedb-data-init materializes exactly the pinned, verified bundle into
+# /data/reference and exits; mavedb-link then serves from it and keeps its own
+# deletable mapped-variant cache under /data/cache.
+
 services:
   mavedb-data-init:
     build: !reset null
-    image: "${MAVEDB_LINK_IMAGE:?set ghcr.io/berntpopp/mavedb-link@sha256:<digest>}"
+    image: ${MAVEDB_LINK_IMAGE:?set ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
     pull_policy: missing
-    entrypoint: ["mavedb-link-data", "pull"]
+    # `pull` installs exactly the pinned release. `bootstrap` (the dev default) would
+    # reuse whatever mirror is already on the volume and so keep serving a stale bundle
+    # after the pin is advanced.
+    entrypoint: !override ["mavedb-link-data", "pull"]
     environment: &production-data
       MAVEDB_LINK_ENVIRONMENT: production
-      MAVEDB_LINK_MIRROR__DATA_DIR: /home/app/reference/current
-      MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /home/app/reference
+      MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
+      MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
       MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
       MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
       MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
-      MAVEDB_LINK_CACHE__DB_PATH: /home/app/cache/mavedb_cache.sqlite
+      # Outside REFERENCE_ROOT — the config rejects a cache inside the immutable mirror.
+      MAVEDB_LINK_CACHE__DB_PATH: /data/cache/mavedb_cache.sqlite
+    volumes: !override
+      - mavedb-data:/data
     read_only: true
-    tmpfs:
-      - /tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 128
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    security_opt: !override
+      - no-new-privileges:true
+    cap_drop: !override
+      - ALL
+    init: true
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+          pids: 128
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   mavedb-link:
     build: !reset null
-    image: "${MAVEDB_LINK_IMAGE:?set ghcr.io/berntpopp/mavedb-link@sha256:<digest>}"
+    image: ${MAVEDB_LINK_IMAGE:?set ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
     pull_policy: missing
+    ports: !reset []
+    expose:
+      - "8000"
     environment:
       <<: *production-data
+      GF_HEALTHCHECK_HOST: localhost
+      MAVEDB_LINK_HOST: 0.0.0.0
+      MAVEDB_LINK_PORT: 8000
       MAVEDB_LINK_TRANSPORT: unified
+      MAVEDB_LINK_MCP_PATH: /mcp
       MAVEDB_LINK_LOG_LEVEL: INFO
       MAVEDB_LINK_LOG_FORMAT: json
       MAVEDB_LINK_ALLOWED_HOSTS: '["localhost","127.0.0.1","::1","mavedb-link.genefoundry.org"]'
-    ports: !reset []
-    expose: ["8000"]
+    volumes: !override
+      - mavedb-data:/data
     read_only: true
-    tmpfs:
-      - /tmp/mavedb-link:rw,noexec,nosuid,size=512m,mode=1777
-    security_opt: [no-new-privileges:true]
-    cap_drop: [ALL]
-    pids_limit: 256
+    tmpfs: !override
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    security_opt: !override
+      - no-new-privileges:true
+    cap_drop: !override
+      - ALL
     init: true
     restart: on-failure
     deploy:
       resources:
-        limits: {memory: 1G, cpus: "1.0", pids: 256}
-        reservations: {memory: 256M, cpus: "0.25"}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "-H", "Host: localhost", "http://127.0.0.1:8000/health"]
+        limits:
+          memory: 1g
+          cpus: "1.0"
+          pids: 256
+    healthcheck: !override
+      test: ["CMD", "sh", "-c", "curl -f -H \"Host: $${GF_HEALTHCHECK_HOST}\" http://localhost:8000/health"]
       interval: 20s
       timeout: 5s
       retries: 5
-      start_period: 180s
     logging:
-      driver: json-file
-      options: {max-size: "50m", max-file: "5"}
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
