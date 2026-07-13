@@ -93,4 +93,12 @@ def test_compose_propagates_allowlist_and_healthcheck_host(compose_file: str) ->
     text = Path(compose_file).read_text()
     assert "MAVEDB_LINK_ALLOWED_HOSTS" in text
     assert '"localhost","127.0.0.1","::1"' in text
-    assert '"Host: localhost"' in text
+    # The healthcheck must send a Host header the server allowlists, or the probe is
+    # rejected by the Host guard and the container never turns healthy. The production
+    # overlay uses the fleet-standard probe, which reads the host from an env var so
+    # one image can be probed under any deployed hostname; either way the Host that
+    # actually goes out on the wire has to be an allowlisted one.
+    if "Host: $${GF_HEALTHCHECK_HOST}" in text:
+        assert "GF_HEALTHCHECK_HOST: localhost" in text
+    else:
+        assert '"Host: localhost"' in text

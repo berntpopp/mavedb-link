@@ -290,6 +290,42 @@ def test_bundle_expansion_limit_preserves_database(tmp_path: Path) -> None:
     assert destination.read_bytes() == b"old"
 
 
+def test_bundle_verifies_expanded_digest_and_schema(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    build_database(write_mini_dump(tmp_path), source, zenodo_record="222")
+    compressed, _ = bundle.pack(source, tmp_path / "mavedb.sqlite.zst")
+    file_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    expected_expanded = hashlib.sha256(
+        f"mavedb.sqlite\0{0o444:04o}\0{source.stat().st_size}\0{file_sha}\n".encode()
+    ).hexdigest()
+    destination = tmp_path / "reference" / "mavedb.sqlite"
+
+    identity = bundle.install_preseeded(
+        compressed,
+        destination,
+        expected_sha256=hashlib.sha256(compressed.read_bytes()).hexdigest(),
+        expected_expanded_sha256=expected_expanded,
+        expected_schema_version="4.0.0",
+    )
+
+    assert identity["expanded_sha256"] == expected_expanded
+    assert identity["schema_version"] == "4.0.0"
+
+
+def test_bundle_rejects_wrong_expanded_digest(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    build_database(write_mini_dump(tmp_path), source, zenodo_record="222")
+    compressed, _ = bundle.pack(source, tmp_path / "mavedb.sqlite.zst")
+    with pytest.raises(DataUnavailableError, match="expanded bundle sha256 mismatch"):
+        bundle.install_preseeded(
+            compressed,
+            tmp_path / "reference" / "mavedb.sqlite",
+            expected_sha256=hashlib.sha256(compressed.read_bytes()).hexdigest(),
+            expected_expanded_sha256="0" * 64,
+            expected_schema_version="4.0.0",
+        )
+
+
 @respx.mock
 def test_bundle_rejects_unapproved_redirect_before_request(tmp_path: Path) -> None:
     url = "https://github.com/berntpopp/mavedb-link/releases/download/v1/db.zst"

@@ -20,7 +20,7 @@ import typer
 
 from mavedb_link.config import MirrorConfig
 from mavedb_link.data.repository import MirrorRepository
-from mavedb_link.exceptions import MaveDBError
+from mavedb_link.exceptions import DataUnavailableError, MaveDBError
 from mavedb_link.ingest import bundle
 from mavedb_link.ingest.builder import build_database
 from mavedb_link.ingest.downloader import DumpRef, download_file, resolve_latest_dump
@@ -131,7 +131,7 @@ def bootstrap() -> None:
         typer.echo(f"Mirror present at {cfg.db_path}; reusing.")
         return
     try:
-        if cfg.bundle_url:
+        if cfg.bundle_url or cfg.bundle_path is not None:
             typer.echo("Pulling prebuilt mirror artifact ...")
             _pull_bundle(cfg)
             typer.echo(f"Installed prebuilt mirror at {cfg.db_path}.")
@@ -171,17 +171,61 @@ def pack() -> None:
 
 
 def _pull_bundle(cfg: MirrorConfig) -> None:
-    bundle.pull(
-        cfg.github_repo,
-        cfg.bundle_asset_name,
-        cfg.bundle_url,
-        cfg.db_path,
-        expected_sha256=cfg.bundle_expected_sha256,
-        max_compressed_bytes=cfg.max_bundle_bytes,
-        max_expanded_bytes=cfg.max_database_bytes,
-        max_metadata_bytes=cfg.max_metadata_bytes,
-        max_seconds=cfg.max_download_seconds,
+    exact = (
+        cfg.bundle_expected_sha256 is not None
+        and cfg.bundle_expected_expanded_sha256 is not None
+        and cfg.bundle_expected_schema_version is not None
+        and cfg.bundle_release_tag is not None
     )
+    if exact:
+        assert cfg.bundle_expected_sha256 is not None
+        target = cfg.reference_root / cfg.bundle_expected_sha256
+    else:
+        target = cfg.data_dir
+    destination = target / cfg.db_filename if exact else cfg.db_path
+    with build_lock(cfg.reference_root / ".materialize.lock"):
+        if cfg.bundle_path is not None:
+            if not exact:
+                raise DataUnavailableError(
+                    "a pre-seeded bundle requires complete immutable data identity"
+                )
+            assert cfg.bundle_expected_sha256 is not None
+            assert cfg.bundle_expected_expanded_sha256 is not None
+            assert cfg.bundle_expected_schema_version is not None
+            identity = bundle.install_preseeded(
+                cfg.bundle_path,
+                destination,
+                expected_sha256=cfg.bundle_expected_sha256,
+                expected_expanded_sha256=cfg.bundle_expected_expanded_sha256,
+                expected_schema_version=cfg.bundle_expected_schema_version,
+                max_expanded_bytes=cfg.max_database_bytes,
+            )
+        else:
+            identity = bundle.pull(
+                cfg.github_repo,
+                cfg.bundle_asset_name,
+                cfg.bundle_url,
+                destination,
+                expected_sha256=cfg.bundle_expected_sha256,
+                max_compressed_bytes=cfg.max_bundle_bytes,
+                max_expanded_bytes=cfg.max_database_bytes,
+                max_metadata_bytes=cfg.max_metadata_bytes,
+                max_seconds=cfg.max_download_seconds,
+                expected_expanded_sha256=cfg.bundle_expected_expanded_sha256,
+                expected_schema_version=cfg.bundle_expected_schema_version,
+            )
+        if exact:
+            assert cfg.bundle_expected_sha256 is not None
+            assert cfg.bundle_release_tag is not None
+            bundle.select_reference(
+                cfg.reference_root,
+                target,
+                {
+                    "release_tag": cfg.bundle_release_tag,
+                    "compressed_sha256": cfg.bundle_expected_sha256,
+                    **identity,
+                },
+            )
 
 
 @app.command()

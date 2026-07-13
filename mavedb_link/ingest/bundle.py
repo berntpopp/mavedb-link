@@ -13,8 +13,10 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,12 @@ from mavedb_link.ingest.download_security import (
 _CHUNK = 1 << 20
 _GITHUB_API = "https://api.github.com"
 _GITHUB_ASSET_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com"})
+
+
+def _expanded_tree_sha256(path: Path, filename: str) -> str:
+    file_sha256 = _sha256_file(path)
+    identity = f"{filename}\0{0o444:04o}\0{path.stat().st_size}\0{file_sha256}\n"
+    return hashlib.sha256(identity.encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -150,7 +158,9 @@ def pull(
     max_expanded_bytes: int | None = None,
     max_metadata_bytes: int | None = None,
     max_seconds: float | None = None,
-) -> None:
+    expected_expanded_sha256: str | None = None,
+    expected_schema_version: str | None = None,
+) -> dict[str, str]:
     """Download, checksum-verify, and decompress the prebuilt mirror into place."""
     asset = resolve_release_asset(
         github_repo,
@@ -186,7 +196,13 @@ def pull(
         )
         if actual != expected:
             raise DataUnavailableError(f"Checksum mismatch for {asset_name}.")
-        _decompress_replace(zst_path, dest_db_path, max_expanded_bytes=expanded_limit)
+        return _decompress_replace(
+            zst_path,
+            dest_db_path,
+            max_expanded_bytes=expanded_limit,
+            expected_expanded_sha256=expected_expanded_sha256,
+            expected_schema_version=expected_schema_version,
+        )
     finally:
         zst_path.unlink(missing_ok=True)
         if client is None:
@@ -247,7 +263,14 @@ def _fetch_required_sha(http: httpx.Client, url: str, *, max_bytes: int) -> str:
     return _valid_sha256(first[0] if first else None)
 
 
-def _decompress_replace(zst_path: Path, dest_db_path: Path, *, max_expanded_bytes: int) -> None:
+def _decompress_replace(
+    zst_path: Path,
+    dest_db_path: Path,
+    *,
+    max_expanded_bytes: int,
+    expected_expanded_sha256: str | None = None,
+    expected_schema_version: str | None = None,
+) -> dict[str, str]:
     """Decompress a ``.zst`` into a temp file, then atomically swap it into place."""
     fd, tmp_db = tempfile.mkstemp(dir=dest_db_path.parent, suffix=".sqlite.tmp")
     os.close(fd)
@@ -265,11 +288,75 @@ def _decompress_replace(zst_path: Path, dest_db_path: Path, *, max_expanded_byte
                 raise DataUnavailableError(
                     f"expanded bundle exceeded {max_expanded_bytes} bytes"
                 ) from exc
+        os.chmod(tmp_db_path, 0o444)
+        expanded_sha256 = _expanded_tree_sha256(tmp_db_path, dest_db_path.name)
+        if expected_expanded_sha256 is not None and expanded_sha256 != _valid_sha256(
+            expected_expanded_sha256
+        ):
+            raise DataUnavailableError(
+                "expanded bundle sha256 mismatch: "
+                f"expected {expected_expanded_sha256.lower()}, got {expanded_sha256}"
+            )
+        connection = sqlite3.connect(f"file:{tmp_db_path}?mode=ro", uri=True)
+        try:
+            row = connection.execute("SELECT schema_version FROM meta WHERE id = 1").fetchone()
+        except sqlite3.Error as exc:
+            raise DataUnavailableError("expanded bundle has no readable schema identity") from exc
+        finally:
+            connection.close()
+        if row is None or not isinstance(row[0], int):
+            raise DataUnavailableError("expanded bundle has no readable schema identity")
+        schema_version = f"{row[0]}.0.0"
+        if expected_schema_version is not None and schema_version != expected_schema_version:
+            raise DataUnavailableError(
+                f"bundle schema mismatch: expected {expected_schema_version}, got {schema_version}"
+            )
         os.replace(tmp_db_path, dest_db_path)
+        return {"expanded_sha256": expanded_sha256, "schema_version": schema_version}
     except zstandard.ZstdError as exc:
         raise DataUnavailableError(f"Invalid zstd bundle: {exc}") from exc
     finally:
         tmp_db_path.unlink(missing_ok=True)
+
+
+def install_preseeded(
+    bundle_path: Path,
+    destination: Path,
+    *,
+    expected_sha256: str,
+    expected_expanded_sha256: str,
+    expected_schema_version: str,
+    max_expanded_bytes: int | None = None,
+) -> dict[str, str]:
+    """Verify and atomically install a reviewed local bundle without network access."""
+    expected = _valid_sha256(expected_sha256)
+    actual = _sha256_file(bundle_path)
+    if actual != expected:
+        raise DataUnavailableError(f"bundle sha256 mismatch: expected {expected}, got {actual}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    return _decompress_replace(
+        bundle_path,
+        destination,
+        max_expanded_bytes=_mirror_limit("max_database_bytes", max_expanded_bytes),
+        expected_expanded_sha256=expected_expanded_sha256,
+        expected_schema_version=expected_schema_version,
+    )
+
+
+def select_reference(root: Path, target: Path, identity: dict[str, str]) -> None:
+    """Persist verified identity and atomically select a versioned reference."""
+    identity_tmp = target / ".data-identity.json.tmp"
+    identity_tmp.write_text(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(identity_tmp, target / "data-identity.json")
+    link_tmp = root / f".current-{os.getpid()}-{time.time_ns()}"
+    try:
+        link_tmp.symlink_to(target.name)
+        os.replace(link_tmp, root / "current")
+    finally:
+        link_tmp.unlink(missing_ok=True)
 
 
 def _valid_sha256(value: str | None) -> str:
@@ -290,7 +377,7 @@ def publish(db_path: Path, github_repo: str, tag: str, asset_name: str) -> None:
     """Pack ``db_path`` and upload it (+ sidecar) to a GitHub Release via ``gh``.
 
     Maintainer/CI path: requires the ``gh`` CLI authenticated for ``github_repo``.
-    Creates the release if absent and clobbers an existing asset of the same name.
+    Creates the release if absent and refuses to replace an existing asset.
     """
     out, sha_path = pack(db_path, db_path.with_name(asset_name))
     _gh(["release", "view", tag, "--repo", github_repo]) or _gh(
@@ -303,7 +390,6 @@ def publish(db_path: Path, github_repo: str, tag: str, asset_name: str) -> None:
             tag,
             str(out),
             str(sha_path),
-            "--clobber",
             "--repo",
             github_repo,
         ],

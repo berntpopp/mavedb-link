@@ -1,7 +1,7 @@
 .PHONY: help install lock upgrade sync \
         format format-check lint lint-ci lint-fix lint-loc \
         typecheck test test-fast test-unit test-integration test-cov \
-        check ci-local precommit clean \
+        check ci-local vendor-check precommit clean \
         dev mcp-serve smoke eval eval-baseline \
         docker-build docker-up docker-down docker-logs docker-url info
 
@@ -63,6 +63,9 @@ test-cov: ## Run tests with coverage
 check: format lint ## Format and lint
 
 ci-local: format-check lint-ci lint-loc typecheck test-fast ## Fast local CI-equivalent checks
+
+vendor-check: ## Verify the vendored GeneFoundry data contract bytes
+	@test "$$(sha256sum vendor/genefoundry/data-release-manifest.schema.json | cut -d' ' -f1)" = "$$(cat vendor/genefoundry/CONTRACT_SHA256)"
 
 precommit: ci-local ## Run checks expected before commit
 
