@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7] - 2026-07-14
+
+### Fixed
+
+- **The mirror build could not produce a bundle at all**, so no schema-4 data release existed
+  and the service could not run in production (which requires schema 4.0.0). Three defects
+  compounded: the ingest bounds had been calibrated on 2026-07-10 measurements MaveDB has since
+  grown past (`archive has more than 10000 entries`, then `archive expanded size exceeds 16 GiB`);
+  and the data release tag was derived from the upstream dump date alone, so re-building the same
+  dump under a newer schema collided with the published release instead of creating a new one.
+- The data release tag now identifies `(dump, schema)` as `data-<date>-s<schema>`, and the schema
+  is read from the database rather than asserted as the literal `"4.0.0"` in the metadata payload.
+- **The NPM overlay's `tmpfs` was an unquoted YAML flow sequence**, so Compose could not start the
+  container at all (`invalid mount path: 'mode=1777'`).
+
 ## [0.4.6] - 2026-07-14
 
 ### Fixed
