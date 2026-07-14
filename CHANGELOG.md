@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-07-14
+
+### Changed
+
+- **The NPM deployment pulls the released image instead of building from source.**
+  `docker/docker-compose.npm.yml` carried `build:` (plus a local `mavedb-link:latest` tag
+  that existed only to name that build), so a deploy rebuilt the image on the server even
+  though CI had already published an attested, digest-addressable image to GHCR. Both the
+  `mavedb_data_init` sidecar and the `mavedb_link` server now run the same released image
+  via `MAVEDB_LINK_IMAGE`, pinned to a digest and failing closed when it is unset — the
+  same contract `docker/docker-compose.prod.yml` already applies to both services.
+  Nothing else in the overlay changed: `container_name`, the Compose project name, the
+  healthcheck, `depends_on`, networks and volumes are all preserved, so the deployed
+  topology and the persisted MaveDB release bundle are untouched.
+
 ## [0.4.4] - 2026-07-13
 
 ### Fixed
