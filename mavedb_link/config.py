@@ -22,7 +22,7 @@ from mavedb_link.constants import (
 )
 
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
-_RELEASE_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}$")
+_RELEASE_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}(?:-s\d+)?$")
 
 
 class MaveDBApiConfig(BaseModel):

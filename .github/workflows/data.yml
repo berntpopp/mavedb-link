@@ -39,13 +39,19 @@ jobs:
           from pathlib import Path
           db=Path("data/mavedb.sqlite"); asset=Path("data/mavedb.sqlite.zst")
           con=sqlite3.connect(db); con.row_factory=sqlite3.Row
-          meta=dict(con.execute("select * from meta where id=1").fetchone()); con.close()
-          tag=f"data-{str(meta['dump_as_of'])[:10]}"
+          meta=dict(con.execute("select * from meta where id=1").fetchone())
+          # The bundle's identity is (upstream dump, mirror schema), not the dump alone: the
+          # same Zenodo dump built by newer code yields a different schema. Tagging on the
+          # dump date alone made those two collide, and the publish step correctly refused to
+          # overwrite the published release ("published release collision").
+          schema_major=int(con.execute("pragma user_version").fetchone()[0]); con.close()
+          schema_version=f"{schema_major}.0.0"
+          tag=f"data-{str(meta['dump_as_of'])[:10]}-s{schema_major}"
           file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
           tree=hashlib.sha256(f"mavedb.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
           payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
                    "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
-                   "expanded_size":db.stat().st_size,"schema_version":"4.0.0",
+                   "expanded_size":db.stat().st_size,"schema_version":schema_version,
                    "source_sha256":meta["source_sha256"],"source_url":meta["source_url"],
                    "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
                    "score_set_count":meta["score_set_count"],
