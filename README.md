@@ -1,161 +1,139 @@
 # mavedb-link
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastMCP 3.x](https://img.shields.io/badge/FastMCP-3.x-6E40C9)](https://github.com/jlowin/fastmcp)
-[![Packaged with uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=uv&logoColor=white)](https://github.com/astral-sh/uv)
-[![Typed: mypy strict](https://img.shields.io/badge/typed-mypy%20strict-2A6DB2)](https://mypy-lang.org/)
+[![CI](https://github.com/berntpopp/mavedb-link/actions/workflows/ci.yml/badge.svg)](https://github.com/berntpopp/mavedb-link/actions/workflows/ci.yml)
+[![Conformance](https://github.com/berntpopp/mavedb-link/actions/workflows/conformance.yml/badge.svg)](https://github.com/berntpopp/mavedb-link/actions/workflows/conformance.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A read-only **FastMCP 3.x** server that grounds variant-effect work in
-**[MaveDB](https://www.mavedb.org/)** — the database of Multiplexed Assays of
-Variant Effect (deep mutational scanning and related functional assays that
-assign quantitative functional scores to genetic variants). Part of the
-GeneFoundry `*-link` fleet; federates into
-[`genefoundry-router`](https://github.com/berntpopp/genefoundry-router) under the
-`mavedb` namespace.
+A read-only **Model Context Protocol** (MCP) server, built on FastMCP 3.x, that grounds
+variant-effect work in [MaveDB](https://www.mavedb.org/) — the database of Multiplexed Assays
+of Variant Effect, which assigns quantitative functional scores to variants by deep mutational
+scanning and related assays. Part of the GeneFoundry `*-link` fleet; federates into
+[`genefoundry-router`](https://github.com/berntpopp/genefoundry-router) under the `mavedb`
+namespace.
 
-> ⚕️ **Research use only. Not clinical decision support.** MaveDB functional
-> scores are experimental measurements, not clinical variant classifications.
+> [!IMPORTANT]
+> Research use only. Not clinical decision support. Do not use for diagnosis,
+> treatment, triage, or patient management.
 
-## What it does
+## Why
 
-Wraps the public MaveDB REST API (`https://api.mavedb.org/api/v1`) as a small,
-agent-ergonomic tool surface: **resolve/search → record → quantitative scores →
-calibrated interpretation**, cross-linked to genes, publications, and
-genome-mapped (GA4GH VRS) alleles. Crucially, it surfaces MaveDB's *curated
-interpretation layer* — functional-classification thresholds with ACMG PS3/BS3
-evidence strength and OddsPath ratios — so a score is never returned as a bare,
-uninterpretable float.
+MaveDB's REST API hands back a score and its interpretation as **separate, unjoined parts of
+the record**. The scores arrive as a CSV column of bare floats; whether a given float means
+*abnormal* depends on that score set's own curated calibration ladder, which lives elsewhere in
+the record and which the caller must fetch and apply by hand. A raw MAVE score is
+uninterpretable on its own, and an agent handed one will either guess or hallucinate a
+threshold.
+
+This server never returns a naked score. It carries MaveDB's *curated interpretation layer* —
+functional-classification thresholds with ACMG PS3/BS3 evidence strength and OddsPath ratios —
+alongside every value, and resolves identifiers (HGVS, GA4GH VRS, URN) internally instead of
+forcing a map-first round-trip. `find_variant` answers the question the record-oriented API
+leaves you to assemble yourself: *what does every MAVE dataset say about this one variant?*
+
+Reads are served from a local SQLite mirror of the CC0 Zenodo bulk dump and fall back to the
+live API on a miss, so lookups are fast and work offline.
+
+## Quick start
+
+Hosted — no install required:
+
+```bash
+claude mcp add --transport http mavedb-link https://mavedb-link.genefoundry.org/mcp
+```
+
+Or run it locally (Python 3.12+, [uv](https://github.com/astral-sh/uv)):
+
+```bash
+uv sync --group dev
+uv run python server.py --transport unified --host 127.0.0.1 --port 8000
+curl -s localhost:8000/health | python -m json.tool
+claude mcp add --transport http mavedb-link http://127.0.0.1:8000/mcp
+```
+
+**No data build is required** — the server runs pure-live out of the box. Building the local
+mirror is optional, and makes lookups fast and offline:
+
+```bash
+make data-build     # download the latest Zenodo dump → data/mavedb.sqlite
+```
+
+`--transport unified` serves REST **and** MCP at `/mcp`; `--transport http` is REST/health only
+and exposes **no MCP endpoint** — router and MCP clients need `unified`. For Claude Desktop
+(stdio), run `uv run python mcp_server.py` instead.
+
+## Tools
 
 | Tool | Purpose |
 |------|---------|
-| `search_score_sets` ⭐ | Full-text + faceted search of score sets (gene, organism, author, journal, keyword) |
-| `get_score_set` | Score-set record (targets, publications, license) **+ `score_calibrations`: ACMG/OddsPath thresholds** |
-| `get_variant_scores` | The quantitative variant × score table (paged); **each row carries its calibrated functional class** |
-| `get_variant_score` | ONE variant's score **+ per-calibration classification** (by variant URN, or score-set URN + hgvs) |
-| `get_classified_variants` | Every variant in a calibrated functional class (e.g. all `abnormal`/PS3), with scores |
-| `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile + class |
-| `find_variant` | One variant's score + class across **every** score set (cross-dataset) — anchor by GA4GH VRS id, `variant_urn`, or a bare `hgvs=` (+ optional `gene_symbol=`) resolved to VRS internally |
-| `get_hgvs_validation` | Validate an HGVS string and surface *why* it's invalid (reference mismatch, missing accession) |
-| `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol (lean listing: `has_calibrations` flag, not the inlined ladder — open `get_score_set` for thresholds) |
+| `search_score_sets` | Full-text + faceted search of score sets (gene, organism, author, journal, keyword) |
+| `get_score_set` | Score-set record (targets, publications, licence) **+ `score_calibrations`: ACMG/OddsPath thresholds** |
+| `get_variant_scores` | The quantitative variant × score table (paged); each row carries its calibrated functional class |
+| `get_variant_score` | One variant's score + per-calibration classification (by variant URN, or score-set URN + HGVS) |
+| `get_classified_variants` | Every variant in a calibrated functional class (e.g. all `abnormal` / PS3), with scores |
+| `get_score_distribution` | Server-side summary stats (quartiles, histogram) + a query score's percentile and class |
+| `find_variant` | One variant's score + class across **every** score set — anchored by GA4GH VRS id, `variant_urn`, or a bare `hgvs=` (+ optional `gene_symbol=`) resolved to VRS internally |
+| `get_hgvs_validation` | Validate an HGVS string and surface *why* it is invalid (reference mismatch, missing accession) |
+| `get_gene_score_sets` | All published MAVE datasets for an HGNC gene symbol (lean listing with a `has_calibrations` flag) |
 | `get_experiment` | Experiment record + child score-set URNs |
 | `search_experiments` | Full-text experiment search |
-| `get_mapped_variants` | Genome-mapped VRS alleles + ClinGen Allele IDs for a score set |
+| `get_mapped_variants` | Genome-mapped GA4GH VRS alleles + ClinGen Allele IDs for a score set |
 | `get_collection` | Curated collection members (URN from a score set's `official_collections`, or mavedb.org) |
 | `get_server_capabilities` | Discovery surface: tools, signatures, limits, error taxonomy |
 | `get_diagnostics` | Live API reachability + version + mirror/cache/runtime metrics |
 
-⭐ = the router's pinned canonical entry point.
+`search_score_sets` is the router's pinned entry point. Leaf names are unprefixed per
+[Tool-Naming Standard v1](https://github.com/berntpopp/genefoundry-router/blob/main/docs/TOOL-NAMING-STANDARD-v1.md);
+behind `genefoundry-router` they surface as `mavedb_<tool>` — e.g. `mavedb_search_score_sets`.
 
-Resources: `mavedb://capabilities`, `mavedb://tools`, `mavedb://usage`,
-`mavedb://reference`, `mavedb://research-use`, `mavedb://citation`.
+The server also registers the `mavedb://` resource family (capabilities, tools, usage,
+reference, research-use, citation) and a `response_mode` token-cost lever on every tool; see
+[docs/architecture.md](docs/architecture.md).
 
-## Quick start
+## Data & provenance
 
-```bash
-# 1. Install (Python 3.12+, uv)
-uv sync --group dev
+**Upstream** is the public [MaveDB REST API](https://api.mavedb.org/api/v1)
+(`https://api.mavedb.org/api/v1`) — read-only, no credentials, no API key. The router never
+forwards a caller's token upstream.
 
-# 2. Run the unified REST + MCP server over Streamable HTTP
-uv run python server.py --transport unified --host 127.0.0.1 --port 8000
+**Refresh model: mirror-primary, live-backup.** A local SQLite mirror is built from the CC0
+[MaveDB Zenodo bulk dump](https://doi.org/10.5281/zenodo.11201736) (concept DOI
+`10.5281/zenodo.11201736`, always resolving to the newest version); a mirror-miss — for example
+a record newer than the snapshot — falls back transparently to the live API. Each response
+stamps `_meta.data_source` (`mirror` | `live` | `mixed`) and `mirror_as_of`. Full mechanics,
+including the lazily-backfilled VRS/ClinGen layer: [docs/data.md](docs/data.md).
 
-# 3. Verify liveness
-curl -s localhost:8000/health | python -m json.tool
+**Data licence: per score set.** MaveDB has no blanket data licence — each dataset carries its
+own (CC0 1.0, CC BY 4.0, or CC BY-SA 4.0). Honour each record's `license.shortName`.
 
-# 4. Add to an MCP host
-claude mcp add --transport http mavedb-link http://127.0.0.1:8000/mcp
-```
+**Citation.** Cite the platform, and alongside it the specific score-set URN, its licence, and
+its primary publication:
 
-The `claude mcp add --transport http` flag is the client-side MCP transport for
-the `/mcp` endpoint. Run this server with `server.py --transport unified` for
-router/MCP clients; `server.py --transport http` is REST/health-only.
+> Esposito D, Weile J, Shendure J, et al. MaveDB: an open-source platform to distribute and
+> interpret data from multiplexed assays of variant effect. *Genome Biology*. 2019;20(1):223.
+> [doi:10.1186/s13059-019-1845-6](https://doi.org/10.1186/s13059-019-1845-6)
 
-HTTP deployments enforce exact Host and Origin allowlists. Configure
-`MAVEDB_LINK_ALLOWED_HOSTS` as a JSON list containing the public reverse-proxy
-hostname in addition to loopback defaults; wildcards are rejected.
-`MAVEDB_LINK_ALLOWED_ORIGINS` defaults to `[]`, which permits requests without
-an `Origin` header. CORS configuration remains separate.
+MaveDB functional scores are **experimental measurements, not clinical variant
+classifications**; a calibrated class such as `abnormal`/PS3 is assay evidence, not a
+pathogenicity call.
 
-For Claude Desktop (stdio): `uv run python mcp_server.py`.
+## Documentation
 
-## Data model
+- [Architecture](docs/architecture.md) — the MaveDB data model, the calibration layer, the response contract, and the `mavedb://` resources.
+- [Configuration](docs/configuration.md) — every `MAVEDB_LINK_*` variable, the transport modes, and the Host/Origin request guard.
+- [Data & the local mirror](docs/data.md) — the Zenodo dump, build/refresh commands, and the lazy mapped-variant cache.
+- [Deployment](docs/deployment.md) — the container stacks, the data-init container, bundle pinning, and the reverse proxy.
+- [Design spec](docs/specs/2026-06-19-mavedb-link-design.md) · [implementation plan](docs/plans/2026-06-19-mavedb-link-implementation.md).
+- [`AGENTS.md`](AGENTS.md) — engineering conventions: the two-plane boundary, tool naming, and the mirror invariant.
 
-```
-ExperimentSet (urn:mavedb:00000001)
-  └─ Experiment      (urn:mavedb:00000001-a)
-       └─ ScoreSet   (urn:mavedb:00000001-a-1)   ── TargetGene(s) ── Taxonomy
-            └─ Variant (urn:mavedb:00000001-a-1#1) ── MappedVariant (VRS allele)
-```
+## Contributing
 
-Variants carry HGVS (`hgvs_nt`/`hgvs_pro`/`hgvs_splice`) and a quantitative
-`score`; mapped variants project to a reference genome as GA4GH VRS alleles with
-optional ClinGen Allele IDs. Scores download as CSV. Dataset licenses are per
-score set (CC0 1.0 / CC BY 4.0 / CC BY-SA 4.0).
-
-## Local mirror (primary) + live API (backup)
-
-To make lookups fast and offline, `mavedb-link` can serve from a **local SQLite
-mirror** built from the CC0 [MaveDB Zenodo bulk dump](https://doi.org/10.5281/zenodo.11201736)
-(concept DOI `10.5281/zenodo.11201736`, always resolving to the newest version —
-a `.zip` through v4, a `.tar.gz` from 2026-06-24 on), falling back to the live REST
-API on any mirror-miss (e.g. a record newer than the snapshot). Without a mirror it
-runs pure-live — no setup required.
-
-```bash
-make data-build     # download the latest Zenodo dump + build data/mavedb.sqlite
-make data-status    # show snapshot date, Zenodo record, counts
-make data-refresh   # rebuild only if Zenodo has a newer dump version
-mavedb-link-cache status   # inspect lazy mapped-variant cache state
-```
-
-The MCP/API surface is read-only with respect to MaveDB: it never mutates
-upstream records and does not accept caller credentials. Local mirror and
-mapped-variant cache files are operational state only; they are written on disk
-to make public reads fast/offline and do not change upstream/domain data.
-
-Score-set/experiment records, the scores/counts tables, full-text search, the
-score distribution, and the `get_gene_score_sets` score-set listing are served
-from the local index. The Zenodo bulk dump (zip or tar.gz) omits
-`csv/*.annotations.csv`, so the VRS/ClinGen mapped-variant layer is backfilled
-lazily from the live API per score set into an on-disk cache; repeat
-`get_mapped_variants`, `find_variant(variant_urn=)`, and target-relative
-`find_variant(hgvs=, gene_symbol=)` reads then reuse that cache. Rich gene
-identity is fetched live but memoised + time-boxed (degrading to a thin mirror
-identity), HGVS validation is memoised, and the calibration-by-class listing stays
-live. Each response's `_meta.data_source` reports
-`mirror` | `live` | `mixed`, with `mirror_as_of` (the snapshot date);
-`get_diagnostics.mirror` reports snapshot status and `get_diagnostics.cache`
-reports the mapped-variant cache state.
-In Docker the entrypoint runs `mavedb-link-data bootstrap` (reuse → pull prebuilt
-artifact → build, else live-only) and persists the mirror on a volume; prebuilt
-`mavedb.sqlite.zst` artifacts are published to GitHub Releases by
-`.github/workflows/data.yml`. Disable with `MAVEDB_LINK_MIRROR__ENABLED=false`.
-
-## Conventions
-
-Mirrors the canonical `*-link` template: a thin data plane (`api/` httpx client +
-`services/` returning plain dicts and raising typed exceptions) and a
-domain-agnostic MCP plane (`mcp/` owning `success`/`_meta` and structured
-errors). Every tool takes `response_mode` (`minimal|compact|standard|full`,
-default `compact`) and chains via `_meta.next_commands`. Tool names follow
-Tool-Naming Standard v1 (unprefixed `verb_noun`, ≤50 chars, canonical verbs).
-
-## Develop & test
-
-```bash
-make ci-local          # format-check, lint, 600-LOC budget, mypy strict, unit tests
-make test              # unit tests only
-make test-integration  # live MaveDB API smoke (network)
-make dev               # serve unified REST + MCP locally
-```
-
-## Docs
-
-- Design spec — [`docs/specs/2026-06-19-mavedb-link-design.md`](docs/specs/2026-06-19-mavedb-link-design.md)
-- Implementation plan — [`docs/plans/2026-06-19-mavedb-link-implementation.md`](docs/plans/2026-06-19-mavedb-link-implementation.md)
-- Contributor guide — [`AGENTS.md`](AGENTS.md)
+See [`AGENTS.md`](AGENTS.md) for engineering conventions and the repository layout.
+`make ci-local` is the definition-of-done gate: format, lint, the line budget, the README
+standard, mypy strict, and the tests.
 
 ## License
 
-[MIT](LICENSE) © Bernt Popp. MaveDB platform code is AGPL-3.0; each MaveDB
-dataset carries its own license (CC0 / CC BY / CC BY-SA) — honor `license.shortName`.
+[MIT](LICENSE) © Bernt Popp — this repository's code. Note the three layers: the MaveDB
+*platform* code is AGPL-3.0, and each MaveDB *dataset* carries its own licence (CC0 1.0 /
+CC BY 4.0 / CC BY-SA 4.0) — honour `license.shortName` on every record you use.

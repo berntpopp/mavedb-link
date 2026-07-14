@@ -94,6 +94,10 @@ line-ending = "lf"
 "tests/**/*" = ["S101", "S104", "S105", "S106", "S110", "T20", "B011", "SIM105", "SIM108"]
 "mcp_server.py" = ["T20"]
 "scripts/**/*" = ["T20"]
+# check_readme.py is a byte-identical copy of the fleet-shared README linter in
+# genefoundry-router. It must not diverge from the canonical source, so its lint
+# deltas are ignored here rather than patched locally.
+"scripts/check_readme.py" = ["T20", "B905"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
