@@ -116,19 +116,19 @@ class MirrorConfig(BaseModel):
     bundle_expected_expanded_sha256: str | None = None
     bundle_expected_schema_version: str | None = None
     max_dump_bytes: int = Field(
-        default=4 * 1024**3,
+        default=12 * 1024**3,
         gt=0,
-        description="Maximum Zenodo dump bytes; 4 GiB is over twice the 1.8 GB measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_DUMP_BYTES.",
+        description="Maximum Zenodo dump bytes; raised with the archive bounds after MaveDB outgrew the 2026-07-10 measurements. A transfer guard, not a capacity budget. Override with MAVEDB_LINK_MIRROR__MAX_DUMP_BYTES.",
     )
     max_bundle_bytes: int = Field(
-        default=2 * 1024**3,
+        default=6 * 1024**3,
         gt=0,
-        description="Maximum compressed bundle bytes; 2 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_BUNDLE_BYTES.",
+        description="Maximum compressed bundle bytes; raised with the archive bounds after MaveDB outgrew the 2026-07-10 measurements. Override with MAVEDB_LINK_MIRROR__MAX_BUNDLE_BYTES.",
     )
     max_database_bytes: int = Field(
-        default=8 * 1024**3,
+        default=24 * 1024**3,
         gt=0,
-        description="Maximum expanded database bytes; 8 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_DATABASE_BYTES.",
+        description="Maximum expanded database bytes; the 2026-06-24 mirror was already 4.6 GB against the previous 8 GiB ceiling, so it is raised alongside the archive bounds rather than cascading into another failed build. Override with MAVEDB_LINK_MIRROR__MAX_DATABASE_BYTES.",
     )
     max_archive_entries: int = Field(
         default=50_000,
@@ -141,9 +141,9 @@ class MirrorConfig(BaseModel):
         description="Maximum expanded archive member bytes; 2 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_MEMBER_BYTES.",
     )
     max_archive_expanded_bytes: int = Field(
-        default=16 * 1024**3,
+        default=64 * 1024**3,
         gt=0,
-        description="Maximum total expanded archive bytes; 16 GiB exceeds twice the measured dump 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_EXPANDED_BYTES.",
+        description="Maximum total expanded archive bytes; MaveDB grew past the previous 16 GiB ceiling and the mirror build began failing with 'archive expanded size exceeds 17179869184 bytes'. This is a decompression-bomb guard, not a capacity budget: the dump is fetched from a pinned Zenodo record and its compressed size is separately bounded by max_dump_bytes. Override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_EXPANDED_BYTES.",
     )
     max_metadata_bytes: int = Field(
         default=1024**2,
