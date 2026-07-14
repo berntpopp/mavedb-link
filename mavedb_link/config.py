@@ -131,9 +131,9 @@ class MirrorConfig(BaseModel):
         description="Maximum expanded database bytes; 8 GiB exceeds twice the largest measured 2026-07-10; override with MAVEDB_LINK_MIRROR__MAX_DATABASE_BYTES.",
     )
     max_archive_entries: int = Field(
-        default=10_000,
+        default=50_000,
         gt=0,
-        description="Maximum dump archive entries; override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_ENTRIES.",
+        description="Maximum dump archive entries; MaveDB grew past the previous 10,000 ceiling and the mirror build began failing with 'archive has more than 10000 entries'. This bound only guards against an archive with an absurd number of members -- the actual expansion risk is bounded by max_archive_member_bytes and max_database_bytes, which are unchanged. Override with MAVEDB_LINK_MIRROR__MAX_ARCHIVE_ENTRIES.",
     )
     max_archive_member_bytes: int = Field(
         default=2 * 1024**3,
