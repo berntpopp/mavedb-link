@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mavedb-link"
-version = "0.4.4"
+version = "0.4.5"
 description = "MCP/API server that grounds variant-effect work in MaveDB (multiplexed assays of variant effect)"
 readme = "README.md"
 license = { text = "MIT" }

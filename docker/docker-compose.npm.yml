@@ -1,10 +1,11 @@
 name: mavedb-link-npm
 
+# Deploy pulls the released, attested image; it never builds from source.
+# Pin a digest, not a tag: there is no `latest`, and only a digest is immutable.
+# Both the data-init sidecar and the server run this same image.
 x-image: &image
-  build:
-    context: ..
-    dockerfile: docker/Dockerfile
-  image: mavedb-link:latest
+  image: ${MAVEDB_LINK_IMAGE:?Set MAVEDB_LINK_IMAGE to ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
+  pull_policy: missing
 
 x-data: &data
   MAVEDB_LINK_ENVIRONMENT: production
