@@ -56,7 +56,11 @@ services:
       start_period: 30s
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,size=512m,mode=1777]
+    # Quoted deliberately. Unquoted, this is a YAML *flow sequence* and the commas split it
+    # into five entries -- ['/tmp:rw', 'noexec', 'nosuid', 'size=512m', 'mode=1777'] -- so
+    # Docker tries to mount `mode=1777` as a path and `up` fails with
+    # "invalid mount path: 'mode=1777' mount path must be absolute".
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=512m,mode=1777"]
     networks: [mavedb_link_internal_net, npm_proxy_network]
     deploy:
       resources:
