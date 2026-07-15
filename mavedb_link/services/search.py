@@ -17,7 +17,68 @@ from __future__ import annotations
 
 from typing import Any
 
+from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import looks_like_gene_symbol
+
+
+def _reject_unknown(
+    field: str, values: list[str] | None, vocab: set[str] | None, *, upper: bool
+) -> None:
+    """Raise invalid_input for a facet value the corpus can never match (exact set)."""
+    if not values or not vocab:
+        return
+    for value in values:
+        key = value.strip().upper() if upper else value.strip().lower()
+        if key and key not in vocab:
+            raise InvalidInputError(
+                f"'{value}' is not a known MaveDB {field} value, so it would match "
+                "nothing. Use search_score_sets(text=) to discover valid facet values, "
+                "or drop the filter.",
+                field=field,
+            )
+
+
+def validate_facet_values(
+    client: Any,
+    targets: list[str] | None,
+    target_organism_names: list[str] | None,
+    authors: list[str] | None,
+    facet_mode: str | None = None,
+) -> None:
+    """Reject a facet argument that matches nothing (never a silent-empty result).
+
+    ``facet_mode`` (score-set search only) is a closed enum. The corpus facets are
+    validated best-effort against the local mirror's vocabulary (``client`` exposes
+    ``facet_vocabularies`` only when a mirror is active; live-only falls through):
+    ``targets``/``target_organism_names`` are exact-match closed vocabularies;
+    ``authors`` is a substring filter, valid when it is a substring of any corpus
+    author name. An unmatched value is an ``invalid_input`` naming the field -- never
+    a zero-row ``success:true``, which the model cannot tell from "the data has none".
+    """
+    if facet_mode is not None and facet_mode not in ("inclusive", "strict"):
+        raise InvalidInputError(
+            f"Unknown facet_mode '{facet_mode}'.",
+            field="facet_mode",
+            allowed=["inclusive", "strict"],
+        )
+    vocab_fn = getattr(client, "facet_vocabularies", None)
+    vocab = vocab_fn() if callable(vocab_fn) else None
+    if not vocab:
+        return
+    _reject_unknown("targets", targets, vocab.get("targets"), upper=True)
+    _reject_unknown(
+        "target_organism_names", target_organism_names, vocab.get("organisms"), upper=False
+    )
+    author_vocab = vocab.get("authors")
+    if authors and author_vocab:
+        for value in authors:
+            needle = value.strip().lower()
+            if needle and not any(needle in name for name in author_vocab):
+                raise InvalidInputError(
+                    f"No MaveDB author name contains '{value}', so it would match "
+                    "nothing. Try a surname, or drop the authors filter.",
+                    field="authors",
+                )
 
 
 def _target_names(raw: dict[str, Any]) -> set[str]:

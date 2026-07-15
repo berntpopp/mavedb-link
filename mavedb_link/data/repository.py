@@ -29,6 +29,7 @@ class MirrorRepository:
         """Wrap an open read-only SQLite connection."""
         self._con = connection
         self._con.row_factory = sqlite3.Row
+        self._facet_vocab: dict[str, set[str]] | None = None
 
     @classmethod
     def open(cls, db_path: Path | str) -> MirrorRepository | None:
@@ -72,6 +73,15 @@ class MirrorRepository:
     def experiment_set_record(self, urn: str) -> dict[str, Any] | None:
         """The upstream-shaped experiment-set record, or None on miss."""
         return self._record("experiment_set", urn)
+
+    def all_experiments(self) -> list[dict[str, Any]]:
+        """Every mirrored (published) experiment record, ordered by URN.
+
+        Serves the unfiltered experiments browse from the local table so it does
+        not hit the slow, unpaged live ``/experiments/search``.
+        """
+        rows = self._con.execute("SELECT record_json FROM experiment ORDER BY urn").fetchall()
+        return [json.loads(r["record_json"]) for r in rows]
 
     def has_score_set(self, urn: str) -> bool:
         """Whether a score set is present in this snapshot."""
@@ -285,6 +295,41 @@ class MirrorRepository:
             wanted = [a.strip().lower() for a in authors if a.strip()]
             records = [r for r in records if _has_author(r, wanted)]
         return records
+
+    def facet_vocabularies(self) -> dict[str, set[str]]:
+        """Corpus vocabularies for the search facets (cached, computed once).
+
+        Returns the exact value sets each facet matches against, so the search
+        service can reject a value that can never match (an ``invalid_input``,
+        never a silent-empty result) instead of returning zero rows: ``targets``
+        (upper-cased gene symbols, as ``gene_index`` matches them), ``organisms``
+        (lower-cased organism names), and ``authors`` (lower-cased primary-
+        publication author names, the field ``_has_author`` matches on).
+        """
+        if self._facet_vocab is None:
+            targets = {
+                r["gene_symbol_upper"]
+                for r in self._con.execute("SELECT DISTINCT gene_symbol_upper FROM gene_index")
+                if r["gene_symbol_upper"]
+            }
+            organisms = {
+                str(r["organism"]).strip().lower()
+                for r in self._con.execute("SELECT DISTINCT organism FROM gene_index")
+                if r["organism"]
+            }
+            authors: set[str] = set()
+            for (blob,) in self._con.execute("SELECT record_json FROM score_set"):
+                record = json.loads(blob)
+                for pub in record.get("primaryPublicationIdentifiers") or []:
+                    for author in pub.get("authors") or []:
+                        if author.get("name"):
+                            authors.add(str(author["name"]).strip().lower())
+            self._facet_vocab = {
+                "targets": targets,
+                "organisms": organisms,
+                "authors": authors,
+            }
+        return self._facet_vocab
 
     def _fts_urns(self, text: str) -> list[str]:
         tokens = _TOKEN.findall(text)
