@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 import respx
+from fastmcp.tools.tool import ToolResult
 
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.untrusted_content import FORBIDDEN_CODEPOINTS
@@ -212,9 +213,12 @@ async def test_get_collection_description_is_fenced_in_both_views(
 
 async def test_response_over_untrusted_byte_ceiling_is_typed_error() -> None:
     # Whole-response enforcement: a fenced object over the per-object 2 MiB ceiling
-    # raises UntrustedTextLimitError, mapped to a typed `response_too_large` envelope
-    # error (never the generic internal_error path, never silent omission). A record
-    # payload is not budget-trimmed, so the oversized object reaches the limit sweep.
+    # raises UntrustedTextLimitError, mapped onto the closed enum as `invalid_input`
+    # (the remedy is caller-side: a smaller limit=/response_mode) with the specific
+    # `response_too_large` retained additively in error_subtype -- never the generic
+    # internal path, never silent omission. A record payload is not budget-trimmed,
+    # so the oversized object reaches the limit sweep. The error is a
+    # ToolResult(is_error=True) carrying the structured envelope (Envelope v1).
     async def _body() -> dict[str, Any]:
         return {
             "short_description": shaping._fence_prose(
@@ -222,11 +226,16 @@ async def test_response_over_untrusted_byte_ceiling_is_typed_error() -> None:
             )
         }
 
-    env = await run_mcp_tool(
+    result = await run_mcp_tool(
         "get_score_set", _body, context=McpErrorContext(tool_name="get_score_set")
     )
+    assert isinstance(result, ToolResult)
+    assert result.is_error is True
+    env = result.structured_content
+    assert isinstance(env, dict)
     assert env["success"] is False
-    assert env["error_code"] == "response_too_large"
+    assert env["error_code"] == "invalid_input"
+    assert env["error_subtype"] == "response_too_large"
     assert env["retryable"] is False
     assert env["recovery_action"] == "reformulate_input"
 

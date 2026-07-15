@@ -76,8 +76,11 @@ MAVEDB_USAGE_NOTES = (
 )
 
 MAVEDB_REFERENCE_NOTES = (
-    "Error codes (7): invalid_input, not_found, ambiguous_query, data_unavailable, "
-    "rate_limited, upstream_unavailable, internal_error. Identifiers are MaveDB "
+    "Error codes (closed 6-value enum): invalid_input, not_found, ambiguous_query, "
+    "upstream_unavailable, rate_limited, internal. A finer-grained cause is retained "
+    "additively in error_subtype (e.g. data_unavailable, response_too_large), never "
+    "as an off-enum error_code. Every error envelope carries protocol isError:true. "
+    "Identifiers are MaveDB "
     "URNs: experiment set urn:mavedb:00000001, experiment urn:mavedb:00000001-a, "
     "score set urn:mavedb:00000001-a-1, variant urn:mavedb:00000001-a-1#2044. "
     "Variants carry HGVS (hgvs_nt/hgvs_pro/hgvs_splice) and a numeric score; "

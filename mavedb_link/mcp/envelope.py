@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import ValidationError as PydanticValidationError
 
 from mavedb_link.constants import RESPONSE_TOKEN_BUDGET, TOKEN_ESTIMATE_CHARS_PER_TOKEN
@@ -40,9 +41,41 @@ from mavedb_link.services.shaping import DEFAULT_RESPONSE_MODE
 
 logger = logging.getLogger(__name__)
 
-_RETRYABLE = {"rate_limited", "upstream_unavailable", "data_unavailable"}
+#: Fleet Response-Envelope Standard v1: error_code is a CLOSED six-value enum. Any
+#: finer-grained upstream/internal condition maps onto one of these; the original,
+#: more specific code is preserved additively in ``error_subtype`` (never lost).
+CANONICAL_ERROR_CODES = frozenset(
+    {
+        "invalid_input",
+        "not_found",
+        "ambiguous_query",
+        "upstream_unavailable",
+        "rate_limited",
+        "internal",
+    }
+)
+
+#: Off-enum code -> (canonical code, retained subtype). Keeps the fine detail an
+#: operator/agent can act on without leaking a code outside the closed enum.
+_CODE_MAP: dict[str, tuple[str, str]] = {
+    "data_unavailable": ("upstream_unavailable", "data_unavailable"),
+    "response_too_large": ("invalid_input", "response_too_large"),
+    "internal_error": ("internal", "internal_error"),
+    "validation_failed": ("invalid_input", "validation_failed"),
+}
+
+_RETRYABLE = {"rate_limited", "upstream_unavailable"}
 #: response_modes whose richer enrichment can fail where a leaner one succeeds.
 _RICH_MODES = ("standard", "full")
+
+
+def _canonicalize_code(code: str) -> tuple[str, str | None]:
+    """Map any error code onto the closed six-value enum + an optional subtype."""
+    if code in _CODE_MAP:
+        return _CODE_MAP[code]
+    if code in CANONICAL_ERROR_CODES:
+        return code, None
+    return "internal", code
 
 
 @dataclass
@@ -87,50 +120,61 @@ def _safe_message(exc: BaseException) -> str:
     return sanitize_message(str(exc) or exc.__class__.__name__)
 
 
-def _classify(exc: BaseException) -> tuple[str, str]:
-    """Return ``(error_code, client_safe_message)`` for an exception."""
+def _classify(exc: BaseException) -> tuple[str, str, str | None]:
+    """Return ``(error_code, client_safe_message, subtype)`` for an exception.
+
+    ``error_code`` is always one of the closed six (``CANONICAL_ERROR_CODES``);
+    when the underlying condition is finer-grained, ``subtype`` retains it
+    additively (e.g. ``upstream_unavailable`` + subtype ``data_unavailable``).
+    """
     if isinstance(exc, McpToolError):
-        return exc.error_code, exc.message
+        code, subtype = _canonicalize_code(exc.error_code)
+        return code, exc.message, subtype
     if isinstance(exc, NotFoundError):
-        return "not_found", _safe_message(exc)
+        return "not_found", _safe_message(exc), None
     if isinstance(exc, AmbiguousQueryError):
-        return "ambiguous_query", _safe_message(exc)
+        return "ambiguous_query", _safe_message(exc), None
     if isinstance(exc, InvalidInputError):
-        return "invalid_input", _safe_message(exc)
+        return "invalid_input", _safe_message(exc), None
     if isinstance(exc, DataUnavailableError):
-        return "data_unavailable", _safe_message(exc)
+        return "upstream_unavailable", _safe_message(exc), "data_unavailable"
     if isinstance(exc, RateLimitError):
-        return "rate_limited", "Upstream rate limit hit. Retry shortly."
+        return "rate_limited", "Upstream rate limit hit. Retry shortly.", None
     if isinstance(exc, ServiceUnavailableError):
-        return "upstream_unavailable", "The MaveDB API is temporarily unavailable."
+        return "upstream_unavailable", "The MaveDB API is temporarily unavailable.", None
     if isinstance(exc, UntrustedTextLimitError):
         # Response-Envelope v1.1 §Limits: an over-ceiling untrusted payload is an
         # explicit, typed error (never silent omission), steered to a smaller call.
+        # The remedy is caller-side (smaller limit=/response_mode), so it is an
+        # invalid_input; the `response_too_large` subtype keeps the specific cause.
         return (
-            "response_too_large",
+            "invalid_input",
             "The response exceeded the untrusted-text size/count limit. Re-call with a "
             "smaller limit= or a lower response_mode.",
+            "response_too_large",
         )
     if isinstance(exc, PydanticValidationError):
         first = exc.errors()[0]
         loc = ".".join(str(p) for p in first["loc"]) or "input"
-        return "invalid_input", f"Invalid input -- `{loc}`: {first['msg']}"
+        return "invalid_input", f"Invalid input -- `{loc}`: {first['msg']}", None
     return (
-        "internal_error",
+        "internal",
         "An unexpected internal error occurred and the request was not completed. "
         "Retry; if it persists, lower response_mode or call get_diagnostics.",
+        None,
     )
 
 
 def classify_exception(exc: BaseException) -> tuple[str, str]:
     """Public per-item classifier: ``(error_code, client-safe message)``."""
-    return _classify(exc)
+    code, message, _subtype = _classify(exc)
+    return code, message
 
 
 def _recovery_action(error_code: str) -> str:
     if error_code in _RETRYABLE:
         return "retry_backoff"
-    if error_code in {"invalid_input", "not_found", "ambiguous_query", "response_too_large"}:
+    if error_code in {"invalid_input", "not_found", "ambiguous_query"}:
         return "reformulate_input"
     return "switch_tool"
 
@@ -142,14 +186,14 @@ def _lower_mode_step(context: McpErrorContext) -> dict[str, Any]:
 
 
 def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, Any]:
-    error_code, message = _classify(exc)
+    error_code, message, subtype = _classify(exc)
     retryable = error_code in _RETRYABLE
     recovery = _recovery_action(error_code)
     lower_mode = False
     # GAP-2/0.3: an internal error while assembling a richer view often clears at a
     # lower verbosity, so make it honest -- retryable, with a concrete remedy --
     # rather than a terminal opaque failure.
-    if error_code == "internal_error" and context.response_mode in _RICH_MODES:
+    if error_code == "internal" and context.response_mode in _RICH_MODES:
         retryable = True
         recovery = "lower_response_mode"
         lower_mode = True
@@ -174,6 +218,10 @@ def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, A
             "unsafe_for_clinical_use": True,
         },
     }
+    # Additive: retain the finer-grained cause that the closed enum folds away, so an
+    # operator/agent keeps the specific signal without the code leaving the six-set.
+    if subtype is not None:
+        envelope["error_subtype"] = subtype
     if lower_mode:
         envelope["_meta"]["next_commands"] = [_lower_mode_step(context)]
         return envelope
@@ -409,8 +457,19 @@ async def run_mcp_tool(
     call: Callable[[], Awaitable[dict[str, Any]]],
     *,
     context: McpErrorContext | None = None,
-) -> dict[str, Any]:
-    """Execute a tool body, returning the result dict or a structured error dict."""
+) -> dict[str, Any] | ToolResult:
+    """Execute a tool body, returning the result dict or a structured error.
+
+    A SUCCESS payload is returned as a plain dict (FastMCP emits it as
+    ``structuredContent`` with ``isError:false``). Any FAILURE -- whether the body
+    raised, or it returned a ``success:false`` envelope -- is returned as a
+    ``ToolResult(structured_content=..., is_error=True)`` so the protocol
+    ``isError`` flag is set. Response-Envelope v1: "isError:true is REQUIRED so
+    clients surface the error to the model for self-correction." A bare returned
+    dict never sets ``isError``; the ``ToolResult`` path is the only one that gives
+    BOTH the flag AND the machine-readable envelope (a raw ``raise`` nulls
+    ``structuredContent``).
+    """
     ctx = context or McpErrorContext(tool_name=tool_name)
     provenance.begin()
     start = time.perf_counter()
@@ -451,6 +510,11 @@ async def run_mcp_tool(
             # per-object (2 MiB) and total (8 MiB) byte ceilings stay at the standard.
             enforce_untrusted_text_limits(collect_untrusted_texts(result), max_objects=10_000)
             metrics.record(tool_name, elapsed, ok=success)
+            # A body that RETURNED a failure envelope (success:false) must also carry
+            # protocol isError:true -- a bare returned dict never sets it. Route it
+            # through the same ToolResult path as a raised error.
+            if not success:
+                return ToolResult(structured_content=result, is_error=True)
         return result
     except Exception as exc:  # broad catch is the error-boundary contract
         elapsed = int((time.perf_counter() - start) * 1000)
@@ -468,4 +532,6 @@ async def run_mcp_tool(
             envelope["error_code"],
             exc.__class__.__name__,
         )
-        return envelope
+        # Response-Envelope v1: return a ToolResult so the wire carries isError:true
+        # AND the structured envelope (a raw raise would null structuredContent).
+        return ToolResult(structured_content=envelope, is_error=True)
