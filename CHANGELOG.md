@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-15
+
+MCP contract-hardening sweep (fleet-wide). Behaviour Conformance v1 gate: **0 fail /
+0 UNGATED** (was non-conformant).
+
+### Fixed
+
+- **Every error envelope now carries protocol `isError: true`.** Errors are returned as
+  `ToolResult(structured_content=..., is_error=True)` at the envelope chokepoint (both a
+  raised exception and a body that returns `success:false`), and the argument-binding
+  middleware sets `is_error=True` too. A client that branches on `isError` previously read
+  every failure as a successful call.
+- **`error_code` is now the closed six-value fleet enum** (`invalid_input`, `not_found`,
+  `ambiguous_query`, `upstream_unavailable`, `rate_limited`, `internal`). Off-enum codes are
+  mapped onto it (`data_unavailable`→`upstream_unavailable`, `response_too_large`/
+  `validation_failed`→`invalid_input`, `internal_error`→`internal`), with the specific cause
+  retained additively in a new `error_subtype` field. Capabilities/resources taxonomy synced.
+- **Silent-empty facet filters now error instead of returning `success:true, 0 rows`.**
+  `target_types` is a declared `enum` (`protein_coding | regulatory | other_noncoding`, exactly
+  the values the runtime accepts); `targets`, `target_organism_names`, and `authors` are
+  validated against the mirror corpus and reject an unmatched value with a naming
+  `invalid_input`. An unrecognised value is no longer indistinguishable from "the data has none".
+- **`search_experiments` unfiltered browse is served from the local mirror** (was a ~30s unpaged
+  live `/experiments/search`), so the front door returns in milliseconds. Text/author searches
+  stay live.
+
+### Changed
+
+- **Tool-surface budget:** `output_schema` is suppressed on every tool and
+  `FastMCP(dereference_schemas=False)` is set — surface **11,226 → 6,517 tokens (−42%)**,
+  `outputSchema` share 41% → 0%. `structuredContent` is unaffected (every tool returns a dict).
+- **`find_variant` takes a single required `variant` anchor** (auto-detects VRS id / variant URN /
+  HGVS), replacing the all-optional `vrs_id`/`variant_urn`/`hgvs` trio so the tool is
+  schema-probeable. The old parameter names remain accepted as aliases (non-breaking).
+- Schema examples corrected so a schema-derived call resolves: `get_experiment` (experiment URN),
+  `get_collection` (collection URN), `get_classified_variants` (a calibrated score set), and
+  `get_variant_score` (a full variant URN first).
+
+### Added
+
+- Vendored Behaviour Conformance v1 gate (`tests/conformance/behaviour.py` +
+  `test_behaviour_v1.py`, byte-identical from genefoundry-router) and wired the behaviour probe
+  into `conformance.yml`.
+
 ## [0.4.7] - 2026-07-14
 
 ### Fixed
