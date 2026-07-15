@@ -84,10 +84,26 @@ def api_config() -> MaveDBApiConfig:
     return MaveDBApiConfig(base_url=fixtures.BASE_URL, cache_ttl=0, cache_size=0, max_retries=2)
 
 
+#: The corpus facet vocabulary a production mirror provides. Injected onto the
+#: respx-backed client so faceted-search tests exercise the validated (mirror) path
+#: with real values -- exactly the path production runs, since the mirror is always
+#: present there. Covers every facet value the suite filters on.
+_TEST_FACET_VOCAB: dict[str, set[str]] = {
+    "targets": {"UBE2I", "SUMO1", "BRCA1", "BRCA2", "TP53"},
+    "organisms": {"homo sapiens", "saccharomyces cerevisiae"},
+    "authors": {"starita", "findlay", "weile", "bloom"},
+}
+
+
 @pytest.fixture
 async def client(api_config: MaveDBApiConfig) -> Any:
-    """A real MaveDBClient (its httpx calls are intercepted by respx)."""
+    """A real MaveDBClient (its httpx calls are intercepted by respx).
+
+    Carries ``facet_vocabularies`` so faceted-search tests validate against a corpus
+    (the mirror path), rather than fail-closing as a mirror-less live-only client would.
+    """
     c = MaveDBClient(api_config)
+    c.facet_vocabularies = lambda: _TEST_FACET_VOCAB  # type: ignore[attr-defined]
     yield c
     await c.aclose()
 

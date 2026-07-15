@@ -31,6 +31,10 @@ def create_mavedb_mcp() -> FastMCP:
         version=__version__,
         instructions=MAVEDB_SERVER_INSTRUCTIONS,
         mask_error_details=True,
+        # Tool-Surface Budget Standard v1: do not expand $ref in advertised schemas
+        # (none of the input schemas carry a $ref, so this is lossless) -- it keeps
+        # the tools/list surface small without touching any description.
+        dereference_schemas=False,
     )
 
     # Guard the FastMCP-core not-found reflection surface: core echoes the

@@ -81,7 +81,7 @@ def test_after_variant_score_rolls_up_then_opens_score_set() -> None:
             "variants": [{"variant_urn": "urn:mavedb:00000001-a-1#2"}],
         }
     )
-    assert steps[0] == nc.cmd("find_variant", variant_urn="urn:mavedb:00000001-a-1#2")
+    assert steps[0] == nc.cmd("find_variant", variant="urn:mavedb:00000001-a-1#2")
     assert any(s == nc.cmd("get_score_set", urn="urn:mavedb:00000001-a-1") for s in steps)
     assert any(s["tool"] == "get_mapped_variants" for s in steps)
 

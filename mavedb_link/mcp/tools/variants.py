@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import (
@@ -19,12 +20,6 @@ from mavedb_link.mcp.next_commands import (
     after_get_score_distribution,
     after_get_variant_score,
     after_get_variant_scores,
-)
-from mavedb_link.mcp.schemas import (
-    MAPPED_VARIANTS_SCHEMA,
-    SCORE_DISTRIBUTION_SCHEMA,
-    VARIANT_SCORE_SCHEMA,
-    VARIANT_SCORES_SCHEMA,
 )
 from mavedb_link.mcp.service_adapters import get_mavedb_service
 from mavedb_link.mcp.tools._common import ResponseMode, ScoreSetUrnStr, VariantLookupUrn
@@ -58,7 +53,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         name="get_variant_scores",
         title="Get Variant Scores",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=VARIANT_SCORES_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "score", "functional-assay"},
         description=(
             "Return the quantitative variant-by-variant score table for a score set "
@@ -87,7 +82,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
             bool, Field(description="Drop columns that are entirely NA (default false).")
         ] = False,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_variant_scores(
                 urn,
@@ -113,7 +108,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         name="get_variant_score",
         title="Get Variant Score",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=VARIANT_SCORE_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "score", "single-variant"},
         description=(
             "Look up the functional score for ONE variant without paging the whole "
@@ -143,7 +138,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
             ),
         ] = None,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_variant_score(
                 urn, hgvs=hgvs, response_mode=response_mode
@@ -163,7 +158,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         name="get_score_distribution",
         title="Get Score Distribution",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=SCORE_DISTRIBUTION_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "score", "distribution", "statistics"},
         description=(
             "Summarise a score set's score distribution server-side (MaveDB has no "
@@ -184,7 +179,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
             ),
         ] = None,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_score_distribution(
                 urn, score=score, response_mode=response_mode
@@ -204,7 +199,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         name="get_mapped_variants",
         title="Get Mapped Variants",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=MAPPED_VARIANTS_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "vrs", "mapping"},
         description=(
             "Return the genome-mapped GA4GH VRS alleles for a score set's variants "
@@ -226,7 +221,7 @@ def register_variant_tools(mcp: FastMCP) -> None:
         limit: _MappedLimit = DEFAULT_MAPPED_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_mapped_variants(
                 urn,

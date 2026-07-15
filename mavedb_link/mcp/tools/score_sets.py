@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_score_set, after_search_score_sets
-from mavedb_link.mcp.schemas import SCORE_SET_SCHEMA, SEARCH_SCORE_SETS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
 from mavedb_link.mcp.tools._common import (
     AuthorsFilter,
@@ -36,7 +36,7 @@ def register_score_set_tools(mcp: FastMCP) -> None:
         name="search_score_sets",
         title="Search Score Sets",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=SEARCH_SCORE_SETS_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "score-set", "search"},
         description=(
             "Search MaveDB score sets (the datasets carrying scored variants) by "
@@ -71,14 +71,14 @@ def register_score_set_tools(mcp: FastMCP) -> None:
         limit: _Limit = DEFAULT_SEARCH_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().search_score_sets(
                 text,
                 published=published,
                 targets=targets,
                 target_organism_names=target_organism_names,
-                target_types=target_types,
+                target_types=[str(t) for t in target_types] if target_types else None,
                 authors=authors,
                 facet_mode=facet_mode,
                 limit=limit,
@@ -102,7 +102,7 @@ def register_score_set_tools(mcp: FastMCP) -> None:
         name="get_score_set",
         title="Get Score Set",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=SCORE_SET_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "score-set"},
         description=(
             "Return a MaveDB score-set record by URN: title, description, target "
@@ -114,7 +114,7 @@ def register_score_set_tools(mcp: FastMCP) -> None:
     )
     async def get_score_set(
         urn: ScoreSetUrnStr, response_mode: ResponseMode = "compact"
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_score_set(urn, response_mode=response_mode)
             payload.setdefault("_meta", {})["next_commands"] = after_get_score_set(payload)

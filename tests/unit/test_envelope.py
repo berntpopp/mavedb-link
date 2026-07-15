@@ -11,8 +11,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastmcp.tools.tool import ToolResult
+
 from mavedb_link.constants import RESPONSE_TOKEN_BUDGET
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
+
+
+def _error_dict(result: Any) -> dict[str, Any]:
+    """Unwrap the error ToolResult and assert protocol isError:true (Envelope v1)."""
+    assert isinstance(result, ToolResult)
+    assert result.is_error is True
+    assert isinstance(result.structured_content, dict)
+    return result.structured_content
 
 
 async def _boom() -> dict[str, Any]:
@@ -30,9 +40,9 @@ async def test_internal_error_at_standard_is_retryable_with_lower_mode() -> None
     ctx = McpErrorContext(
         "get_variant_score", arguments={"urn": "urn:mavedb:00001242-a-1"}, response_mode="standard"
     )
-    env = await run_mcp_tool("get_variant_score", _boom, context=ctx)
+    env = _error_dict(await run_mcp_tool("get_variant_score", _boom, context=ctx))
     assert env["success"] is False
-    assert env["error_code"] == "internal_error"
+    assert env["error_code"] == "internal"
     assert env["retryable"] is True
     assert env["recovery_action"] == "lower_response_mode"
     # Teaching message names the failing verbosity + the concrete remedy.
@@ -48,8 +58,8 @@ async def test_internal_error_at_standard_is_retryable_with_lower_mode() -> None
 
 async def test_internal_error_at_compact_is_not_opaque() -> None:
     ctx = McpErrorContext("get_score_set", response_mode="compact")
-    env = await run_mcp_tool("get_score_set", _boom, context=ctx)
-    assert env["error_code"] == "internal_error"
+    env = _error_dict(await run_mcp_tool("get_score_set", _boom, context=ctx))
+    assert env["error_code"] == "internal"
     # Even the generic case is a teaching message, not the old opaque string.
     assert env["message"] != "An internal error occurred. The request was not completed."
     assert env["_meta"]["next_commands"]

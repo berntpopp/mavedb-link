@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from fastmcp.tools.tool import ToolResult
 
 from mavedb_link.exceptions import AmbiguousQueryError, InvalidInputError, NotFoundError
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
@@ -44,11 +45,17 @@ class _LiveProbeClient(_MirrorClient):
 async def _error_envelope(
     tool_name: str, call: Callable[[], Awaitable[dict[str, Any]]]
 ) -> dict[str, Any]:
-    return await run_mcp_tool(
+    result = await run_mcp_tool(
         tool_name,
         call,
         context=McpErrorContext(tool_name, arguments={"hgvs": _HOSTILE_HGVS}),
     )
+    # The error path returns a ToolResult(is_error=True); read its structured envelope.
+    if isinstance(result, ToolResult):
+        assert result.is_error is True
+        assert isinstance(result.structured_content, dict)
+        return result.structured_content
+    return result
 
 
 @pytest.mark.asyncio

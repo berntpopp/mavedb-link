@@ -111,7 +111,11 @@ class ArgValidationMiddleware(Middleware):
             constraints=constraints,
         )
         logger.warning("mcp_arg_error tool=%s loc=%s type=%s", name, loc, error_type)
+        # Response-Envelope v1: an argument-binding failure is an error envelope, so
+        # it MUST carry protocol isError:true (a client branching on isError would
+        # otherwise read this rejection as a successful call).
         return ToolResult(
             structured_content=envelope,
             content=[TextContent(type="text", text=json.dumps(envelope))],
+            is_error=True,
         )

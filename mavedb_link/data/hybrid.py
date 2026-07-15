@@ -74,7 +74,14 @@ class HybridClient(MaveDBClient):
     async def post_json(
         self, path: str, *, json: Any | None = None, params: dict[str, Any] | None = None
     ) -> Any:
-        """Serve POST /score-sets/search from the mirror (FTS), else live."""
+        """Serve POST /score-sets/search and the experiments browse from the mirror.
+
+        The unfiltered experiments browse (``/experiments/search`` with no text and
+        no authors) is the only search variant the upstream endpoint answers slowly
+        (~30s, the FULL published list, unpaged), so it is served from the local
+        ``experiment`` table -- fast and offline. A text/author experiment search
+        stays live (scoped, faithful to the upstream matcher).
+        """
         if path.strip("/") == "score-sets/search":
             body = json or {}
             records = self._repo.search_score_sets(
@@ -82,8 +89,18 @@ class HybridClient(MaveDBClient):
             )
             provenance.record("mirror", mirror_as_of=self._mirror_as_of)
             return {"scoreSets": records, "numScoreSets": len(records)}
+        if path.strip("/") == "experiments/search":
+            body = json or {}
+            if not body.get("text") and not body.get("authors"):
+                records = self._repo.all_experiments()
+                provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+                return {"experiments": records, "numExperiments": len(records)}
         provenance.record("live")
         return await super().post_json(path, json=json, params=params)
+
+    def facet_vocabularies(self) -> dict[str, set[str]]:
+        """Corpus facet vocabularies (targets/organisms/authors) from the mirror."""
+        return self._repo.facet_vocabularies()
 
     def mirror_meta(self) -> dict[str, Any]:
         """The mirror's provenance row (snapshot date, counts) for diagnostics."""

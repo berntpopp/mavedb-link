@@ -49,16 +49,26 @@ MAVEDB_LICENSE = (
     "for attribution/reuse."
 )
 
-#: Error taxonomy surfaced by every tool (see mavedb_link.mcp.envelope).
+#: Error taxonomy surfaced by every tool: the CLOSED six-value fleet enum
+#: (Response-Envelope Standard v1). Finer-grained causes are retained additively in
+#: an ``error_subtype`` field (see ``_CODE_MAP`` in mavedb_link.mcp.envelope), never
+#: as an off-enum ``error_code``.
 ERROR_CODES: list[str] = [
     "invalid_input",
     "not_found",
     "ambiguous_query",
-    "data_unavailable",
-    "rate_limited",
     "upstream_unavailable",
+    "rate_limited",
+    "internal",
+]
+
+#: Additive ``error_subtype`` values that a canonical code may carry (discovery only;
+#: they refine an ``error_code`` but never replace one).
+ERROR_SUBTYPES: list[str] = [
+    "data_unavailable",
     "response_too_large",
     "internal_error",
+    "validation_failed",
 ]
 
 #: Target-gene categories used by MaveDB (for arg help / discovery).

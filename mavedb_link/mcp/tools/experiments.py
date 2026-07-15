@@ -4,22 +4,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_experiment, after_search_experiments
-from mavedb_link.mcp.schemas import EXPERIMENT_SCHEMA, SEARCH_EXPERIMENTS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
 from mavedb_link.mcp.tools._common import (
     AuthorsFilter,
+    ExperimentUrnStr,
     OrganismsFilter,
     ResponseMode,
     SearchText,
     TargetsFilter,
     TargetTypesFilter,
-    UrnStr,
 )
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ def register_experiment_tools(mcp: FastMCP) -> None:
         name="get_experiment",
         title="Get Experiment",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=EXPERIMENT_SCHEMA,
+        output_schema=None,
         tags={"mave", "experiment"},
         description=(
             "Return a MaveDB experiment record by URN (urn:mavedb:00000001-a): "
@@ -47,8 +47,8 @@ def register_experiment_tools(mcp: FastMCP) -> None:
         ),
     )
     async def get_experiment(
-        urn: UrnStr, response_mode: ResponseMode = "compact"
-    ) -> dict[str, Any]:
+        urn: ExperimentUrnStr, response_mode: ResponseMode = "compact"
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_experiment(urn, response_mode=response_mode)
             payload.setdefault("_meta", {})["next_commands"] = after_get_experiment(payload)
@@ -66,7 +66,7 @@ def register_experiment_tools(mcp: FastMCP) -> None:
         name="search_experiments",
         title="Search Experiments",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=SEARCH_EXPERIMENTS_SCHEMA,
+        output_schema=None,
         tags={"mave", "experiment", "search"},
         description=(
             "Search MaveDB experiments by free text (author facet, plus target "
@@ -93,14 +93,14 @@ def register_experiment_tools(mcp: FastMCP) -> None:
         limit: _Limit = DEFAULT_SEARCH_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().search_experiments(
                 text,
                 published=published,
                 targets=targets,
                 target_organism_names=target_organism_names,
-                target_types=target_types,
+                target_types=[str(t) for t in target_types] if target_types else None,
                 authors=authors,
                 limit=limit,
                 offset=offset,

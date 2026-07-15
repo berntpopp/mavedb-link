@@ -30,12 +30,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastmcp.tools.tool import ToolResult
+
 from mavedb_link.exceptions import NotFoundError
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 
 # A real registered tool (mavedb_link/mcp/tools/score_sets.py::get_score_set) so the
 # envelope is exercised with a genuine tool name, not a placeholder.
 _REAL_TOOL = "get_score_set"
+
+
+def _error_dict(result: Any) -> dict[str, Any]:
+    """Unwrap the error ToolResult and assert protocol isError:true (Envelope v1)."""
+    assert isinstance(result, ToolResult)
+    assert result.is_error is True
+    assert isinstance(result.structured_content, dict)
+    return result.structured_content
 
 
 async def test_success_envelope_is_flat_banner_with_uniform_meta() -> None:
@@ -106,7 +116,7 @@ async def test_error_envelope_is_flat_never_nested() -> None:
         raise NotFoundError("No matching MaveDB record found for urn:mavedb:99999999-a-1.")
 
     ctx = McpErrorContext(_REAL_TOOL, arguments={"urn": "urn:mavedb:99999999-a-1"})
-    env = await run_mcp_tool(_REAL_TOOL, call, context=ctx)
+    env = _error_dict(await run_mcp_tool(_REAL_TOOL, call, context=ctx))
 
     assert env["success"] is False
     assert isinstance(env["error_code"], str) and env["error_code"] == "not_found"
@@ -138,7 +148,7 @@ async def test_error_envelope_carries_disclaimer_at_minimal_mode() -> None:
         arguments={"urn": "urn:mavedb:99999999-a-1"},
         response_mode="minimal",
     )
-    env = await run_mcp_tool(_REAL_TOOL, call, context=ctx)
+    env = _error_dict(await run_mcp_tool(_REAL_TOOL, call, context=ctx))
 
     meta = env["_meta"]
     assert meta["unsafe_for_clinical_use"] is True

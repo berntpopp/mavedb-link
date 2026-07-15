@@ -17,7 +17,98 @@ from __future__ import annotations
 
 from typing import Any
 
+from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import looks_like_gene_symbol
+
+#: The facets whose values are validated against the corpus vocabulary. Diverse by
+#: nature (designed-protein names carry ``_`` and ``|``, organisms carry ``=``/``[]``,
+#: authors carry accents), so a format/allowlist check would reject real values -- the
+#: only reliable validator is the corpus set itself, which lives in the local mirror.
+_CORPUS_FACETS = ("targets", "target_organism_names", "authors")
+
+
+def _reject_blank(field: str, values: list[str] | None) -> None:
+    """A blank/whitespace facet item is invalid_input, never a browse/empty match."""
+    for value in values or []:
+        if not value.strip():
+            raise InvalidInputError(
+                f"A blank/whitespace {field} value is not a filter. Remove the empty "
+                "entry, or drop the facet to browse.",
+                field=field,
+            )
+
+
+def _reject_unknown_exact(
+    field: str, values: list[str] | None, vocab: set[str], *, upper: bool
+) -> None:
+    """Raise invalid_input for an exact-match facet value not in the corpus set.
+
+    Does NOT skip on an empty ``vocab`` -- an empty corpus means the value is unknown,
+    so a present value is still rejected (never silently matched to nothing).
+    """
+    for value in values or []:
+        key = value.strip().upper() if upper else value.strip().lower()
+        if key not in vocab:
+            raise InvalidInputError(
+                f"'{value}' is not a known MaveDB {field} value, so it would match "
+                "nothing. Use search_score_sets(text=) to discover valid facet values, "
+                "or drop the filter.",
+                field=field,
+            )
+
+
+def validate_facet_values(
+    client: Any,
+    targets: list[str] | None,
+    target_organism_names: list[str] | None,
+    authors: list[str] | None,
+    facet_mode: str | None = None,
+) -> None:
+    """Reject a facet argument that matches nothing (never a silent-empty result).
+
+    ``facet_mode`` is a closed enum. Blank/whitespace items are rejected regardless of
+    mirror presence. The corpus facets (``targets``/``target_organism_names`` exact,
+    ``authors`` substring) are validated against the mirror's vocabulary. When no
+    mirror is loaded (``client`` has no ``facet_vocabularies``), a facet value cannot
+    be told from a valid one, so the call **fails closed** with ``invalid_input``
+    rather than sending an unvalidated facet upstream and returning ``success:true,
+    total:0`` -- the silent-empty the model cannot distinguish from "the data has none".
+    Free-text search (``text=``) and ``get_gene_score_sets`` remain available live.
+    """
+    if facet_mode is not None and facet_mode not in ("inclusive", "strict"):
+        raise InvalidInputError(
+            f"Unknown facet_mode '{facet_mode}'.",
+            field="facet_mode",
+            allowed=["inclusive", "strict"],
+        )
+    facet_values = (targets, target_organism_names, authors)
+    for field, values in zip(_CORPUS_FACETS, facet_values, strict=True):
+        _reject_blank(field, values)
+    if not any(facet_values):
+        return
+    vocab_fn = getattr(client, "facet_vocabularies", None)
+    if not callable(vocab_fn):
+        field = next(f for f, v in zip(_CORPUS_FACETS, facet_values, strict=True) if v)
+        raise InvalidInputError(
+            "Faceted search (targets/target_organism_names/authors) needs the local "
+            "index, which is not loaded. Retry without the facet -- use text= free-text "
+            "search, or get_gene_score_sets(gene_symbol=) for a gene.",
+            field=field,
+        )
+    vocab = vocab_fn()
+    _reject_unknown_exact("targets", targets, vocab.get("targets") or set(), upper=True)
+    _reject_unknown_exact(
+        "target_organism_names", target_organism_names, vocab.get("organisms") or set(), upper=False
+    )
+    author_vocab = vocab.get("authors") or set()
+    for value in authors or []:
+        needle = value.strip().lower()
+        if not any(needle in name for name in author_vocab):
+            raise InvalidInputError(
+                f"No MaveDB author name contains '{value}', so it would match nothing. "
+                "Try a surname, or drop the authors filter.",
+                field="authors",
+            )
 
 
 def _target_names(raw: dict[str, Any]) -> set[str]:

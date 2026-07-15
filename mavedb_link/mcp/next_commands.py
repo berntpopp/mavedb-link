@@ -58,7 +58,7 @@ def default_error_next_commands(
     tool: str, error_code: str, arguments: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """A sensible recovery step for any error lacking an explicit fallback."""
-    if error_code in ("upstream_unavailable", "data_unavailable", "rate_limited"):
+    if error_code in ("upstream_unavailable", "rate_limited"):
         return [cmd("get_diagnostics")]
     value = str(
         arguments.get("urn", "") or arguments.get("symbol", "") or arguments.get("text", "")
@@ -153,7 +153,7 @@ def after_get_variant_score(payload: dict[str, Any]) -> list[dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     variants = payload.get("variants") or []
     if variants and isinstance(variants[0], dict) and variants[0].get("variant_urn"):
-        steps.append(cmd("find_variant", variant_urn=variants[0]["variant_urn"]))
+        steps.append(cmd("find_variant", variant=variants[0]["variant_urn"]))
     score_set = payload.get("score_set_urn") or payload.get("urn")
     if score_set:
         steps.append(cmd("get_score_set", urn=score_set))
@@ -217,7 +217,7 @@ def after_find_variant(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if first.get("variant_urn"):
             steps.append(cmd("get_variant_score", urn=first["variant_urn"]))
     vrs = payload.get("vrs_id")
-    steps += _more_offset("find_variant", {"vrs_id": vrs} if vrs else {}, payload, MAX_FIND_LIMIT)
+    steps += _more_offset("find_variant", {"variant": vrs} if vrs else {}, payload, MAX_FIND_LIMIT)
     return steps or [cmd("get_server_capabilities")]
 
 

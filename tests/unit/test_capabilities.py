@@ -21,7 +21,16 @@ def test_tools_unique_and_counted() -> None:
 def test_error_taxonomy_complete() -> None:
     caps = build_capabilities()
     assert caps["error_codes"] == ERROR_CODES
-    assert len(ERROR_CODES) == 8
+    # The CLOSED six-value fleet enum (Response-Envelope Standard v1).
+    assert len(ERROR_CODES) == 6
+    assert set(ERROR_CODES) == {
+        "invalid_input",
+        "not_found",
+        "ambiguous_query",
+        "upstream_unavailable",
+        "rate_limited",
+        "internal",
+    }
 
 
 def test_capabilities_version_is_stable_content_hash() -> None:

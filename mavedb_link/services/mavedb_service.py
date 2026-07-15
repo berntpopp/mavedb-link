@@ -29,7 +29,6 @@ from mavedb_link.constants import (
     SEARCH_FETCH_LIMIT,
 )
 from mavedb_link.data.hybrid import mapped_cache_status, mirror_status
-from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.identifiers import (
     looks_like_gene_symbol,
     validate_score_set_urn,
@@ -46,6 +45,7 @@ from mavedb_link.services.search import (
     apply_sparse_facets,
     rank_by_target_match,
     rank_experiments_by_target,
+    validate_facet_values,
 )
 from mavedb_link.services.support import (
     clamp as _clamp,
@@ -95,12 +95,7 @@ class MaveDBService:
         drops them — F9), surfacing an honest ``_meta.facet_excluded`` (DEF-3),
         then (3) pages the processed list. ``targets``/``authors`` stay server-side.
         """
-        if facet_mode not in ("inclusive", "strict"):
-            raise InvalidInputError(
-                f"Unknown facet_mode '{facet_mode}'.",
-                field="facet_mode",
-                allowed=["inclusive", "strict"],
-            )
+        validate_facet_values(self._client, targets, target_organism_names, authors, facet_mode)
         capped = _clamp(limit, 1, MAX_SEARCH_LIMIT)
         body: dict[str, Any] = {"published": published, "limit": SEARCH_FETCH_LIMIT}
         for key, value in (("text", text), ("targets", targets), ("authors", authors)):
@@ -313,6 +308,7 @@ class MaveDBService:
         experiment ``targets`` facet is non-discriminating — grouped by parent
         experiment URN.
         """
+        validate_facet_values(self._client, targets, target_organism_names, authors)
         capped = _clamp(limit, 1, MAX_SEARCH_LIMIT)
         if targets or target_organism_names or target_types:
             return await self._search_experiments_by_target(
