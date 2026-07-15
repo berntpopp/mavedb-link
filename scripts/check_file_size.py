@@ -15,6 +15,10 @@ DEFAULT_LIMIT = 600
 ROOTS = ("mavedb_link", "tests")
 EXTRA_FILES = ("server.py", "mcp_server.py")
 ALLOWLIST_FILE = ".loc-allowlist"
+EXEMPT_PATHS = {
+    # Vendored byte-identical from genefoundry-router; do not split or edit locally.
+    "tests/conformance/behaviour.py",
+}
 
 
 def _load_allowlist(repo: Path) -> dict[str, int]:
@@ -47,6 +51,8 @@ def main() -> int:
         if not path.exists():
             continue
         rel = str(path.relative_to(repo))
+        if rel in EXEMPT_PATHS:
+            continue
         lines = path.read_text(encoding="utf-8").count("\n") + 1
         ceiling = allowlist.get(rel, DEFAULT_LIMIT)
         if lines > ceiling:
