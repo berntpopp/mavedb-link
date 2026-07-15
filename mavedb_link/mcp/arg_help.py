@@ -29,6 +29,13 @@ ARG_ALIASES: dict[str, str] = {
     "hgnc": "gene_symbol",
     "max": "limit",
     "mode": "response_mode",
+    # find_variant collapsed its three variant-form params into one `variant`
+    # anchor (auto-detected). The old names stay accepted as aliases so existing
+    # callers/next_commands keep working (each only resolves on a tool that has a
+    # `variant` param -- find_variant and get_hgvs_validation).
+    "vrs_id": "variant",
+    "variant_urn": "variant",
+    "hgvs": "variant",
     # Tools expose the fleet-canonical `offset`; accept `start` as a paging alias,
     # especially for get_variant_scores where MaveDB's upstream endpoint uses it.
     "start": "offset",

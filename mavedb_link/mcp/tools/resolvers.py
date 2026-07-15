@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import (
@@ -12,6 +13,7 @@ from mavedb_link.constants import (
     MAX_CLASSIFIED_LIMIT,
     MAX_FIND_LIMIT,
 )
+from mavedb_link.identifiers import is_variant_urn
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import (
@@ -19,47 +21,29 @@ from mavedb_link.mcp.next_commands import (
     after_get_classified_variants,
     after_get_hgvs_validation,
 )
-from mavedb_link.mcp.schemas import (
-    CLASSIFIED_VARIANTS_SCHEMA,
-    FIND_VARIANT_SCHEMA,
-    HGVS_VALIDATION_SCHEMA,
-)
 from mavedb_link.mcp.service_adapters import get_mavedb_service
-from mavedb_link.mcp.tools._common import ResponseMode, ScoreSetUrnStr
+from mavedb_link.mcp.tools._common import CalibratedScoreSetUrnStr, ResponseMode
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
-_VrsId = Annotated[
-    str | None,
+#: ONE required anchor covering all three variant forms (fleet-standard: a single
+#: multi-format identifier param, so a schema-derived call is constructible). The
+#: value is auto-routed by shape: a 'ga4gh:' VRS id, a variant URN, or a bare HGVS
+#: string (pass gene_symbol= alongside an HGVS). vrs_id/variant_urn/hgvs remain
+#: accepted as aliases for backward compatibility (see ARG_ALIASES).
+_VariantAnchor = Annotated[
+    str,
     Field(
-        default=None,
-        description="A GA4GH VRS allele id (starts 'ga4gh:'). Get one from "
-        "get_mapped_variants (vrs_id) or get_variant_score. A variant URN passed "
-        "here is auto-detected and resolved to its VRS. Omit when using variant_urn=.",
-        examples=["ga4gh:VA.ZkAN2DOM70rwo9uvpOkCtlM8qVb-gYYw"],
-    ),
-]
-_VariantUrn = Annotated[
-    str | None,
-    Field(
-        default=None,
-        description="A full variant URN ('urn:mavedb:00000001-a-1#2'). Resolved to "
-        "its genome-mapped VRS internally (no map-first round-trip), then matched "
-        "across every score set. Pass this OR vrs_id.",
-        examples=["urn:mavedb:00000001-a-1#2"],
-    ),
-]
-_Hgvs = Annotated[
-    str | None,
-    Field(
-        default=None,
-        description="A bare HGVS string (e.g. 'p.Asp2723His', 'c.8167G>A', or an "
-        "accessioned 'NM_000059.4:c.8167G>A'). Resolved to its VRS internally via the "
-        "local mirror, falling back to a capped live probe of that gene's score sets "
-        "— so you do NOT pre-map it. Pass gene_symbol= alongside to disambiguate / "
-        "enable the live fallback. Use this OR vrs_id OR variant_urn.",
-        examples=["p.Asp2723His", "NM_000059.4:c.8167G>A"],
+        description="The variant to look up, in ANY of three forms (auto-detected): "
+        "a GA4GH VRS allele id ('ga4gh:VA…'), a full variant URN "
+        "('urn:mavedb:00000001-a-1#2'), or a bare HGVS string ('p.Asp2723His', "
+        "'NM_000059.4:c.8167G>A' — pass gene_symbol= alongside so it can resolve). "
+        "vrs_id/variant_urn/hgvs are accepted as aliases.",
+        examples=[
+            "ga4gh:VA.ZkAN2DOM70rwo9uvpOkCtlM8qVb-gYYw",
+            "urn:mavedb:00000001-a-1#2",
+        ],
     ),
 ]
 _GeneSymbol = Annotated[
@@ -88,28 +72,26 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         name="find_variant",
         title="Find Variant Across Score Sets",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=FIND_VARIANT_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "vrs", "cross-dataset"},
         description=(
             "Find ONE variant across EVERY MaveDB score set — the same variant's "
             "functional measurements wherever it was assayed (the cross-dataset "
-            "rollup for 'every assay that measured this variant'). Pass a VRS id "
-            "(ga4gh:VA…) OR a variant_urn ('urn:mavedb:…-a-1#2'): a variant URN is "
-            "resolved to its VRS internally, so you do NOT need to map it first — "
-            "chain straight from get_variant_score. ALSO accepts a bare hgvs= string "
-            "(+ optional gene_symbol=) resolved to its VRS internally — chain straight from an "
-            "HGVS the user typed, no map-first round-trip. Each hit carries its "
-            "score_set_urn, variant_urn, ClinGen Allele ID, and (when enrich=true, "
-            "default) the score + calibrated classifications. ClinGen Allele IDs are "
-            "not accepted upstream; pass the variant_urn instead. Paged via "
-            "offset/limit. Signature: find_variant(vrs_id=, variant_urn=, hgvs=, "
-            "gene_symbol=, only_current=, enrich=, limit=, offset=, response_mode=)."
+            "rollup for 'every assay that measured this variant'). Pass variant= in "
+            "ANY form (auto-detected): a VRS id (ga4gh:VA…), a variant URN "
+            "('urn:mavedb:…-a-1#2', resolved to its VRS internally so you do NOT map "
+            "it first — chain straight from get_variant_score), or a bare HGVS string "
+            "(+ optional gene_symbol=), resolved to its VRS internally — no map-first "
+            "round-trip. Each hit carries its score_set_urn, variant_urn, ClinGen "
+            "Allele ID, and (when enrich=true, default) the score + calibrated "
+            "classifications. ClinGen Allele IDs are not accepted upstream; pass the "
+            "variant URN instead. Paged via offset/limit. "
+            "Signature: find_variant(variant, gene_symbol=, only_current=, enrich=, "
+            "limit=, offset=, response_mode=)."
         ),
     )
     async def find_variant(
-        vrs_id: _VrsId = None,
-        variant_urn: _VariantUrn = None,
-        hgvs: _Hgvs = None,
+        variant: _VariantAnchor,
         gene_symbol: _GeneSymbol = None,
         only_current: Annotated[
             bool, Field(description="Keep only current genome mappings (default true).")
@@ -120,7 +102,21 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         limit: _FindLimit = DEFAULT_FIND_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
+        # Route the single anchor to the right resolution path by its shape. A
+        # 'ga4gh:' value OR a variant URN goes to the VRS/URN resolver (which
+        # auto-detects a URN passed as vrs_id); anything else is treated as HGVS,
+        # scoped by gene_symbol. An empty value falls through to the resolver, which
+        # raises a naming invalid_input.
+        anchor = variant.strip()
+        vrs_id: str | None = None
+        variant_urn: str | None = None
+        hgvs: str | None = None
+        if anchor.startswith("ga4gh:") or is_variant_urn(anchor):
+            vrs_id = anchor
+        else:
+            hgvs = anchor
+
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().find_variant(
                 vrs_id,
@@ -141,12 +137,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             call,
             context=McpErrorContext(
                 "find_variant",
-                arguments={
-                    "vrs_id": vrs_id,
-                    "variant_urn": variant_urn,
-                    "hgvs": hgvs,
-                    "gene_symbol": gene_symbol,
-                },
+                arguments={"variant": anchor, "gene_symbol": gene_symbol},
                 response_mode=response_mode,
             ),
         )
@@ -155,7 +146,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         name="get_hgvs_validation",
         title="Get HGVS Validation",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=HGVS_VALIDATION_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "hgvs", "validation"},
         description=(
             "Validate an HGVS variant string against MaveDB's validator. Returns "
@@ -175,7 +166,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             ),
         ],
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_hgvs_validation(variant)
             payload.setdefault("_meta", {})["next_commands"] = after_get_hgvs_validation(payload)
@@ -193,7 +184,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         name="get_classified_variants",
         title="Get Classified Variants",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=CLASSIFIED_VARIANTS_SCHEMA,
+        output_schema=None,
         tags={"mave", "variant", "calibration", "acmg"},
         description=(
             "Return a score set's variants grouped into a calibrated functional "
@@ -207,7 +198,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         ),
     )
     async def get_classified_variants(
-        urn: ScoreSetUrnStr,
+        urn: CalibratedScoreSetUrnStr,
         classification: Annotated[
             Literal["abnormal", "normal", "not_specified"] | None,
             Field(
@@ -226,7 +217,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         limit: _ClassifiedLimit = DEFAULT_CLASSIFIED_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_classified_variants(
                 urn,

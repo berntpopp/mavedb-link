@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import DEFAULT_COLLECTION_LIMIT, MAX_COLLECTION_LIMIT
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_collection
-from mavedb_link.mcp.schemas import COLLECTION_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
-from mavedb_link.mcp.tools._common import ResponseMode, UrnStr
+from mavedb_link.mcp.tools._common import CollectionUrnStr, ResponseMode
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -30,7 +30,7 @@ def register_collection_tools(mcp: FastMCP) -> None:
         name="get_collection",
         title="Get Collection",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=COLLECTION_SCHEMA,
+        output_schema=None,
         tags={"mave", "collection"},
         description=(
             "Return a curated MaveDB collection by URN: its name, description, "
@@ -43,11 +43,11 @@ def register_collection_tools(mcp: FastMCP) -> None:
         ),
     )
     async def get_collection(
-        urn: UrnStr,
+        urn: CollectionUrnStr,
         limit: _Limit = DEFAULT_COLLECTION_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_collection(
                 urn, limit=limit, offset=offset, response_mode=response_mode

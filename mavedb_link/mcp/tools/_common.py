@@ -20,6 +20,29 @@ UrnStr = Annotated[
     ),
 ]
 
+#: get_experiment takes an EXPERIMENT URN; its first example must therefore BE one
+#: (a score-set URN 404s here), so a schema-derived call resolves.
+ExperimentUrnStr = Annotated[
+    str,
+    Field(
+        description="A MaveDB experiment URN ('urn:mavedb:00000001-a'). Groups one "
+        "or more score sets; find one via a score set's experiment_urn.",
+        examples=["urn:mavedb:00000001-a"],
+    ),
+]
+
+#: get_collection takes a COLLECTION URN. MaveDB exposes no collection-search
+#: endpoint, so the example is a real curated collection (MaveMD).
+CollectionUrnStr = Annotated[
+    str,
+    Field(
+        description="A MaveDB collection URN "
+        "('urn:mavedb:collection-<uuid>'). Obtain one from a member score set's "
+        "official_collections (get_score_set at standard/full).",
+        examples=["urn:mavedb:collection-603dafbf-4a3f-4d70-ab8c-aafb226fbff4"],
+    ),
+]
+
 ScoreSetUrnStr = Annotated[
     str,
     Field(
@@ -29,13 +52,27 @@ ScoreSetUrnStr = Annotated[
     ),
 ]
 
+#: get_classified_variants needs a CALIBRATED score set; its example must therefore
+#: be one that carries a primary calibration with classified variants (an
+#: uncalibrated set yields not_found), so a schema-derived call returns rows.
+CalibratedScoreSetUrnStr = Annotated[
+    str,
+    Field(
+        description="A MaveDB score-set URN that carries a functional-classification "
+        "calibration ('urn:mavedb:00000013-a-1'). Uncalibrated sets yield not_found "
+        "-- confirm via get_score_set (score_calibrations present).",
+        examples=["urn:mavedb:00000013-a-1"],
+    ),
+]
+
 VariantLookupUrn = Annotated[
     str,
     Field(
-        description="EITHER a score-set URN ('urn:mavedb:00000001-a-1', used with "
-        "hgvs=) OR a full variant URN ('urn:mavedb:00000001-a-1#2', resolved "
-        "directly).",
-        examples=["urn:mavedb:00000001-a-1", "urn:mavedb:00000001-a-1#2"],
+        description="EITHER a full variant URN ('urn:mavedb:00000001-a-1#2', "
+        "resolved directly) OR a score-set URN ('urn:mavedb:00000001-a-1', used "
+        "WITH hgvs=). The first example is a full variant URN so a bare urn= call "
+        "resolves; pass hgvs= alongside when urn= is a score-set URN.",
+        examples=["urn:mavedb:00000001-a-1#2", "urn:mavedb:00000001-a-1"],
     ),
 ]
 
@@ -79,11 +116,13 @@ OrganismsFilter = Annotated[
 ]
 
 TargetTypesFilter = Annotated[
-    list[str] | None,
+    list[Literal["protein_coding", "regulatory", "other_noncoding"]] | None,
     Field(
         default=None,
-        description="Filter to these target categories (client-side, null-inclusive). "
-        "Allowed: protein_coding | regulatory | other_noncoding.",
+        description="Filter to these MaveDB target categories (client-side, "
+        "null-inclusive). Closed set: protein_coding | regulatory | other_noncoding "
+        "(the exact values the runtime accepts; an unlisted value is invalid_input, "
+        "never a silent-empty result).",
         examples=[["protein_coding"], ["regulatory", "other_noncoding"]],
     ),
 ]

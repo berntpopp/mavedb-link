@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.constants import DEFAULT_GENE_LIMIT, MAX_GENE_LIMIT
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_get_gene_score_sets
-from mavedb_link.mcp.schemas import GENE_SCORE_SETS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
 from mavedb_link.mcp.tools._common import ResponseMode, SymbolStr
 
@@ -28,7 +28,7 @@ def register_gene_tools(mcp: FastMCP) -> None:
         name="get_gene_score_sets",
         title="Get Gene Score Sets",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=GENE_SCORE_SETS_SCHEMA,
+        output_schema=None,
         tags={"mave", "gene", "variant", "score-set"},
         description=(
             "Resolve an HGNC gene symbol (e.g. BRCA1) to its gene identity "
@@ -45,7 +45,7 @@ def register_gene_tools(mcp: FastMCP) -> None:
         limit: _Limit = DEFAULT_GENE_LIMIT,
         offset: _Offset = 0,
         response_mode: ResponseMode = "compact",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_gene_score_sets(
                 gene_symbol, limit=limit, offset=offset, response_mode=response_mode

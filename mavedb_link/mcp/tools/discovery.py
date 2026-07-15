@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
+from fastmcp.tools.tool import ToolResult
 from pydantic import Field
 
 from mavedb_link.buildinfo import build_info
@@ -12,7 +13,6 @@ from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.capabilities import collect_tool_signatures, project_capabilities
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import after_capabilities, after_diagnostics
-from mavedb_link.mcp.schemas import CAPABILITIES_SCHEMA, DIAGNOSTICS_SCHEMA
 from mavedb_link.mcp.service_adapters import get_mavedb_service
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ def register_discovery_tools(mcp: FastMCP) -> None:
         name="get_server_capabilities",
         title="Get Server Capabilities",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=CAPABILITIES_SCHEMA,
+        output_schema=None,
         tags={"discovery"},
         description=(
             "Return the mavedb-link discovery surface: identity/build, the tool "
@@ -42,7 +42,7 @@ def register_discovery_tools(mcp: FastMCP) -> None:
             Literal["summary", "full"],
             Field(description="summary (default, light) or full (adds policy notes)."),
         ] = "summary",
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             signatures = await collect_tool_signatures(mcp)
             payload = project_capabilities(detail, signatures)
@@ -59,7 +59,7 @@ def register_discovery_tools(mcp: FastMCP) -> None:
         name="get_diagnostics",
         title="Get MaveDB Diagnostics",
         annotations=READ_ONLY_OPEN_WORLD,
-        output_schema=DIAGNOSTICS_SCHEMA,
+        output_schema=None,
         tags={"discovery"},
         description=(
             "Report upstream MaveDB API reachability and version (live check of "
@@ -70,7 +70,7 @@ def register_discovery_tools(mcp: FastMCP) -> None:
             "Signature: get_diagnostics()."
         ),
     )
-    async def get_diagnostics() -> dict[str, Any]:
+    async def get_diagnostics() -> dict[str, Any] | ToolResult:
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().get_diagnostics()
             payload["build"] = build_info()

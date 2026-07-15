@@ -245,7 +245,7 @@ async def test_get_variant_score_chains_to_find_variant(
     _mock_all(respx_mock)
     res = await facade.call_tool("get_variant_score", {"urn": fixtures.VARIANT_URN})
     steps = structured(res)["_meta"]["next_commands"]
-    assert steps[0] == {"tool": "find_variant", "arguments": {"variant_urn": fixtures.VARIANT_URN}}
+    assert steps[0] == {"tool": "find_variant", "arguments": {"variant": fixtures.VARIANT_URN}}
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
