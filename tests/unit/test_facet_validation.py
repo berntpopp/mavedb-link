@@ -9,10 +9,49 @@
 from __future__ import annotations
 
 import pytest
+from fastmcp.tools.tool import ToolResult
 
 from mavedb_link.exceptions import InvalidInputError
-from mavedb_link.mcp.envelope import CANONICAL_ERROR_CODES, _canonicalize_code
+from mavedb_link.mcp.envelope import (
+    CANONICAL_ERROR_CODES,
+    McpErrorContext,
+    McpToolError,
+    _canonicalize_code,
+    run_mcp_tool,
+)
 from mavedb_link.services.search import validate_facet_values
+
+
+async def test_raised_off_enum_mcptoolerror_is_canonicalized_at_the_wire() -> None:
+    # The RAISED path (not just constructors): an off-enum McpToolError raised inside a
+    # tool body must emerge on the wire as isError:true with a closed-enum error_code
+    # and the specific cause retained in error_subtype.
+    async def _boom() -> dict[str, object]:
+        raise McpToolError(error_code="validation_failed", message="bad input")
+
+    result = await run_mcp_tool("get_score_set", _boom, context=McpErrorContext("get_score_set"))
+    assert isinstance(result, ToolResult)
+    assert result.is_error is True
+    env = result.structured_content
+    assert isinstance(env, dict)
+    assert env["error_code"] == "invalid_input"
+    assert env["error_code"] in CANONICAL_ERROR_CODES
+    assert env["error_subtype"] == "validation_failed"
+
+
+async def test_returned_off_enum_success_false_is_canonicalized_at_the_wire() -> None:
+    # The RETURNED path: a body that returns success:false with an off-enum code is
+    # also folded onto the closed enum at egress (never leaks off-enum to the wire).
+    async def _body() -> dict[str, object]:
+        return {"success": False, "error_code": "data_unavailable", "message": "x"}
+
+    result = await run_mcp_tool("get_score_set", _body, context=McpErrorContext("get_score_set"))
+    assert isinstance(result, ToolResult)
+    assert result.is_error is True
+    env = result.structured_content
+    assert isinstance(env, dict)
+    assert env["error_code"] == "upstream_unavailable"
+    assert env["error_subtype"] == "data_unavailable"
 
 
 @pytest.mark.parametrize(
@@ -76,9 +115,44 @@ def test_author_substring_matches_but_nonsense_is_rejected() -> None:
     assert exc.value.field == "authors"
 
 
-def test_no_vocab_falls_through_best_effort() -> None:
-    class _LiveOnly:
-        pass  # no facet_vocabularies -> live-only, validation is a no-op
+class _LiveOnly:
+    """A mirror-less client (no facet_vocabularies) -- the live-only fallback."""
 
-    # Must NOT raise: with no mirror there is no corpus to validate against.
-    validate_facet_values(_LiveOnly(), ["__bogus__"], ["Martian"], ["Nonexistent"])
+
+@pytest.mark.parametrize(
+    "facets",
+    [(["BRCA1"], None, None), (None, ["Homo sapiens"], None), (None, None, ["Starita"])],
+)
+def test_no_mirror_fails_closed_not_silent_empty(
+    facets: tuple[list[str] | None, list[str] | None, list[str] | None],
+) -> None:
+    # Without a mirror a facet value cannot be validated, so the call must fail closed
+    # with invalid_input -- NEVER pass the facet upstream and return success:true,0.
+    # (This replaces the earlier test that ratified the silent-empty regression.)
+    with pytest.raises(InvalidInputError):
+        validate_facet_values(_LiveOnly(), *facets)
+
+
+def test_no_mirror_text_only_search_is_still_allowed() -> None:
+    # No facets applied -> nothing to validate -> live text search still works.
+    validate_facet_values(_LiveOnly(), None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("facets", "field"),
+    [
+        ((["  "], None, None), "targets"),
+        ((None, [" "], None), "target_organism_names"),
+        ((None, None, ["\t"]), "authors"),
+        ((["BRCA1", ""], None, None), "targets"),
+    ],
+)
+def test_blank_or_whitespace_facet_item_is_invalid_input(
+    facets: tuple[list[str] | None, list[str] | None, list[str] | None], field: str
+) -> None:
+    # A blank/whitespace facet item is invalid_input regardless of mirror presence --
+    # it must never degrade to a browse or a silent-empty (with a mirror it would
+    # otherwise produce no URNs / an empty matcher).
+    with pytest.raises(InvalidInputError) as exc:
+        validate_facet_values(_VocabClient(), *facets)
+    assert exc.value.field == field

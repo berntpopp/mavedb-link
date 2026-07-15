@@ -78,6 +78,22 @@ def _canonicalize_code(code: str) -> tuple[str, str | None]:
     return "internal", code
 
 
+def _canonicalize_envelope_code(envelope: dict[str, Any]) -> None:
+    """Fold an already-built envelope's off-enum ``error_code`` onto the closed enum.
+
+    Egress backstop for a tool body that RETURNED ``success:false`` with its own
+    ``error_code`` (the raised path is canonicalized in :func:`_classify`). Rewrites
+    the code in place and preserves the specific cause in ``error_subtype``.
+    """
+    code = envelope.get("error_code")
+    if not isinstance(code, str):
+        return
+    canonical, subtype = _canonicalize_code(code)
+    envelope["error_code"] = canonical
+    if subtype is not None:
+        envelope.setdefault("error_subtype", subtype)
+
+
 @dataclass
 class McpErrorContext:
     """Per-call context so envelopes can name the failing tool and recovery."""
@@ -512,8 +528,11 @@ async def run_mcp_tool(
             metrics.record(tool_name, elapsed, ok=success)
             # A body that RETURNED a failure envelope (success:false) must also carry
             # protocol isError:true -- a bare returned dict never sets it. Route it
-            # through the same ToolResult path as a raised error.
+            # through the same ToolResult path as a raised error, and canonicalize its
+            # error_code at THIS egress too (not just the raised path), so an off-enum
+            # code can never reach the wire.
             if not success:
+                _canonicalize_envelope_code(result)
                 return ToolResult(structured_content=result, is_error=True)
         return result
     except Exception as exc:  # broad catch is the error-boundary contract
