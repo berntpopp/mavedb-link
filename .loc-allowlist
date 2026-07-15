@@ -6,3 +6,7 @@
 # - Removing an entry after a successful split is the goal.
 #
 # No current production Python modules exceed the 600-line budget.
+#
+# Vendored, byte-identical conformance gate from genefoundry-router (must not be
+# split or edited locally -- it is updated by re-copying the canonical source).
+tests/conformance/behaviour.py:792
