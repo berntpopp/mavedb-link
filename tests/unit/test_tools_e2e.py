@@ -420,6 +420,26 @@ async def test_invalid_score_set_urn_is_invalid_input(
     assert payload["error_code"] == "invalid_input"
 
 
+@respx.mock(base_url=BASE, assert_all_called=False)
+async def test_find_variant_oversized_padded_hgvs_trips_the_raw_length_guard(
+    respx_mock: respx.Router, facade: Any, structured: Any
+) -> None:
+    # Fix (Codex #3): the tool must NOT strip the anchor before HGVS validation. A
+    # whitespace-padded, oversized HGVS whose *stripped* core is a short valid string
+    # must still trip the raw-length guard (finding F-09) at the TOOL layer, BEFORE any
+    # upstream I/O -- not slip through to a live probe and return success:true.
+    _mock_all(respx_mock)
+    padded = " " * 400 + "c.1A>T"  # raw length > MAX_HGVS_VARIANT_CHARS, core is 6 chars
+    res = await facade.call_tool("find_variant", {"variant": padded})
+    payload = structured(res)
+    assert res.is_error is True
+    assert payload["success"] is False
+    assert payload["error_code"] == "invalid_input"
+    # The raw-length guard fired (not a downstream "gene required"/resolution error).
+    assert "HGVS string is too long" in payload["message"]
+    assert payload["field"] == "variant"
+
+
 def test_json_serialisable_payloads_helper() -> None:
     # Guards the fixtures stay JSON-round-trippable (used by respx json=).
     assert json.loads(json.dumps(fixtures.SCORE_SET_RAW))["urn"] == fixtures.SCORE_SET_URN

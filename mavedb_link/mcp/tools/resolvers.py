@@ -106,8 +106,10 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         # Route the single anchor to the right resolution path by its shape. A
         # 'ga4gh:' value OR a variant URN goes to the VRS/URN resolver (which
         # auto-detects a URN passed as vrs_id); anything else is treated as HGVS,
-        # scoped by gene_symbol. An empty value falls through to the resolver, which
-        # raises a naming invalid_input.
+        # scoped by gene_symbol. Detection uses the trimmed form, but the HGVS path
+        # is handed the RAW, UN-STRIPPED input so validate_hgvs_variant's raw-length
+        # guard (finding F-09) still fires -- stripping first would reduce an oversized
+        # whitespace-padded string to a short valid core that slips past the guard.
         anchor = variant.strip()
         vrs_id: str | None = None
         variant_urn: str | None = None
@@ -115,7 +117,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         if anchor.startswith("ga4gh:") or is_variant_urn(anchor):
             vrs_id = anchor
         else:
-            hgvs = anchor
+            hgvs = variant
 
         async def call() -> dict[str, Any]:
             payload = await get_mavedb_service().find_variant(
