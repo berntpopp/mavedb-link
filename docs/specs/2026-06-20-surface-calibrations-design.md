@@ -2,6 +2,10 @@
 
 - **Status:** implemented (P0+P1+P2; `make ci-local` + live integration green)
 - **Date:** 2026-06-20
+
+> Historical record — this document records the design as of its date. Current behavior is
+> defined by implemented code, standards, release evidence, and tests.
+
 - **Area:** `mavedb_link/` (services + mcp planes)
 - **Delivery:** built directly via TDD, one commit per wave (P0/P1/P2); tool
   surface 11 → 15. No separate plan doc — the wave commits are the record.

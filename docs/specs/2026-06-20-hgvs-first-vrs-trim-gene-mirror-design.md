@@ -2,6 +2,10 @@
 
 - **Date:** 2026-06-20
 - **Status:** Implemented (2026-06-20). See `docs/plans/2026-06-20-hgvs-first-vrs-trim-gene-mirror.md`.
+
+> Historical record — this document records the design as of its date. Current behavior is
+> defined by implemented code, standards, release evidence, and tests.
+
 - **Area:** `mavedb_link/` (services, mcp, data, ingest)
 - **Related:** `docs/specs/2026-06-19-mavedb-link-design.md`,
   `docs/specs/2026-06-20-surface-calibrations-design.md`

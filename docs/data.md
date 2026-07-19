@@ -61,8 +61,8 @@ distribution, and the `get_gene_score_sets` score-set listing are served from th
 GA4GH VRS / ClinGen Allele ID mapped-variant layer is **not** in the mirror. It is backfilled
 **lazily from the live API, per score set**, into an on-disk cache: the first tool call that
 touches a score set fetches its mapped variants and writes them through, and repeat
-`get_mapped_variants`, `find_variant(variant_urn=)`, and target-relative
-`find_variant(hgvs=, gene_symbol=)` reads then serve from the cache. The mirror schema still
+`get_mapped_variants`, `find_variant(variant=)`, and target-relative
+`find_variant(variant=, gene_symbol=)` reads then serve from the cache. The mirror schema still
 accepts annotations CSVs if a future export restores them.
 
 Some reads stay live by design:

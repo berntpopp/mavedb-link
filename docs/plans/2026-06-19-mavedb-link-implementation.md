@@ -2,6 +2,9 @@
 
 **Date:** 2026-06-19 · **Spec:** `docs/specs/2026-06-19-mavedb-link-design.md`
 
+> Historical record — this document records the implementation plan as of its date. Current
+> behavior is defined by implemented code, standards, release evidence, and tests.
+
 Build order (foundation → data plane → MCP plane → tests → integration → router).
 Definition of done = `make ci-local` green + coverage ≥80% + live smoke passes.
 
