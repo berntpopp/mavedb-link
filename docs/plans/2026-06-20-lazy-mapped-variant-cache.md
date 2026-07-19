@@ -1,5 +1,8 @@
 # Lazy Mapped-Variant Cache — Implementation Plan
 
+> Historical record — this document records the implementation plan as of its date. Current
+> behavior is defined by implemented code, standards, release evidence, and tests.
+
 > **For agentic workers:** TDD task-by-task. Steps use `- [ ]` checkboxes.
 
 **Goal:** Backfill the dump-omitted VRS/ClinGen annotation layer lazily, on call,

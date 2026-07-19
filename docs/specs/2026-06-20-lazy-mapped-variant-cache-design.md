@@ -1,6 +1,10 @@
 # Lazy Mapped-Variant Cache — Design Spec
 
 **Status:** Approved (design) — 2026-06-20
+
+> Historical record — this document records the design as of its date. Current behavior is
+> defined by implemented code, standards, release evidence, and tests.
+
 **Author:** mavedb-link maintainer (+ AI pair)
 **Supersedes context:** round-3 HGVS-first / VRS-trim / gene-mirror work
 

@@ -2,6 +2,10 @@
 
 **Date:** 2026-06-19
 **Status:** Approved for implementation (autonomous build per user directive)
+
+> Historical record — this document records the design as of its date. Current behavior is
+> defined by implemented code, standards, release evidence, and tests.
+
 **Author:** Senior MCP engineer (Claude)
 
 ## 1. Purpose
