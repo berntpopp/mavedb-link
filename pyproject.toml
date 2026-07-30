@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mavedb-link"
-version = "0.5.1"
+version = "0.5.2"
 description = "MCP/API server that grounds variant-effect work in MaveDB (multiplexed assays of variant effect)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Typing :: Typed",
 ]

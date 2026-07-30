@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-30
+
+Ships and tests on Python 3.14. v0.5.1 deliberately deferred the base-image jump because
+`container-release.json`'s `data.image_allowlist` hardcodes `python3.12` site-packages
+paths; this release moves the base, the allowlist and the CI interpreter together. No
+runtime behaviour change.
+
+### Changed
+
+- **Runtime interpreter is now Python 3.14.** `docker/Dockerfile` re-bases both the
+  `builder` and `prepared` stages onto
+  `python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6`
+  (the fleet-current digest, matching clingen/mgi/orphanet and 10 further siblings), and
+  the in-image `python3.12`/`pip3.12` cleanup paths follow.
+- **`container-release.json` `data.image_allowlist` repointed to `python3.14`.** This is
+  the coupling the base bump has to carry, and why Dependabot's Dockerfile-only PR could
+  not be green: the router's OCI content inspector matches these paths literally against
+  tar member names, so re-basing relocates all seven declared data-bearing files and the
+  allowlist then matches nothing. Verified against the exported OCI layer of an actual
+  local build — the seven members under
+  `opt/venv/lib/python3.14/site-packages/mavedb_link/data/` match the allowlist exactly.
+- **CI now tests on the interpreter the image ships.** `ci.yml` and `data.yml` move
+  `python-version` 3.12 → 3.14. This is the substantive half of the change: before it,
+  no gate had ever executed the 3.14 runtime that a bare base bump would have deployed.
+- `.python-version` (which pinned 3.12) is removed so uv resolves the interpreter from
+  `requires-python` instead of overriding CI's 3.14 back down to 3.12. Matches the
+  fleet majority, which ships no `.python-version`.
+- Classifiers gain `Programming Language :: Python :: 3.14`.
+
+### Notes
+
+- **`requires-python` stays `>=3.12`, and so do ruff `target-version` and mypy
+  `python_version`.** Raising the floor to `>=3.14` was tried and reverted: the pinned
+  reusable workflow `genefoundry-router/_container-ci.yml@86b11f7e` sets up only Python
+  3.12 and then runs `uv lock --check` in the caller repo, so a `>=3.14` floor makes the
+  container gate depend on uv fetching a 3.14 interpreter it does not have — here it
+  resolved only to `cpython-3.14.0rc1`, a *release candidate*, and on a repo without a
+  `.python-version` request it fails outright with `No interpreter found for Python
+  >=3.14`. Fixing that properly means re-pinning the reusable workflow, which is
+  operator-gated and out of scope. The floor is a packaging lower bound, not a claim
+  about the tested runtime; the tested runtime is 3.14 and matches the image.
+  orphanet-link reached the same conclusion independently in its own 3.14 migration.
+
 ## [0.5.1] - 2026-07-30
 
 Dependency sweep. **This repo had no `.github/dependabot.yml`**, so Dependabot had only

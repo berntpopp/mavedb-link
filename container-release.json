@@ -30,13 +30,13 @@
     "release_tag": "data-2026-06-24",
     "digest": "sha256:30b2b4fdbdff9a1a2e9f13e9f7de072a22ff07e70dea5d45eba297a5b9a5155a",
     "image_allowlist": [
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/__init__.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/cache_cli.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/hybrid.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/mapped_cache.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/provenance.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/repository.py",
-      "opt/venv/lib/python3.12/site-packages/mavedb_link/data/schema.sql"
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/__init__.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/cache_cli.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/hybrid.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/mapped_cache.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/provenance.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/repository.py",
+      "opt/venv/lib/python3.14/site-packages/mavedb_link/data/schema.sql"
     ]
   },
   "runtime_cache": {
