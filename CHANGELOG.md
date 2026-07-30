@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-30
+
+Dependency sweep. **This repo had no `.github/dependabot.yml`**, so Dependabot had only
+ever run *security* updates against it — no version update had ever been proposed here.
+"0 open Dependabot PRs" measured the absence of a watcher, not the absence of drift.
+
+### Added
+
+- **Dependabot coverage** (`.github/dependabot.yml`), fleet-standard four-ecosystem
+  config: `uv` at `/`, `github-actions` at `/`, and `docker` + `docker-compose` at
+  `/docker`. Weekly Monday, Europe/Berlin, staggered 04:00–04:45, 5 open PRs per
+  ecosystem, `deps`/`ci` commit prefixes.
+
+### Changed
+
+- **Swept 30 of 97 locked packages** — the first blanket `uv lock --upgrade` this repo
+  has had. FastAPI 0.137.2→0.141.1, uvicorn 0.49.0→0.52.0, mcp 1.28.1→1.29.0,
+  fastmcp 3.4.4→3.4.5, mypy 2.1.0→2.3.0, ruff 0.15.18→0.16.0, typer 0.26.7→0.27.0,
+  websockets 16.0→17.0, certifi 2026.6.17→2026.7.22, plus 21 further transitives.
+  No packages added or removed; pyproject floors unchanged (this repo's convention is
+  a permissive floor plus a major upper cap, not floor == locked).
+- **Ruff rule set is now pinned with `select` instead of `extend-select`.** Ruff 0.16
+  grew its *implicit* default rule set from 59 to 413 rules; `extend-select` would have
+  silently inherited ~350 unopted rules. The rule list is unchanged and already a
+  superset of the pre-0.16 default (E4/E7/E9 + F), so lint policy is byte-identical.
+- Refreshed the `python:3.12-slim` base digest (`423ed6ab` → `57cd7c3a`). Deliberately
+  **not** a Python minor-version jump: `container-release.json`'s `data.image_allowlist`
+  hardcodes `opt/venv/lib/python3.12/site-packages/...` paths that the router's OCI
+  content inspector matches against, and a base jump would relocate them.
+- Bumped SHA-pinned Actions: `actions/checkout` → v7.0.1 (container-security.yml was a
+  whole major behind at v6.0.3), `actions/setup-python` → v7.0.0, `astral-sh/setup-uv`
+  → v9.0.0, `actions/attest-build-provenance` → v4.1.1.
+
+### Fixed
+
+- **Three SHA pins whose version comment lied.** `actions/upload-artifact@043fb46d` was
+  labelled `v6` but is **v7.0.1**; `actions/download-artifact@3e5f45b2` was labelled `v7`
+  but is **v8.0.1** (comments corrected, pins were already right).
+  `github/codeql-action@ed410739` is an annotated **tag object**, not a commit, so
+  Dependabot could not track it and it had silently frozen at v4.35.3 — repinned to the
+  commit `f205ea1c` (v4.37.4) per the ratified fleet decision.
+  `actions/attest-build-provenance@43d14bc2` had the identical tag-object defect.
+- `test_data_workflow_is_draft_first_and_non_overwriting` asserted a literal action SHA
+  prefix, so every legitimate version bump arrived as a red test. It now asserts the real
+  invariant: provenance is attested by a *digest-pinned* action (any full 40-hex SHA).
+- Synced `CITATION.cff` `version:`, which had drifted to 0.4.5 while the package was at
+  0.5.0.
+
 ## [0.5.0] - 2026-07-15
 
 MCP contract-hardening sweep (fleet-wide). Behaviour Conformance v1 gate: **0 fail /
