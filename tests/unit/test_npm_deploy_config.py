@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +56,13 @@ def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     workflow = (ROOT / ".github/workflows/data.yml").read_text()
     assert "build:" in workflow and "publish:" in workflow
     assert "draft=true" in workflow
-    assert "actions/attest-build-provenance@43d14" in workflow
+    # The invariant is that provenance is attested by a *digest-pinned* action --
+    # not that it is one particular digest. Asserting a literal SHA prefix made
+    # every legitimate version bump a test failure, which is exactly the friction
+    # that pushes a repo into staying stale.
+    assert re.search(r"uses:\s*actions/attest-build-provenance@[0-9a-f]{40}\b", workflow), (
+        "attest-build-provenance must be present and pinned to a full commit SHA"
+    )
     assert "gh release verify-asset" in workflow
     assert "--clobber" not in workflow
 
