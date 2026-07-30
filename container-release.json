@@ -39,6 +39,7 @@
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/schema.sql"
     ]
   },
+  "data_identity_contract": "unadopted",
   "runtime_cache": {
     "path": "/data/cache/mavedb_cache.sqlite",
     "eviction": "Deletable mapped-variant cache; repopulates from live MaveDB without losing authoritative mirror data.",
