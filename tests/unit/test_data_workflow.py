@@ -437,7 +437,7 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     assert result.returncode == 0, result.stderr
     payload = json.loads((data / "bundle-metadata.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "4.0.0"
-    assert payload["tag"] == "data-2026-02-06-s4-r2"
+    assert payload["tag"] == "data-2026-02-06-s4-r3"
     assert payload["build_revision"] == "d" * 40
 
 
