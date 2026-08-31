@@ -458,6 +458,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
+    create_tag = _workflow_step("Create exact Git tag for a new identity")
     create = _workflow_step("Create an empty draft for a new identity")
     upload = _workflow_step("Upload new sealed assets")
     attest = _workflow_step("Attest new release assets")
@@ -491,6 +492,19 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
     assert '--expected-tag "$TAG"' in str(decide["run"])
+    assert create_tag["if"] == (
+        "steps.decision.outputs.state == 'create' && steps.tag_ref.outputs.present != 'true'"
+    )
+    create_tag_script = str(create_tag["run"])
+    assert "git/refs" in create_tag_script
+    assert 'ref="refs/tags/$TAG"' in create_tag_script
+    assert "--method POST" in create_tag_script
+    assert "bundle-metadata.json" in create_tag_script
+    assert "build_revision" in create_tag_script
+    names = [str(step.get("name", "")) for step in _workflow_steps()]
+    assert names.index("Create exact Git tag for a new identity") < names.index(
+        "Create an empty draft for a new identity"
+    )
     assert create["if"] == "steps.decision.outputs.state == 'create'"
     assert '--target "$BUILD_REVISION"' in str(create["run"])
     assert upload["if"] == "steps.decision.outputs.state == 'create'"

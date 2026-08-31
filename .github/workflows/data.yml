@@ -216,6 +216,18 @@ jobs:
             echo "same-tag release collision: $(printf '%s' "$result" | jq -r .differing_field)" >&2
             exit "$status"
           fi
+      - name: Create exact Git tag for a new identity
+        if: steps.decision.outputs.state == 'create' && steps.tag_ref.outputs.present != 'true'
+        env:
+          BUILD_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+          test "$expected" = "$BUILD_REVISION"
+          timeout 60s gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$TAG" -f sha="$expected" \
+            | jq -e --arg ref "refs/tags/$TAG" --arg expected "$expected" \
+              '.ref == $ref and .object.type == "commit" and .object.sha == $expected' >/dev/null
       - name: Create an empty draft for a new identity
         if: steps.decision.outputs.state == 'create'
         env:

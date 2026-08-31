@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revision-qualified release identity for the superseding MaveDB mirror.
 - Re-download and verify exact remote asset identities and attestations
   immediately before promoting a draft release.
+- Create and verify the exact immutable Git ref before opening a data-release
+  draft; GitHub does not materialize a tag for an unpublished draft.
 
 ## [0.5.4] - 2026-08-31
 
