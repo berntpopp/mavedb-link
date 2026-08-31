@@ -26,5 +26,8 @@ def test_dockerfile_pins_uv_and_has_no_floating_pip_upgrade() -> None:
 
 def test_prepared_stage_applies_current_debian_security_upgrades() -> None:
     """The runtime package install must not retain fixable base-image CVEs."""
-    prepared_stage = _DOCKERFILE.read_text().split("FROM scratch AS runtime", maxsplit=1)[0]
+    text = _DOCKERFILE.read_text()
+    prepared_stage = text.split(" AS prepared", maxsplit=1)[1].split(
+        "FROM scratch AS production", maxsplit=1
+    )[0]
     assert "apt-get upgrade -y --no-install-recommends" in prepared_stage
