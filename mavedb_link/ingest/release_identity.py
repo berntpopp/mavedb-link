@@ -19,7 +19,8 @@ from urllib.parse import urlparse
 
 MAX_METADATA_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}-s\d+$")
+_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}-s\d+(?:-r[1-9]\d*)?$")
 _SCHEMA_RE = re.compile(r"^\d+\.0\.0$")
 _SCHEMA_MAJOR_MAX = 999
 _RELEASE_ASSETS = frozenset(
@@ -38,6 +39,7 @@ _STABLE_FIELDS: dict[str, type[object]] = {
     "expanded_tree_sha256": str,
     "expanded_size": int,
     "schema_version": str,
+    "build_revision": str,
     "source_sha256": str,
     "source_url": str,
     "score_set_count": int,
@@ -202,6 +204,8 @@ def _validate_metadata_values(payload: dict[str, object]) -> None:
     for field in ("score_set_count", "mapped_variant_count"):
         if _integer_field(payload, field) < 0:
             raise IdentityComparisonError(f"release metadata field {field} must not be negative")
+    if _REVISION_RE.fullmatch(str(payload["build_revision"])) is None:
+        raise IdentityComparisonError("release metadata field build_revision is invalid")
     tag = str(payload["tag"])
     schema = str(payload["schema_version"])
     if _TAG_RE.fullmatch(tag) is None or _SCHEMA_RE.fullmatch(schema) is None:

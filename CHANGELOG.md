@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-08-31
+
+### Fixed
+
+- Bound each data-release tag to the exact reviewed build revision and added a
+  revision-qualified release identity for the superseding MaveDB mirror.
+- Re-download and verify exact remote asset identities and attestations
+  immediately before promoting a draft release.
+
 ## [0.5.4] - 2026-08-31
 
 - Consolidated runtime and workflow maintenance updates; mirror-primary and

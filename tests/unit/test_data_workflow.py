@@ -50,6 +50,7 @@ def _metadata(**overrides: object) -> dict[str, object]:
         "expanded_tree_sha256": "b" * 64,
         "expanded_size": 8192,
         "schema_version": "0.0.0",
+        "build_revision": "d" * 40,
         "source_sha256": "c" * 64,
         "source_url": "https://zenodo.org/records/11201736/files/mavedb.zip",
         "retrieved_at": "2026-08-30T12:00:00Z",
@@ -151,6 +152,7 @@ def test_identical_stable_identity_ignores_retrieval_time(tmp_path: Path) -> Non
         ("expanded_tree_sha256", "d" * 64),
         ("expanded_size", 8193),
         ("schema_version", "1.0.0"),
+        ("build_revision", "e" * 40),
         ("score_set_count", 5),
         ("mapped_variant_count", 9),
     ],
@@ -175,6 +177,7 @@ def test_identity_difference_is_a_named_nonzero_collision(
         {**_metadata(), "unexpected": "value"},
         _metadata(asset_size=True),
         _metadata(source_sha256="not-a-digest"),
+        _metadata(build_revision="not-a-revision"),
     ],
 )
 def test_identity_metadata_rejects_missing_extra_or_invalid_typed_fields(
@@ -361,7 +364,7 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", python_script],
         cwd=tmp_path,
-        env={**os.environ, "PYTHONPATH": str(ROOT)},
+        env={**os.environ, "PYTHONPATH": str(ROOT), "GITHUB_SHA": "d" * 40},
         check=False,
         capture_output=True,
         text=True,
@@ -370,7 +373,8 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     assert result.returncode == 0, result.stderr
     payload = json.loads((data / "bundle-metadata.json").read_text(encoding="utf-8"))
     assert payload["schema_version"] == "4.0.0"
-    assert payload["tag"] == "data-2026-02-06-s4"
+    assert payload["tag"] == "data-2026-02-06-s4-r2"
+    assert payload["build_revision"] == "d" * 40
 
 
 def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
@@ -386,12 +390,12 @@ def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
 def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> None:
     """Publisher effects are reachable only from their one typed release state."""
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
+    inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
     create = _workflow_step("Create an empty draft for a new identity")
     upload = _workflow_step("Upload new sealed assets")
     attest = _workflow_step("Attest new release assets")
-    publish_draft = _workflow_step("Publish an already verified matching draft")
-    publish_new = _workflow_step("Publish and verify a newly created release")
+    promote = _workflow_step("Promote a freshly verified exact draft")
 
     inspect_script = str(inspect_existing["run"])
     assert "gh api --include" in inspect_script
@@ -402,11 +406,42 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "|| true" not in inspect_script
     assert "gh release delete" not in inspect_script
     assert "verify-assets" in inspect_script
+    tag_script = str(inspect_tag["run"])
+    assert "git/ref/tags/$TAG" in tag_script
+    assert "bundle-metadata.json" in tag_script
+    assert "build_revision" in tag_script
+    assert "404" in tag_script
+    assert "|| true" not in tag_script
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
     assert create["if"] == "steps.decision.outputs.state == 'create'"
+    assert '--target "$BUILD_REVISION"' in str(create["run"])
     assert upload["if"] == "steps.decision.outputs.state == 'create'"
     assert attest["if"] == "steps.decision.outputs.state == 'create'"
-    assert publish_draft["if"] == "steps.decision.outputs.state == 'draft_publish_existing'"
-    assert publish_new["if"] == "steps.decision.outputs.state == 'create'"
+    assert promote["if"] == (
+        "steps.decision.outputs.state == 'draft_publish_existing' || "
+        "steps.decision.outputs.state == 'create'"
+    )
+    promote_script = str(promote["run"])
+    assert "gh api" in promote_script
+    assert "remote_size" in promote_script
+    assert "remote_digest" in promote_script
+    assert "gh attestation verify" in promote_script
+    assert "gh release verify-asset" in promote_script
+    assert "verify-assets" in promote_script
+    assert "compare" in promote_script
+    assert "git/ref/tags/$TAG" in promote_script
+    assert promote_script.count("gh release edit") == 1
+    assert "--draft=false" in promote_script
     assert all("skip" not in str(step.get("if", "")).lower() for step in _workflow_steps())
+
+
+def test_revised_data_tag_is_valid_but_revision_zero_is_not(tmp_path: Path) -> None:
+    current = _write_metadata(tmp_path / "current.json", tag="data-2026-06-24-s4-r2")
+    existing = _write_metadata(tmp_path / "existing.json", tag="data-2026-06-24-s4-r2")
+
+    assert compare_release_identity(current, existing).state is ReleaseState.PUBLISHED_NOOP
+
+    invalid = _write_metadata(tmp_path / "invalid.json", tag="data-2026-06-24-s4-r0")
+    with pytest.raises(IdentityComparisonError, match="tag"):
+        compare_release_identity(invalid, existing)
