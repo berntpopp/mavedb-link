@@ -137,10 +137,41 @@ def test_identical_stable_identity_ignores_retrieval_time(tmp_path: Path) -> Non
     current = _write_metadata(tmp_path / "current.json", retrieved_at="2026-08-30T00:00:00Z")
     existing = _write_metadata(tmp_path / "existing.json", retrieved_at="2026-08-31T00:00:00Z")
 
-    result = compare_release_identity(current, existing)
+    result = compare_release_identity(current, existing, expected_tag="data-2026-06-24-s0")
 
     assert result.state is ReleaseState.PUBLISHED_NOOP
     assert result.differing_field is None
+
+
+def test_candidate_and_existing_metadata_must_match_the_requested_release_tag(
+    tmp_path: Path,
+) -> None:
+    requested = "data-2026-06-24-s4-r2"
+    substituted = "data-2026-06-25-s4-r2"
+    current = _write_metadata(tmp_path / "current.json", tag=substituted)
+    existing = _write_metadata(tmp_path / "existing.json", tag=substituted)
+
+    result = decide_release_identity(
+        current,
+        existing,
+        existing_is_draft=False,
+        expected_tag=requested,
+    )
+
+    assert result.state is ReleaseState.COLLISION
+    assert result.differing_field == "tag"
+
+
+def test_asset_verifier_rejects_metadata_for_another_release_tag(tmp_path: Path) -> None:
+    release, database = _release_directory(tmp_path)
+
+    with pytest.raises(IdentityComparisonError, match="expected release tag"):
+        verify_release_assets(
+            release / "bundle-metadata.json",
+            release,
+            database,
+            expected_tag="data-2026-06-25-s0-r2",
+        )
 
 
 @pytest.mark.parametrize(
@@ -163,7 +194,7 @@ def test_identity_difference_is_a_named_nonzero_collision(
     current = _write_metadata(tmp_path / "current.json")
     existing = _write_metadata(tmp_path / "existing.json", **{field: value})
 
-    result = compare_release_identity(current, existing)
+    result = compare_release_identity(current, existing, expected_tag="data-2026-06-24-s0")
 
     assert result.state is ReleaseState.COLLISION
     assert result.differing_field == field
@@ -189,7 +220,7 @@ def test_identity_metadata_rejects_missing_extra_or_invalid_typed_fields(
     _write_metadata(existing)
 
     with pytest.raises(IdentityComparisonError):
-        compare_release_identity(current, existing)
+        compare_release_identity(current, existing, expected_tag="data-2026-06-24-s0")
 
 
 @pytest.mark.parametrize(
@@ -212,14 +243,24 @@ def test_release_asset_verification_fails_closed_for_tampering(
     mutator(release, database)
 
     with pytest.raises(IdentityComparisonError):
-        verify_release_assets(release / "bundle-metadata.json", release, database)
+        verify_release_assets(
+            release / "bundle-metadata.json",
+            release,
+            database,
+            expected_tag="data-2026-06-24-s0",
+        )
 
 
 def test_asset_verifier_does_not_modify_candidate_or_existing_inputs(tmp_path: Path) -> None:
     release, database = _release_directory(tmp_path)
     before = {path: path.read_bytes() for path in [*release.iterdir(), database]}
 
-    verify_release_assets(release / "bundle-metadata.json", release, database)
+    verify_release_assets(
+        release / "bundle-metadata.json",
+        release,
+        database,
+        expected_tag="data-2026-06-24-s0",
+    )
 
     assert {path: path.read_bytes() for path in before} == before
 
@@ -234,6 +275,8 @@ def test_cli_reports_machine_readable_create_and_draft_states(tmp_path: Path) ->
         "compare",
         "--current",
         str(current),
+        "--expected-tag",
+        "data-2026-06-24-s0",
     ]
 
     create = subprocess.run(command, check=False, capture_output=True, text=True)  # noqa: S603
@@ -259,18 +302,39 @@ def test_release_decision_states_are_disjoint(tmp_path: Path) -> None:
     collision = _write_metadata(tmp_path / "collision.json", source_url="https://example.test/new")
 
     assert (
-        decide_release_identity(current, None, existing_is_draft=False).state is ReleaseState.CREATE
+        decide_release_identity(
+            current,
+            None,
+            existing_is_draft=False,
+            expected_tag="data-2026-06-24-s0",
+        ).state
+        is ReleaseState.CREATE
     )
     assert (
-        decide_release_identity(current, existing, existing_is_draft=False).state
+        decide_release_identity(
+            current,
+            existing,
+            existing_is_draft=False,
+            expected_tag="data-2026-06-24-s0",
+        ).state
         is ReleaseState.PUBLISHED_NOOP
     )
     assert (
-        decide_release_identity(current, existing, existing_is_draft=True).state
+        decide_release_identity(
+            current,
+            existing,
+            existing_is_draft=True,
+            expected_tag="data-2026-06-24-s0",
+        ).state
         is ReleaseState.DRAFT_PUBLISH_EXISTING
     )
     assert (
-        decide_release_identity(current, collision, existing_is_draft=True).state
+        decide_release_identity(
+            current,
+            collision,
+            existing_is_draft=True,
+            expected_tag="data-2026-06-24-s0",
+        ).state
         is ReleaseState.COLLISION
     )
 
@@ -281,7 +345,7 @@ def test_metadata_reader_rejects_more_than_one_mebibyte(tmp_path: Path) -> None:
     existing = _write_metadata(tmp_path / "existing.json")
 
     with pytest.raises(IdentityComparisonError, match="exceeds"):
-        compare_release_identity(current, existing)
+        compare_release_identity(current, existing, expected_tag="data-2026-06-24-s0")
 
 
 def test_database_identity_uses_meta_schema_not_pragma(tmp_path: Path) -> None:
@@ -401,11 +465,18 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "gh api --include" in inspect_script
     assert "404" in inspect_script
     assert 'test "$status" -ne 0 || status=1' in inspect_script
-    assert "gh release download" in inspect_script
+    assert "gh release download" not in inspect_script
+    assert "releases/assets/$remote_id" in inspect_script
+    assert '--max-filesize "$remote_size"' in inspect_script
+    assert 'test "$remote_size" -le "$max_size"' in inspect_script
+    assert "remote_id" in inspect_script
+    assert "remote_size" in inspect_script
+    assert "remote_digest" in inspect_script
     assert "gh attestation verify" in inspect_script
     assert "|| true" not in inspect_script
     assert "gh release delete" not in inspect_script
     assert "verify-assets" in inspect_script
+    assert '--expected-tag "$TAG"' in inspect_script
     tag_script = str(inspect_tag["run"])
     assert "git/ref/tags/$TAG" in tag_script
     assert "bundle-metadata.json" in tag_script
@@ -414,6 +485,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "|| true" not in tag_script
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
+    assert '--expected-tag "$TAG"' in str(decide["run"])
     assert create["if"] == "steps.decision.outputs.state == 'create'"
     assert '--target "$BUILD_REVISION"' in str(create["run"])
     assert upload["if"] == "steps.decision.outputs.state == 'create'"
@@ -424,12 +496,17 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     )
     promote_script = str(promote["run"])
     assert "gh api" in promote_script
+    assert "gh release download" not in promote_script
+    assert "releases/assets/$remote_id" in promote_script
+    assert '--max-filesize "$remote_size"' in promote_script
+    assert 'test "$remote_size" -le "$max_size"' in promote_script
     assert "remote_size" in promote_script
     assert "remote_digest" in promote_script
     assert "gh attestation verify" in promote_script
     assert "gh release verify-asset" in promote_script
     assert "verify-assets" in promote_script
     assert "compare" in promote_script
+    assert promote_script.count('--expected-tag "$TAG"') >= 2
     assert "git/ref/tags/$TAG" in promote_script
     assert promote_script.count("gh release edit") == 1
     assert "--draft=false" in promote_script
@@ -440,8 +517,11 @@ def test_revised_data_tag_is_valid_but_revision_zero_is_not(tmp_path: Path) -> N
     current = _write_metadata(tmp_path / "current.json", tag="data-2026-06-24-s4-r2")
     existing = _write_metadata(tmp_path / "existing.json", tag="data-2026-06-24-s4-r2")
 
-    assert compare_release_identity(current, existing).state is ReleaseState.PUBLISHED_NOOP
+    assert (
+        compare_release_identity(current, existing, expected_tag="data-2026-06-24-s4-r2").state
+        is ReleaseState.PUBLISHED_NOOP
+    )
 
     invalid = _write_metadata(tmp_path / "invalid.json", tag="data-2026-06-24-s4-r0")
     with pytest.raises(IdentityComparisonError, match="tag"):
-        compare_release_identity(invalid, existing)
+        compare_release_identity(invalid, existing, expected_tag="data-2026-06-24-s4-r2")
