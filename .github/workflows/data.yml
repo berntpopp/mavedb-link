@@ -83,6 +83,7 @@ jobs:
 
   publish:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: data-release
@@ -161,7 +162,13 @@ jobs:
                 --output "$existing/$asset"
               test "$(stat -c %s "$existing/$asset")" = "$remote_size"
               test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
-              timeout 2m gh attestation verify "$existing/$asset" --repo "$GITHUB_REPOSITORY"
+            done
+            expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+            for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
+              timeout 2m gh attestation verify "$existing/$asset" \
+                --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml" \
+                --source-ref refs/heads/main --source-digest "$expected_build"
             done
             # The production mirror limit is 24 GiB.  The extra MiB makes a
             # decompression bomb a hard failure while preserving exact-size files.
@@ -261,8 +268,14 @@ jobs:
               --output "$existing/$asset"
             test "$(stat -c %s "$existing/$asset")" = "$remote_size"
             test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
-            timeout 2m gh attestation verify "$existing/$asset" --repo "$GITHUB_REPOSITORY"
             timeout 2m gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
+          done
+          expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+          for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
+            timeout 2m gh attestation verify "$existing/$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml" \
+              --source-ref refs/heads/main --source-digest "$expected_build"
           done
           sha256sum --check "$existing/SHA256SUMS"
           zstd --decompress --stdout --quiet "$existing/mavedb.sqlite.zst" \

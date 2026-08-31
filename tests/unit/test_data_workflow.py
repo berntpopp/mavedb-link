@@ -453,6 +453,8 @@ def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
 
 def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> None:
     """Publisher effects are reachable only from their one typed release state."""
+    workflow = yaml.safe_load((ROOT / ".github/workflows/data.yml").read_text(encoding="utf-8"))
+    assert workflow["jobs"]["publish"]["if"] == "github.ref == 'refs/heads/main'"
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
@@ -473,6 +475,9 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "remote_size" in inspect_script
     assert "remote_digest" in inspect_script
     assert "gh attestation verify" in inspect_script
+    assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml"' in inspect_script
+    assert "--source-ref refs/heads/main" in inspect_script
+    assert '--source-digest "$expected_build"' in inspect_script
     assert "|| true" not in inspect_script
     assert "gh release delete" not in inspect_script
     assert "verify-assets" in inspect_script
@@ -503,6 +508,9 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "remote_size" in promote_script
     assert "remote_digest" in promote_script
     assert "gh attestation verify" in promote_script
+    assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml"' in promote_script
+    assert "--source-ref refs/heads/main" in promote_script
+    assert '--source-digest "$expected_build"' in promote_script
     assert "gh release verify-asset" in promote_script
     assert "verify-assets" in promote_script
     assert "compare" in promote_script
