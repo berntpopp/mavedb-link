@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           uv run python - <<'PY'
-          import hashlib, json
+          import hashlib, json, os
           from datetime import UTC, datetime
           from pathlib import Path
           from mavedb_link.ingest.release_identity import read_database_identity
@@ -46,12 +46,15 @@ jobs:
           # overwrite the published release ("published release collision").
           schema_major=identity.schema_major
           schema_version=identity.schema_version
-          tag=f"data-{str(identity.dump_as_of)[:10]}-s{schema_major}"
+          # r1 was the original unqualified packaging identity. r2 is the first
+          # revision whose Git ref and build revision are cryptographically bound.
+          tag=f"data-{str(identity.dump_as_of)[:10]}-s{schema_major}-r2"
           file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
           tree=hashlib.sha256(f"mavedb.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
           payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
                    "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
                    "expanded_size":db.stat().st_size,"schema_version":schema_version,
+                   "build_revision":os.environ["GITHUB_SHA"],
                    "source_sha256":identity.source_sha256,"source_url":identity.source_url,
                    "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
                    "score_set_count":identity.score_set_count,
@@ -80,6 +83,7 @@ jobs:
 
   publish:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: data-release
@@ -101,6 +105,30 @@ jobs:
       - name: Verify transferred bytes
         working-directory: dist/release-assets
         run: sha256sum --check SHA256SUMS
+      - name: Inspect exact Git tag target
+        id: tag_ref
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/tag-ref.response"
+          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+          set +e
+          timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >"$response"
+          status=$?
+          set -e
+          if test "$status" -eq 0; then
+            grep -Eq '^HTTP/[0-9.]+ 200 ' "$response"
+            awk 'body {print} /^\r?$/{body=1}' "$response" >"$RUNNER_TEMP/tag-ref.json"
+            jq -e --arg expected "$expected" \
+              '.object.type == "commit" and .object.sha == $expected' \
+              "$RUNNER_TEMP/tag-ref.json" >/dev/null
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eq '^HTTP/[0-9.]+ 404 ' "$response"; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$response" >&2
+            test "$status" -ne 0 || status=1
+            exit "$status"
+          fi
       - name: Inspect and verify an existing same-tag release
         id: existing
         run: |
@@ -110,7 +138,7 @@ jobs:
           response="$RUNNER_TEMP/release.response"
           mkdir -p "$existing"
           set +e
-          gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response"
+          timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response"
           status=$?
           set -e
           if test "$status" -eq 0; then
@@ -118,9 +146,29 @@ jobs:
             awk 'body {print} /^\r?$/{body=1}' "$response" >"$RUNNER_TEMP/release.json"
             jq -e '[.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"]' \
               "$RUNNER_TEMP/release.json" >/dev/null
+            asset_ids="$(jq -cer '[.assets[].id] | select(length == 4 and (unique | length) == 4)' "$RUNNER_TEMP/release.json")"
+            jq -e 'all(.[]; type == "number" and . > 0 and floor == .)' <<<"$asset_ids" >/dev/null
             for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
-              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$existing"
-              gh attestation verify "$existing/$asset" --repo "$GITHUB_REPOSITORY"
+              remote_id="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .id | select(type == "number" and . > 0 and floor == .)' "$RUNNER_TEMP/release.json")"
+              remote_size="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .size | select(type == "number" and . > 0 and floor == .)' "$RUNNER_TEMP/release.json")"
+              remote_digest="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$RUNNER_TEMP/release.json")"
+              if test "$asset" = mavedb.sqlite.zst; then max_size=$((8 * 1024 * 1024 * 1024)); else max_size=$((1024 * 1024)); fi
+              test "$remote_size" -le "$max_size"
+              timeout 20m curl --fail --silent --show-error --location \
+                --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 1200 \
+                --max-filesize "$remote_size" --header 'Accept: application/octet-stream' \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$remote_id" \
+                --output "$existing/$asset"
+              test "$(stat -c %s "$existing/$asset")" = "$remote_size"
+              test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
+            done
+            expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+            for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
+              timeout 2m gh attestation verify "$existing/$asset" \
+                --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml" \
+                --source-ref refs/heads/main --source-digest "$expected_build"
             done
             # The production mirror limit is 24 GiB.  The extra MiB makes a
             # decompression bomb a hard failure while preserving exact-size files.
@@ -129,9 +177,9 @@ jobs:
             test "$(stat -c %s "$expanded")" -le $((24 * 1024 * 1024 * 1024))
             python3 dist/publisher/release_identity.py verify-assets \
               --metadata "$existing/bundle-metadata.json" --release-dir "$existing" \
-              --expanded-database "$expanded"
+              --expanded-database "$expanded" --expected-tag "$TAG"
             echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "is_draft=$(jq -r '.isDraft' "$RUNNER_TEMP/release.json")" >> "$GITHUB_OUTPUT"
+            echo "is_draft=$(jq -er '.draft | tostring' "$RUNNER_TEMP/release.json")" >> "$GITHUB_OUTPUT"
           elif grep -Eq '^HTTP/[0-9.]+ 404 ' "$response"; then
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "is_draft=false" >> "$GITHUB_OUTPUT"
@@ -145,15 +193,20 @@ jobs:
         env:
           EXISTING_PRESENT: ${{ steps.existing.outputs.present }}
           EXISTING_IS_DRAFT: ${{ steps.existing.outputs.is_draft }}
+          TAG_PRESENT: ${{ steps.tag_ref.outputs.present }}
         run: |
           set -euo pipefail
           args=(compare --current dist/release-assets/bundle-metadata.json)
+          if test "$EXISTING_PRESENT" = true && test "$TAG_PRESENT" != true; then
+            echo "release exists without its exact Git tag" >&2
+            exit 1
+          fi
           if test "$EXISTING_PRESENT" = true; then
             args+=(--existing "$RUNNER_TEMP/existing-release/bundle-metadata.json")
             if test "$EXISTING_IS_DRAFT" = true; then args+=(--existing-is-draft); fi
           fi
           set +e
-          result="$(python3 dist/publisher/release_identity.py "${args[@]}")"
+          result="$(python3 dist/publisher/release_identity.py "${args[@]}" --expected-tag "$TAG")"
           status=$?
           set -e
           printf '%s\n' "$result"
@@ -165,11 +218,21 @@ jobs:
           fi
       - name: Create an empty draft for a new identity
         if: steps.decision.outputs.state == 'create'
-        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft=true --title "$TAG" --notes "Immutable MaveDB CC0 reference mirror; research use only."
+        env:
+          BUILD_REVISION: ${{ github.sha }}
+        run: timeout 2m gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$BUILD_REVISION" --draft=true --title "$TAG" --notes "Immutable MaveDB CC0 reference mirror; research use only."
+      - name: Verify newly created exact Git tag target
+        if: steps.decision.outputs.state == 'create'
+        run: |
+          set -euo pipefail
+          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+            | jq -e --arg expected "$expected" \
+              '.object.type == "commit" and .object.sha == $expected' >/dev/null
       - name: Upload new sealed assets
         if: steps.decision.outputs.state == 'create'
         run: |
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
+          timeout 10m gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
             dist/release-assets/mavedb.sqlite.zst dist/release-assets/mavedb.sqlite.zst.sha256 \
             dist/release-assets/bundle-metadata.json dist/release-assets/SHA256SUMS
       - name: Attest new release assets
@@ -177,28 +240,61 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/release-assets/*"
-      - name: Publish an already verified matching draft
-        if: steps.decision.outputs.state == 'draft_publish_existing'
+      - name: Promote a freshly verified exact draft
+        if: steps.decision.outputs.state == 'draft_publish_existing' || steps.decision.outputs.state == 'create'
         run: |
           set -euo pipefail
-          existing="$RUNNER_TEMP/existing-release"
-          expanded="$RUNNER_TEMP/existing-mavedb.sqlite"
-          sha256sum --check "$existing/SHA256SUMS"
+          existing="$RUNNER_TEMP/promotion-release"
+          expanded="$RUNNER_TEMP/promotion-mavedb.sqlite"
+          response="$RUNNER_TEMP/promotion-release.json"
+          mkdir -p "$existing"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response"
+          jq -e '.draft == true and ([.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"])' "$response" >/dev/null
+          asset_ids="$(jq -cer '[.assets[].id] | select(length == 4 and (unique | length) == 4)' "$response")"
+          jq -e 'all(.[]; type == "number" and . > 0 and floor == .)' <<<"$asset_ids" >/dev/null
           for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
-            gh attestation verify "$existing/$asset" --repo "$GITHUB_REPOSITORY"
-            gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
+            remote_id="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .id | select(type == "number" and . > 0 and floor == .)' "$response")"
+            remote_size="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .size' "$response")"
+            remote_digest="$(jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .digest' "$response")"
+            jq -en --argjson size "$remote_size" '$size | select(type == "number" and . > 0 and floor == .)' >/dev/null
+            grep -Eq '^sha256:[0-9a-f]{64}$' <<<"$remote_digest"
+            if test "$asset" = mavedb.sqlite.zst; then max_size=$((8 * 1024 * 1024 * 1024)); else max_size=$((1024 * 1024)); fi
+            test "$remote_size" -le "$max_size"
+            timeout 20m curl --fail --silent --show-error --location \
+              --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 1200 \
+              --max-filesize "$remote_size" --header 'Accept: application/octet-stream' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$remote_id" \
+              --output "$existing/$asset"
+            test "$(stat -c %s "$existing/$asset")" = "$remote_size"
+            test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
+            timeout 2m gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
           done
+          expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+          for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
+            timeout 2m gh attestation verify "$existing/$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml" \
+              --source-ref refs/heads/main --source-digest "$expected_build"
+          done
+          sha256sum --check "$existing/SHA256SUMS"
+          zstd --decompress --stdout --quiet "$existing/mavedb.sqlite.zst" \
+            | dd of="$expanded" bs=1048576 count=24577 iflag=fullblock status=none
+          test "$(stat -c %s "$expanded")" -le $((24 * 1024 * 1024 * 1024))
           python3 dist/publisher/release_identity.py verify-assets \
             --metadata "$existing/bundle-metadata.json" --release-dir "$existing" \
-            --expanded-database "$expanded"
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
-          gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
-      - name: Publish and verify a newly created release
-        if: steps.decision.outputs.state == 'create'
-        run: |
-          set -euo pipefail
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
-          gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
+            --expanded-database "$expanded" --expected-tag "$TAG"
+          python3 dist/publisher/release_identity.py compare \
+            --current dist/release-assets/bundle-metadata.json \
+            --existing "$existing/bundle-metadata.json" --existing-is-draft \
+            --expected-tag "$TAG" \
+            | jq -e '.state == "draft_publish_existing"' >/dev/null
+          expected="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+            | jq -e --arg expected "$expected" \
+              '.object.type == "commit" and .object.sha == $expected' >/dev/null
+          timeout 2m gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          timeout 2m gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
           while read -r _ asset; do
-            gh release verify-asset "$TAG" "dist/release-assets/$asset" --repo "$GITHUB_REPOSITORY"
-          done < dist/release-assets/SHA256SUMS
+            timeout 2m gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
+          done < "$existing/SHA256SUMS"

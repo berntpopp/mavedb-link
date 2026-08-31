@@ -19,7 +19,8 @@ from urllib.parse import urlparse
 
 MAX_METADATA_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}-s\d+$")
+_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+_TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}-s\d+(?:-r[1-9]\d*)?$")
 _SCHEMA_RE = re.compile(r"^\d+\.0\.0$")
 _SCHEMA_MAJOR_MAX = 999
 _RELEASE_ASSETS = frozenset(
@@ -38,6 +39,7 @@ _STABLE_FIELDS: dict[str, type[object]] = {
     "expanded_tree_sha256": str,
     "expanded_size": int,
     "schema_version": str,
+    "build_revision": str,
     "source_sha256": str,
     "source_url": str,
     "score_set_count": int,
@@ -117,10 +119,15 @@ def read_database_identity(database: Path) -> DatabaseIdentity:
     )
 
 
-def compare_release_identity(current: Path, existing: Path) -> IdentityComparison:
+def compare_release_identity(
+    current: Path, existing: Path, *, expected_tag: str
+) -> IdentityComparison:
     """Compare exact stable identity fields; retrieval time is intentionally volatile."""
+    _validate_expected_tag(expected_tag)
     candidate = _read_metadata(current)
     prior = _read_metadata(existing)
+    if candidate["tag"] != expected_tag or prior["tag"] != expected_tag:
+        return IdentityComparison(ReleaseState.COLLISION, "tag")
     for field in _STABLE_FIELDS:
         if candidate[field] != prior[field]:
             return IdentityComparison(ReleaseState.COLLISION, field)
@@ -128,13 +135,20 @@ def compare_release_identity(current: Path, existing: Path) -> IdentityCompariso
 
 
 def decide_release_identity(
-    current: Path, existing: Path | None, *, existing_is_draft: bool
+    current: Path,
+    existing: Path | None,
+    *,
+    existing_is_draft: bool,
+    expected_tag: str,
 ) -> IdentityComparison:
     """Select one disjoint mutation state without invoking an external command."""
-    _read_metadata(current)
+    _validate_expected_tag(expected_tag)
+    candidate = _read_metadata(current)
+    if candidate["tag"] != expected_tag:
+        return IdentityComparison(ReleaseState.COLLISION, "tag")
     if existing is None:
         return IdentityComparison(ReleaseState.CREATE)
-    comparison = compare_release_identity(current, existing)
+    comparison = compare_release_identity(current, existing, expected_tag=expected_tag)
     if comparison.state is ReleaseState.COLLISION:
         return comparison
     state = (
@@ -143,14 +157,23 @@ def decide_release_identity(
     return IdentityComparison(state)
 
 
-def verify_release_assets(metadata_path: Path, release_dir: Path, expanded_database: Path) -> None:
+def verify_release_assets(
+    metadata_path: Path,
+    release_dir: Path,
+    expanded_database: Path,
+    *,
+    expected_tag: str,
+) -> None:
     """Verify a downloaded release's exact assets and expanded SQLite identity.
 
     The caller supplies an already bounded, decompressed database.  This function
     is deliberately read-only so it is also safe to use for an existing draft or
     immutable published release before any release action is considered.
     """
+    _validate_expected_tag(expected_tag)
     metadata = _read_metadata(metadata_path)
+    if metadata["tag"] != expected_tag:
+        raise IdentityComparisonError("release metadata does not match expected release tag")
     _require_exact_release_assets(release_dir)
     checksums = _read_checksums(release_dir / "SHA256SUMS")
     for name in _CHECKSUM_ASSETS:
@@ -202,6 +225,8 @@ def _validate_metadata_values(payload: dict[str, object]) -> None:
     for field in ("score_set_count", "mapped_variant_count"):
         if _integer_field(payload, field) < 0:
             raise IdentityComparisonError(f"release metadata field {field} must not be negative")
+    if _REVISION_RE.fullmatch(str(payload["build_revision"])) is None:
+        raise IdentityComparisonError("release metadata field build_revision is invalid")
     tag = str(payload["tag"])
     schema = str(payload["schema_version"])
     if _TAG_RE.fullmatch(tag) is None or _SCHEMA_RE.fullmatch(schema) is None:
@@ -209,6 +234,11 @@ def _validate_metadata_values(payload: dict[str, object]) -> None:
     source_url = urlparse(str(payload["source_url"]))
     if source_url.scheme != "https" or not source_url.netloc:
         raise IdentityComparisonError("release metadata field source_url must be an https URL")
+
+
+def _validate_expected_tag(expected_tag: str) -> None:
+    if _TAG_RE.fullmatch(expected_tag) is None:
+        raise IdentityComparisonError("expected release tag is invalid")
 
 
 def _integer_field(payload: dict[str, object], field: str) -> int:
@@ -305,10 +335,12 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--current", required=True, type=Path)
     compare.add_argument("--existing", type=Path)
     compare.add_argument("--existing-is-draft", action="store_true")
+    compare.add_argument("--expected-tag", required=True)
     verify = commands.add_parser("verify-assets", help="Verify downloaded exact release assets.")
     verify.add_argument("--metadata", required=True, type=Path)
     verify.add_argument("--release-dir", required=True, type=Path)
     verify.add_argument("--expanded-database", required=True, type=Path)
+    verify.add_argument("--expected-tag", required=True)
     return parser
 
 
@@ -321,13 +353,19 @@ def main(argv: list[str] | None = None) -> int:
                 args.current,
                 args.existing,
                 existing_is_draft=args.existing_is_draft,
+                expected_tag=args.expected_tag,
             )
             sys.stdout.write(
                 json.dumps(asdict(result), default=lambda value: value.value, sort_keys=True)
             )
             sys.stdout.write("\n")
             return result.exit_code
-        verify_release_assets(args.metadata, args.release_dir, args.expanded_database)
+        verify_release_assets(
+            args.metadata,
+            args.release_dir,
+            args.expanded_database,
+            expected_tag=args.expected_tag,
+        )
     except IdentityComparisonError as exc:
         sys.stderr.write(json.dumps({"error": str(exc)}, sort_keys=True))
         sys.stderr.write("\n")

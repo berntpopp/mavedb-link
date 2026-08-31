@@ -50,6 +50,18 @@ def test_production_requires_exact_mirror_identity(
         _production_settings(**override)
 
 
+def test_production_accepts_exact_revised_release_tag() -> None:
+    tag = "data-2026-06-24-s4-r2"
+    settings = _production_settings(
+        bundle_release_tag=tag,
+        bundle_url=(
+            f"https://github.com/berntpopp/mavedb-link/releases/download/{tag}/mavedb.sqlite.zst"
+        ),
+    )
+
+    assert settings.mirror.bundle_release_tag == tag
+
+
 def test_production_rejects_shared_reference_and_cache_path() -> None:
     with pytest.raises(ValidationError, match="cache path"):
         ServerSettings(
