@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Fail closed on orphaned same-tag GitHub draft releases before creating the exact data tag.
+- Advance the collision-free MaveDB data candidate to `-r3`; retain the audited orphan `-r2`
+  draft unchanged.
 
 ## [0.5.5] - 2026-08-31
 
