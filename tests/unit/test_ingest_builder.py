@@ -20,6 +20,7 @@ import pytest
 
 from mavedb_link.exceptions import DataUnavailableError
 from mavedb_link.ingest.builder import ArchiveLimits, _open_dump, build_database
+from mavedb_link.ingest.release_identity import read_database_identity
 from tests.dump_fixture import (
     CALIBRATED_URN,
     DUMP_AS_OF,
@@ -98,6 +99,17 @@ def test_build_summary_and_meta(tmp_path: Path) -> None:
     assert row[4] == "18511521"
     assert isinstance(row[5], int) and row[5] >= 1
     assert json.loads(row[6]) == summary["mapping_coverage"]
+
+
+def test_authentic_build_identity_uses_meta_schema_not_pragma(tmp_path: Path) -> None:
+    db_path, _ = _build(tmp_path)
+
+    identity = read_database_identity(db_path)
+
+    assert identity.schema_major == 4
+    assert identity.schema_version == "4.0.0"
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
 
 
 def test_score_set_record_is_camelcase_and_parent_enriched(tmp_path: Path) -> None:
