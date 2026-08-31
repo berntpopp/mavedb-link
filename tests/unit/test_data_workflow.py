@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -14,10 +15,12 @@ import yaml  # type: ignore[import-untyped]
 
 from mavedb_link.ingest.release_identity import (
     MAX_METADATA_BYTES,
+    DatabaseIdentity,
     IdentityComparisonError,
     ReleaseState,
     compare_release_identity,
     decide_release_identity,
+    read_database_identity,
     verify_release_assets,
 )
 
@@ -73,6 +76,8 @@ def _write_database(path: Path, metadata: dict[str, object]) -> None:
         connection.execute(
             """CREATE TABLE meta (
                 id INTEGER PRIMARY KEY,
+                schema_version INTEGER,
+                dump_as_of TEXT,
                 source_sha256 TEXT,
                 source_url TEXT,
                 score_set_count INTEGER,
@@ -80,8 +85,10 @@ def _write_database(path: Path, metadata: dict[str, object]) -> None:
             )"""
         )
         connection.execute(
-            "INSERT INTO meta VALUES (1, ?, ?, ?, ?)",
+            "INSERT INTO meta VALUES (1, ?, ?, ?, ?, ?, ?)",
             (
+                int(str(metadata["schema_version"]).split(".", 1)[0]),
+                "2026-06-24T00:00:00+00:00",
                 metadata["source_sha256"],
                 metadata["source_url"],
                 metadata["score_set_count"],
@@ -272,6 +279,108 @@ def test_metadata_reader_rejects_more_than_one_mebibyte(tmp_path: Path) -> None:
 
     with pytest.raises(IdentityComparisonError, match="exceeds"):
         compare_release_identity(current, existing)
+
+
+def test_database_identity_uses_meta_schema_not_pragma(tmp_path: Path) -> None:
+    metadata = _metadata(tag="data-2026-06-24-s4", schema_version="4.0.0")
+    database = tmp_path / "mavedb.sqlite"
+    _write_database(database, metadata)
+
+    identity = read_database_identity(database)
+
+    assert isinstance(identity, DatabaseIdentity)
+    assert identity.schema_major == 4
+    assert identity.schema_version == "4.0.0"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("schema_version", [None, "not-an-int", -1, 1000])
+def test_database_identity_rejects_invalid_meta_schema_version(
+    tmp_path: Path, schema_version: object
+) -> None:
+    metadata = _metadata(tag="data-2026-06-24-s4", schema_version="4.0.0")
+    database = tmp_path / "mavedb.sqlite"
+    _write_database(database, metadata)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE meta SET schema_version = ?", (schema_version,))
+        connection.commit()
+
+    with pytest.raises(IdentityComparisonError, match="schema_version"):
+        read_database_identity(database)
+
+
+def test_database_identity_rejects_multiple_meta_rows(tmp_path: Path) -> None:
+    metadata = _metadata(tag="data-2026-06-24-s4", schema_version="4.0.0")
+    database = tmp_path / "mavedb.sqlite"
+    _write_database(database, metadata)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO meta VALUES (2, 4, ?, ?, ?, ?, ?)",
+            (
+                "2026-06-24T00:00:00+00:00",
+                metadata["source_sha256"],
+                metadata["source_url"],
+                metadata["score_set_count"],
+                metadata["mapped_variant_count"],
+            ),
+        )
+        connection.commit()
+
+    with pytest.raises(IdentityComparisonError, match="exactly one"):
+        read_database_identity(database)
+
+
+def test_data_workflow_metadata_uses_canonical_identity_reader() -> None:
+    build_metadata = _workflow_step_from_job("build", "Create exact release metadata")
+    script = str(build_metadata["run"])
+
+    assert "read_database_identity" in script
+    assert "PRAGMA user_version" not in script
+
+
+def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path: Path) -> None:
+    from mavedb_link.ingest.builder import build_database
+    from tests.dump_fixture import write_mini_dump
+
+    data = tmp_path / "data"
+    data.mkdir()
+    dump_dir = tmp_path / "dump"
+    dump_dir.mkdir()
+    build_database(
+        write_mini_dump(dump_dir),
+        data / "mavedb.sqlite",
+        source_sha256="c" * 64,
+        source_url="https://zenodo.org/records/20840937/files/mavedb.zip",
+    )
+    (data / "mavedb.sqlite.zst").write_bytes(b"sealed-bundle")
+    build_metadata = _workflow_step_from_job("build", "Create exact release metadata")
+    workflow_script = str(build_metadata["run"])
+    python_script = workflow_script.split("uv run python - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", python_script],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads((data / "bundle-metadata.json").read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "4.0.0"
+    assert payload["tag"] == "data-2026-02-06-s4"
+
+
+def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/data.yml").read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict)
+    job = workflow["jobs"][job_name]
+    assert isinstance(job, dict)
+    steps = job["steps"]
+    assert isinstance(steps, list)
+    return next(step for step in steps if step.get("name") == step_name)
 
 
 def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> None:

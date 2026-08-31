@@ -34,28 +34,28 @@ jobs:
         run: |
           set -euo pipefail
           uv run python - <<'PY'
-          import hashlib, json, sqlite3
+          import hashlib, json
           from datetime import UTC, datetime
           from pathlib import Path
+          from mavedb_link.ingest.release_identity import read_database_identity
           db=Path("data/mavedb.sqlite"); asset=Path("data/mavedb.sqlite.zst")
-          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
-          meta=dict(con.execute("select * from meta where id=1").fetchone())
+          identity=read_database_identity(db)
           # The bundle's identity is (upstream dump, mirror schema), not the dump alone: the
           # same Zenodo dump built by newer code yields a different schema. Tagging on the
           # dump date alone made those two collide, and the publish step correctly refused to
           # overwrite the published release ("published release collision").
-          schema_major=int(con.execute("pragma user_version").fetchone()[0]); con.close()
-          schema_version=f"{schema_major}.0.0"
-          tag=f"data-{str(meta['dump_as_of'])[:10]}-s{schema_major}"
+          schema_major=identity.schema_major
+          schema_version=identity.schema_version
+          tag=f"data-{str(identity.dump_as_of)[:10]}-s{schema_major}"
           file_hash=hashlib.sha256(db.read_bytes()).hexdigest()
           tree=hashlib.sha256(f"mavedb.sqlite\0{0o444:04o}\0{db.stat().st_size}\0{file_hash}\n".encode()).hexdigest()
           payload={"tag":tag,"asset_sha256":hashlib.sha256(asset.read_bytes()).hexdigest(),
                    "asset_size":asset.stat().st_size,"expanded_tree_sha256":tree,
                    "expanded_size":db.stat().st_size,"schema_version":schema_version,
-                   "source_sha256":meta["source_sha256"],"source_url":meta["source_url"],
+                   "source_sha256":identity.source_sha256,"source_url":identity.source_url,
                    "retrieved_at":datetime.now(UTC).isoformat().replace("+00:00","Z"),
-                   "score_set_count":meta["score_set_count"],
-                   "mapped_variant_count":meta["mapped_variant_count"]}
+                   "score_set_count":identity.score_set_count,
+                   "mapped_variant_count":identity.mapped_variant_count}
           Path("data/bundle-metadata.json").write_text(json.dumps(payload,sort_keys=True)+"\n")
           with Path("data/SHA256SUMS").open("w") as out:
               for path in sorted(Path("data").glob("mavedb.sqlite.zst*")):

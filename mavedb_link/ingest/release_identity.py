@@ -21,6 +21,7 @@ MAX_METADATA_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TAG_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}-s\d+$")
 _SCHEMA_RE = re.compile(r"^\d+\.0\.0$")
+_SCHEMA_MAJOR_MAX = 999
 _RELEASE_ASSETS = frozenset(
     {
         "mavedb.sqlite.zst",
@@ -69,6 +70,51 @@ class IdentityComparison:
     def exit_code(self) -> int:
         """Return a process status suitable for a fail-closed publisher."""
         return 1 if self.state is ReleaseState.COLLISION else 0
+
+
+@dataclass(frozen=True)
+class DatabaseIdentity:
+    """Canonical identity fields read from the mirror's single metadata row."""
+
+    schema_major: int
+    schema_version: str
+    dump_as_of: str | None
+    source_sha256: str | None
+    source_url: str | None
+    score_set_count: int | None
+    mapped_variant_count: int | None
+
+
+def read_database_identity(database: Path) -> DatabaseIdentity:
+    """Read and validate the canonical release identity from a built database."""
+    if not database.is_file() or database.is_symlink():
+        raise IdentityComparisonError("expanded database is missing or unsafe")
+    try:
+        connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            row_count = connection.execute("SELECT COUNT(*) FROM meta").fetchone()[0]
+            rows = connection.execute(
+                "SELECT schema_version, dump_as_of, source_sha256, source_url, "
+                "score_set_count, mapped_variant_count FROM meta WHERE id = 1"
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise IdentityComparisonError("expanded database has no readable identity") from exc
+    if row_count != 1 or len(rows) != 1:
+        raise IdentityComparisonError("expanded database must contain exactly one meta row")
+    schema_major, dump_as_of, source_sha256, source_url, score_set_count, mapped_count = rows[0]
+    if type(schema_major) is not int or not 0 <= schema_major <= _SCHEMA_MAJOR_MAX:
+        raise IdentityComparisonError("expanded database meta.schema_version is invalid")
+    return DatabaseIdentity(
+        schema_major=schema_major,
+        schema_version=f"{schema_major}.0.0",
+        dump_as_of=dump_as_of,
+        source_sha256=source_sha256,
+        source_url=source_url,
+        score_set_count=score_set_count,
+        mapped_variant_count=mapped_count,
+    )
 
 
 def compare_release_identity(current: Path, existing: Path) -> IdentityComparison:
@@ -214,26 +260,13 @@ def _verify_expanded_database(metadata: dict[str, object], database: Path) -> No
         raise IdentityComparisonError("expanded_size does not match mavedb.sqlite")
     if _expanded_tree_sha256(database) != metadata["expanded_tree_sha256"]:
         raise IdentityComparisonError("expanded_tree_sha256 does not match mavedb.sqlite")
-    try:
-        connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
-        try:
-            schema_major = connection.execute("PRAGMA user_version").fetchone()[0]
-            row = connection.execute(
-                "SELECT source_sha256, source_url, score_set_count, mapped_variant_count "
-                "FROM meta WHERE id = 1"
-            ).fetchone()
-        finally:
-            connection.close()
-    except sqlite3.Error as exc:
-        raise IdentityComparisonError("expanded database has no readable identity") from exc
-    if not isinstance(schema_major, int) or row is None:
-        raise IdentityComparisonError("expanded database has no readable identity")
+    identity = read_database_identity(database)
     actual = {
-        "schema_version": f"{schema_major}.0.0",
-        "source_sha256": row[0],
-        "source_url": row[1],
-        "score_set_count": row[2],
-        "mapped_variant_count": row[3],
+        "schema_version": identity.schema_version,
+        "source_sha256": identity.source_sha256,
+        "source_url": identity.source_url,
+        "score_set_count": identity.score_set_count,
+        "mapped_variant_count": identity.mapped_variant_count,
     }
     for field, value in actual.items():
         if value != metadata[field]:
