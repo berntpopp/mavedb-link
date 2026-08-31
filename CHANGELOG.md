@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Fail closed on orphaned same-tag GitHub draft releases before creating the exact data tag.
+
 ## [0.5.5] - 2026-08-31
 
 ### Fixed

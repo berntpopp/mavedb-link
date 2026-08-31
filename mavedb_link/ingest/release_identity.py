@@ -157,6 +157,42 @@ def decide_release_identity(
     return IdentityComparison(state)
 
 
+def inspect_release_inventory(
+    inventory: Path, *, expected_tag: str
+) -> dict[str, bool | int | None]:
+    """Classify an exact tag in a bounded, minimal GitHub release projection."""
+    _validate_expected_tag(expected_tag)
+    body = _read_bounded(inventory, label="release inventory")
+    lines = body.splitlines()
+    if len(lines) > 1000:
+        raise IdentityComparisonError("release inventory exceeds 1000 records")
+    release_ids: set[int] = set()
+    matches: list[int] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise IdentityComparisonError("release inventory is not valid JSON Lines") from exc
+        if not isinstance(entry, dict) or set(entry) != {"id", "tag_name"}:
+            raise IdentityComparisonError("release inventory entry has invalid keys")
+        release_id = entry["id"]
+        tag_name = entry["tag_name"]
+        if (
+            not isinstance(tag_name, str)
+            or type(release_id) is not int
+            or release_id <= 0
+            or release_id in release_ids
+        ):
+            raise IdentityComparisonError("release inventory entry has invalid identity")
+        release_ids.add(release_id)
+        if tag_name == expected_tag:
+            matches.append(release_id)
+    if len(matches) > 1:
+        raise IdentityComparisonError("release inventory must contain at most one exact tag")
+    release_id = matches[0] if matches else None
+    return {"present": release_id is not None, "release_id": release_id}
+
+
 def verify_release_assets(
     metadata_path: Path,
     release_dir: Path,
@@ -341,6 +377,11 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--release-dir", required=True, type=Path)
     verify.add_argument("--expanded-database", required=True, type=Path)
     verify.add_argument("--expected-tag", required=True)
+    inventory = commands.add_parser(
+        "inspect-inventory", help="Inspect a bounded GitHub release inventory projection."
+    )
+    inventory.add_argument("--inventory", required=True, type=Path)
+    inventory.add_argument("--expected-tag", required=True)
     return parser
 
 
@@ -360,12 +401,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             sys.stdout.write("\n")
             return result.exit_code
-        verify_release_assets(
-            args.metadata,
-            args.release_dir,
-            args.expanded_database,
-            expected_tag=args.expected_tag,
-        )
+        if args.command == "inspect-inventory":
+            inventory_result = inspect_release_inventory(
+                args.inventory, expected_tag=args.expected_tag
+            )
+            sys.stdout.write(json.dumps(inventory_result, sort_keys=True))
+            sys.stdout.write("\n")
+            return 0
+        if args.command == "verify-assets":
+            verify_release_assets(
+                args.metadata,
+                args.release_dir,
+                args.expanded_database,
+                expected_tag=args.expected_tag,
+            )
     except IdentityComparisonError as exc:
         sys.stderr.write(json.dumps({"error": str(exc)}, sort_keys=True))
         sys.stderr.write("\n")

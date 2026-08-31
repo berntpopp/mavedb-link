@@ -458,6 +458,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
+    inventory = _workflow_step("Revalidate bounded release inventory before tag creation")
     create_tag = _workflow_step("Create exact Git tag for a new identity")
     create = _workflow_step("Create an empty draft for a new identity")
     upload = _workflow_step("Upload new sealed assets")
@@ -492,8 +493,16 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
     assert '--expected-tag "$TAG"' in str(decide["run"])
+    assert inventory["if"] == "steps.decision.outputs.state == 'create'"
+    inventory_script = str(inventory["run"])
+    assert "releases?per_page=100&page=$page" in inventory_script
+    assert "seq 1 10" in inventory_script
+    assert 'test "$complete" = true' in inventory_script
+    assert "inspect-inventory" in inventory_script
+    assert 'jq -e ".present == false"' in inventory_script
     assert create_tag["if"] == (
-        "steps.decision.outputs.state == 'create' && steps.tag_ref.outputs.present != 'true'"
+        "steps.decision.outputs.state == 'create' && "
+        "steps.tag_ref.outputs.present != 'true' && steps.inventory.outputs.absent == 'true'"
     )
     create_tag_script = str(create_tag["run"])
     assert "git/refs" in create_tag_script
@@ -502,6 +511,12 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "bundle-metadata.json" in create_tag_script
     assert "build_revision" in create_tag_script
     names = [str(step.get("name", "")) for step in _workflow_steps()]
+    assert names.index("Resolve the exact release identity state") < names.index(
+        "Revalidate bounded release inventory before tag creation"
+    )
+    assert names.index("Revalidate bounded release inventory before tag creation") < names.index(
+        "Create exact Git tag for a new identity"
+    )
     assert names.index("Create exact Git tag for a new identity") < names.index(
         "Create an empty draft for a new identity"
     )

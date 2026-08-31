@@ -216,8 +216,36 @@ jobs:
             echo "same-tag release collision: $(printf '%s' "$result" | jq -r .differing_field)" >&2
             exit "$status"
           fi
+      - name: Revalidate bounded release inventory before tag creation
+        id: inventory
+        if: steps.decision.outputs.state == 'create'
+        run: |
+          set -euo pipefail
+          inventory="$RUNNER_TEMP/release-inventory.jsonl"
+          : >"$inventory"
+          complete=false
+          for page in $(seq 1 10); do
+            response="$RUNNER_TEMP/release-inventory-$page.json"
+            timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page" >"$response"
+            jq -e 'type == "array" and length <= 100' "$response" >/dev/null
+            count="$(jq -er 'length' "$response")"
+            jq -c '.[] | {id, tag_name}' "$response" >>"$inventory"
+            if test "$count" -lt 100; then
+              complete=true
+              break
+            fi
+          done
+          test "$complete" = true
+          state="$(python3 dist/publisher/release_identity.py inspect-inventory \
+            --inventory "$inventory" --expected-tag "$TAG")"
+          printf '%s\n' "$state"
+          jq -e ".present == false" <<<"$state" >/dev/null
+          echo "absent=true" >>"$GITHUB_OUTPUT"
       - name: Create exact Git tag for a new identity
-        if: steps.decision.outputs.state == 'create' && steps.tag_ref.outputs.present != 'true'
+        if: >-
+          steps.decision.outputs.state == 'create' &&
+          steps.tag_ref.outputs.present != 'true' &&
+          steps.inventory.outputs.absent == 'true'
         env:
           BUILD_REVISION: ${{ github.sha }}
         run: |
