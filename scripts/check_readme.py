@@ -19,6 +19,8 @@ Exits non-zero on any violation.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -62,6 +64,25 @@ GENERATED_BLOCK = re.compile(
 
 
 def repo_slug() -> str:
+    """Return the canonical GitHub repository name for this checkout."""
+    git = shutil.which("git")
+    if git is None:
+        return ROOT.name
+    try:
+        result = subprocess.run(  # noqa: S603
+            [git, "-C", str(ROOT), "remote", "get-url", "origin"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return ROOT.name
+    match = re.fullmatch(
+        rf"(?:https://github\.com/|git@github\.com:){re.escape(OWNER)}/([A-Za-z0-9_.-]+?)(?:\.git)?",
+        result.stdout.strip(),
+    )
+    if match is not None:
+        return match.group(1)
     return ROOT.name
 
 
