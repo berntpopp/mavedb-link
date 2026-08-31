@@ -543,7 +543,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml"' in promote_script
     assert "--source-ref refs/heads/main" in promote_script
     assert '--source-digest "$expected_build"' in promote_script
-    assert "gh release verify-asset" in promote_script
+    assert "gh release verify-asset" not in promote_script
     assert "verify-assets" in promote_script
     assert "compare" in promote_script
     assert promote_script.count('--expected-tag "$TAG"') >= 2
