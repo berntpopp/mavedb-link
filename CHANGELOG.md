@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-08-31
+
+- Consolidated runtime and workflow maintenance updates; mirror-primary and
+  identity-aware live-backup behavior are unchanged.
+
 ## [0.5.3] - 2026-08-10
 
 Consolidated Dependabot maintenance release. No MCP, API or data-contract
