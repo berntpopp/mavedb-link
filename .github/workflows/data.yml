@@ -137,6 +137,7 @@ jobs:
             echo "is_draft=false" >> "$GITHUB_OUTPUT"
           else
             cat "$response" >&2
+            test "$status" -ne 0 || status=1
             exit "$status"
           fi
       - name: Resolve the exact release identity state

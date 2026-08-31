@@ -287,6 +287,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     inspect_script = str(inspect_existing["run"])
     assert "gh api --include" in inspect_script
     assert "404" in inspect_script
+    assert 'test "$status" -ne 0 || status=1' in inspect_script
     assert "gh release download" in inspect_script
     assert "gh attestation verify" in inspect_script
     assert "|| true" not in inspect_script
