@@ -63,7 +63,10 @@ def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     assert re.search(r"uses:\s*actions/attest-build-provenance@[0-9a-f]{40}\b", workflow), (
         "attest-build-provenance must be present and pinned to a full commit SHA"
     )
-    assert "gh release verify-asset" in workflow
+    assert "releases/$release_id" in workflow
+    assert 'sha256sum "$existing/$asset"' in workflow
+    assert "pre-promotion-assets.json" in workflow
+    assert "post-promotion-assets.json" in workflow
     assert "--clobber" not in workflow
 
 

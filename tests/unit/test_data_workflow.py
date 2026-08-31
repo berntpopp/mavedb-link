@@ -458,7 +458,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
-    inventory = _workflow_step("Revalidate bounded release inventory before tag creation")
+    inventory = _workflow_step("Inventory exact release identity")
     create_tag = _workflow_step("Create exact Git tag for a new identity")
     create = _workflow_step("Create an empty draft for a new identity")
     upload = _workflow_step("Upload new sealed assets")
@@ -467,8 +467,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
 
     inspect_script = str(inspect_existing["run"])
     assert "gh api --include" in inspect_script
-    assert "404" in inspect_script
-    assert 'test "$status" -ne 0 || status=1' in inspect_script
+    assert "404" not in inspect_script
     assert "gh release download" not in inspect_script
     assert "releases/assets/$remote_id" in inspect_script
     assert '--max-filesize "$remote_size"' in inspect_script
@@ -493,16 +492,17 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
     assert '--expected-tag "$TAG"' in str(decide["run"])
-    assert inventory["if"] == "steps.decision.outputs.state == 'create'"
+    assert inventory.get("if") is None
     inventory_script = str(inventory["run"])
     assert "releases?per_page=100&page=$page" in inventory_script
     assert "seq 1 10" in inventory_script
     assert 'test "$complete" = true' in inventory_script
     assert "inspect-inventory" in inventory_script
-    assert 'jq -e ".present == false"' in inventory_script
+    assert 'echo "present=$present"' in inventory_script
+    assert 'echo "release_id=$release_id"' in inventory_script
     assert create_tag["if"] == (
         "steps.decision.outputs.state == 'create' && "
-        "steps.tag_ref.outputs.present != 'true' && steps.inventory.outputs.absent == 'true'"
+        "steps.tag_ref.outputs.present != 'true' && steps.inventory.outputs.present != 'true'"
     )
     create_tag_script = str(create_tag["run"])
     assert "git/refs" in create_tag_script
@@ -511,17 +511,20 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "bundle-metadata.json" in create_tag_script
     assert "build_revision" in create_tag_script
     names = [str(step.get("name", "")) for step in _workflow_steps()]
-    assert names.index("Resolve the exact release identity state") < names.index(
-        "Revalidate bounded release inventory before tag creation"
+    assert names.index("Inventory exact release identity") < names.index(
+        "Inspect and verify an existing same-tag release"
     )
-    assert names.index("Revalidate bounded release inventory before tag creation") < names.index(
+    assert names.index("Inspect and verify an existing same-tag release") < names.index(
+        "Resolve the exact release identity state"
+    )
+    assert names.index("Resolve the exact release identity state") < names.index(
         "Create exact Git tag for a new identity"
     )
     assert names.index("Create exact Git tag for a new identity") < names.index(
         "Create an empty draft for a new identity"
     )
     assert create["if"] == "steps.decision.outputs.state == 'create'"
-    assert '--target "$BUILD_REVISION"' in str(create["run"])
+    assert 'target_commitish="$BUILD_REVISION"' in str(create["run"])
     assert upload["if"] == "steps.decision.outputs.state == 'create'"
     assert attest["if"] == "steps.decision.outputs.state == 'create'"
     assert promote["if"] == (
@@ -540,14 +543,45 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/data.yml"' in promote_script
     assert "--source-ref refs/heads/main" in promote_script
     assert '--source-digest "$expected_build"' in promote_script
-    assert "gh release verify-asset" in promote_script
+    assert "gh release verify-asset" not in promote_script
     assert "verify-assets" in promote_script
     assert "compare" in promote_script
     assert promote_script.count('--expected-tag "$TAG"') >= 2
     assert "git/ref/tags/$TAG" in promote_script
-    assert promote_script.count("gh release edit") == 1
-    assert "--draft=false" in promote_script
+    assert 'gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id"' in promote_script
+    assert "-F draft=false" in promote_script
     assert all("skip" not in str(step.get("if", "")).lower() for step in _workflow_steps())
+
+
+def test_data_workflow_carries_one_numeric_release_id_through_draft_promotion() -> None:
+    inventory = _workflow_step("Inventory exact release identity")
+    inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
+    create = _workflow_step("Create an empty draft for a new identity")
+    promote = _workflow_step("Promote a freshly verified exact draft")
+    inventory_script = str(inventory["run"])
+    assert "releases?per_page=100&page=$page" in inventory_script
+    assert 'echo "release_id=$release_id"' in inventory_script
+    inspect_script = str(inspect_existing["run"])
+    assert inspect_existing["env"] == {"RELEASE_ID": "${{ steps.inventory.outputs.release_id }}"}
+    assert "releases/$RELEASE_ID" in inspect_script
+    assert "releases/tags/$TAG" not in inspect_script
+    assert ".id == $release_id" in inspect_script
+    assert ".tag_name == $tag" in inspect_script
+    create_script = str(create["run"])
+    assert create["id"] == "create_release"
+    assert "repos/$GITHUB_REPOSITORY/releases" in create_script
+    assert "--method POST" in create_script
+    assert 'echo "release_id=$release_id"' in create_script
+    promote_script = str(promote["run"])
+    assert promote["env"] == {
+        "CREATED_RELEASE_ID": "${{ steps.create_release.outputs.release_id }}",
+        "EXISTING_RELEASE_ID": "${{ steps.inventory.outputs.release_id }}",
+    }
+    assert "releases/$release_id" in promote_script
+    assert "releases/tags/$TAG" not in promote_script
+    assert ".id == $release_id" in promote_script
+    assert ".tag_name == $tag" in promote_script
+    assert ".draft == false and .immutable == true" in promote_script
 
 
 def test_revised_data_tag_is_valid_but_revision_zero_is_not(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ import sys
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 MAX_METADATA_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -32,6 +32,7 @@ _RELEASE_ASSETS = frozenset(
     }
 )
 _CHECKSUM_ASSETS = frozenset(_RELEASE_ASSETS - {"SHA256SUMS"})
+_GITHUB_UPLOAD_HOST = "uploads.github.com"
 _STABLE_FIELDS: dict[str, type[object]] = {
     "tag": str,
     "asset_sha256": str,
@@ -59,6 +60,24 @@ class ReleaseState(StrEnum):
     DRAFT_PUBLISH_EXISTING = "draft_publish_existing"
     CREATE = "create"
     COLLISION = "collision"
+
+
+def validate_github_upload_url(url: str) -> str:
+    """Require an HTTPS upload URL with GitHub's exact upload host."""
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise IdentityComparisonError("upload URL is malformed") from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != _GITHUB_UPLOAD_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        raise IdentityComparisonError("upload URL must use GitHub's exact HTTPS upload host")
+    return url
 
 
 @dataclass(frozen=True)
@@ -382,6 +401,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     inventory.add_argument("--inventory", required=True, type=Path)
     inventory.add_argument("--expected-tag", required=True)
+    upload = commands.add_parser("validate-upload-url", help="Validate a GitHub asset upload URL.")
+    upload.add_argument("--url", required=True)
     return parser
 
 
@@ -415,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.expanded_database,
                 expected_tag=args.expected_tag,
             )
+        if args.command == "validate-upload-url":
+            validate_github_upload_url(args.url)
     except IdentityComparisonError as exc:
         sys.stderr.write(json.dumps({"error": str(exc)}, sort_keys=True))
         sys.stderr.write("\n")

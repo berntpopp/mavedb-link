@@ -130,21 +130,55 @@ jobs:
             test "$status" -ne 0 || status=1
             exit "$status"
           fi
+      - name: Inventory exact release identity
+        id: inventory
+        run: |
+          set -euo pipefail
+          inventory="$RUNNER_TEMP/release-inventory.jsonl"
+          : >"$inventory"
+          complete=false
+          for page in $(seq 1 10); do
+            response="$RUNNER_TEMP/release-inventory-$page.json"
+            timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page" >"$response"
+            jq -e 'type == "array" and length <= 100' "$response" >/dev/null
+            count="$(jq -er 'length' "$response")"
+            jq -c '.[] | {id, tag_name}' "$response" >>"$inventory"
+            if test "$count" -lt 100; then
+              complete=true
+              break
+            fi
+          done
+          test "$complete" = true
+          state="$(python3 dist/publisher/release_identity.py inspect-inventory \
+            --inventory "$inventory" --expected-tag "$TAG")"
+          printf '%s\n' "$state"
+          present="$(jq -er '.present | tostring' <<<"$state")"
+          release_id="$(jq -er 'if .present then (.release_id | tostring) else "" end' <<<"$state")"
+          if test -n "$release_id"; then grep -Eq '^[1-9][0-9]{0,18}$' <<<"$release_id"; fi
+          echo "present=$present" >> "$GITHUB_OUTPUT"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Inspect and verify an existing same-tag release
         id: existing
+        env:
+          RELEASE_ID: ${{ steps.inventory.outputs.release_id }}
         run: |
           set -euo pipefail
           existing="$RUNNER_TEMP/existing-release"
           expanded="$RUNNER_TEMP/existing-mavedb.sqlite"
           response="$RUNNER_TEMP/release.response"
           mkdir -p "$existing"
-          set +e
-          timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response"
-          status=$?
-          set -e
-          if test "$status" -eq 0; then
+          if test -n "$RELEASE_ID"; then
+            grep -Eq '^[1-9][0-9]{0,18}$' <<<"$RELEASE_ID"
+            timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >"$response"
             grep -Eq '^HTTP/[0-9.]+ 200 ' "$response"
             awk 'body {print} /^\r?$/{body=1}' "$response" >"$RUNNER_TEMP/release.json"
+            expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+            jq -e --argjson release_id "$RELEASE_ID" --arg tag "$TAG" --arg expected "$expected" \
+              '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
+               .prerelease == false and
+               ((.draft == true and .immutable == false and .published_at == null) or
+                (.draft == false and .immutable == true and (.published_at | type == "string")))' \
+              "$RUNNER_TEMP/release.json" >/dev/null
             jq -e '[.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"]' \
               "$RUNNER_TEMP/release.json" >/dev/null
             asset_ids="$(jq -cer '[.assets[].id] | select(length == 4 and (unique | length) == 4)' "$RUNNER_TEMP/release.json")"
@@ -181,13 +215,9 @@ jobs:
               --expanded-database "$expanded" --expected-tag "$TAG"
             echo "present=true" >> "$GITHUB_OUTPUT"
             echo "is_draft=$(jq -er '.draft | tostring' "$RUNNER_TEMP/release.json")" >> "$GITHUB_OUTPUT"
-          elif grep -Eq '^HTTP/[0-9.]+ 404 ' "$response"; then
+          else
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "is_draft=false" >> "$GITHUB_OUTPUT"
-          else
-            cat "$response" >&2
-            test "$status" -ne 0 || status=1
-            exit "$status"
           fi
       - name: Resolve the exact release identity state
         id: decision
@@ -217,36 +247,11 @@ jobs:
             echo "same-tag release collision: $(printf '%s' "$result" | jq -r .differing_field)" >&2
             exit "$status"
           fi
-      - name: Revalidate bounded release inventory before tag creation
-        id: inventory
-        if: steps.decision.outputs.state == 'create'
-        run: |
-          set -euo pipefail
-          inventory="$RUNNER_TEMP/release-inventory.jsonl"
-          : >"$inventory"
-          complete=false
-          for page in $(seq 1 10); do
-            response="$RUNNER_TEMP/release-inventory-$page.json"
-            timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100&page=$page" >"$response"
-            jq -e 'type == "array" and length <= 100' "$response" >/dev/null
-            count="$(jq -er 'length' "$response")"
-            jq -c '.[] | {id, tag_name}' "$response" >>"$inventory"
-            if test "$count" -lt 100; then
-              complete=true
-              break
-            fi
-          done
-          test "$complete" = true
-          state="$(python3 dist/publisher/release_identity.py inspect-inventory \
-            --inventory "$inventory" --expected-tag "$TAG")"
-          printf '%s\n' "$state"
-          jq -e ".present == false" <<<"$state" >/dev/null
-          echo "absent=true" >>"$GITHUB_OUTPUT"
       - name: Create exact Git tag for a new identity
         if: >-
           steps.decision.outputs.state == 'create' &&
           steps.tag_ref.outputs.present != 'true' &&
-          steps.inventory.outputs.absent == 'true'
+          steps.inventory.outputs.present != 'true'
         env:
           BUILD_REVISION: ${{ github.sha }}
         run: |
@@ -258,10 +263,24 @@ jobs:
             | jq -e --arg ref "refs/tags/$TAG" --arg expected "$expected" \
               '.ref == $ref and .object.type == "commit" and .object.sha == $expected' >/dev/null
       - name: Create an empty draft for a new identity
+        id: create_release
         if: steps.decision.outputs.state == 'create'
         env:
           BUILD_REVISION: ${{ github.sha }}
-        run: timeout 2m gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$BUILD_REVISION" --draft=true --title "$TAG" --notes "Immutable MaveDB CC0 reference mirror; research use only."
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/created-release.json"
+          timeout 2m gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$TAG" -f target_commitish="$BUILD_REVISION" -f name="$TAG" \
+            -f body="Immutable MaveDB CC0 reference mirror; research use only." \
+            -F draft=true -F prerelease=false -F generate_release_notes=false >"$response"
+          release_id="$(jq -er --arg tag "$TAG" --arg expected "$BUILD_REVISION" \
+            'select(.tag_name == $tag and .target_commitish == $expected and
+                    .draft == true and .immutable == false and .published_at == null and
+                    .prerelease == false and (.assets | type == "array" and length == 0)) |
+             .id | select(type == "number" and . > 0 and . <= 9999999999999999999 and floor == .)' \
+            "$response")"
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       - name: Verify newly created exact Git tag target
         if: steps.decision.outputs.state == 'create'
         run: |
@@ -272,10 +291,31 @@ jobs:
               '.object.type == "commit" and .object.sha == $expected' >/dev/null
       - name: Upload new sealed assets
         if: steps.decision.outputs.state == 'create'
+        env:
+          RELEASE_ID: ${{ steps.create_release.outputs.release_id }}
         run: |
-          timeout 10m gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
-            dist/release-assets/mavedb.sqlite.zst dist/release-assets/mavedb.sqlite.zst.sha256 \
-            dist/release-assets/bundle-metadata.json dist/release-assets/SHA256SUMS
+          set -euo pipefail
+          grep -Eq '^[1-9][0-9]{0,18}$' <<<"$RELEASE_ID"
+          upload_url="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets"
+          python3 dist/publisher/release_identity.py validate-upload-url --url "$upload_url" >/dev/null
+          for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
+            path="dist/release-assets/$asset"
+            response="$RUNNER_TEMP/upload-$asset.json"
+            size="$(stat -c %s "$path")"
+            digest="sha256:$(sha256sum "$path" | cut -d' ' -f1)"
+            timeout 10m curl --fail --silent --show-error \
+              --proto '=https' --connect-timeout 15 --max-time 600 \
+              --request POST --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$path" \
+              "$upload_url?name=$asset" \
+              --output "$response"
+            jq -e --arg asset "$asset" --arg digest "$digest" --argjson size "$size" \
+              '.id | select(type == "number" and . > 0 and floor == .)' "$response" >/dev/null
+            jq -e --arg asset "$asset" --arg digest "$digest" --argjson size "$size" \
+              '.name == $asset and .size == $size and .digest == $digest' "$response" >/dev/null
+          done
       - name: Attest new release assets
         if: steps.decision.outputs.state == 'create'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -283,14 +323,28 @@ jobs:
           subject-path: "dist/release-assets/*"
       - name: Promote a freshly verified exact draft
         if: steps.decision.outputs.state == 'draft_publish_existing' || steps.decision.outputs.state == 'create'
+        env:
+          CREATED_RELEASE_ID: ${{ steps.create_release.outputs.release_id }}
+          EXISTING_RELEASE_ID: ${{ steps.inventory.outputs.release_id }}
         run: |
           set -euo pipefail
           existing="$RUNNER_TEMP/promotion-release"
           expanded="$RUNNER_TEMP/promotion-mavedb.sqlite"
           response="$RUNNER_TEMP/promotion-release.json"
+          post_response="$RUNNER_TEMP/promoted-release.json"
           mkdir -p "$existing"
-          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >"$response"
-          jq -e '.draft == true and ([.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"])' "$response" >/dev/null
+          release_id="${CREATED_RELEASE_ID:-$EXISTING_RELEASE_ID}"
+          grep -Eq '^[1-9][0-9]{0,18}$' <<<"$release_id"
+          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" >"$response"
+          jq -e --argjson release_id "$release_id" --arg tag "$TAG" --arg expected "$expected" \
+            '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
+             .draft == true and .immutable == false and .published_at == null and
+             .prerelease == false and
+             ([.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"])' \
+            "$response" >/dev/null
+          jq -c '[.assets[] | {id, name, size, digest}] | sort_by(.name)' \
+            "$response" >"$RUNNER_TEMP/pre-promotion-assets.json"
           asset_ids="$(jq -cer '[.assets[].id] | select(length == 4 and (unique | length) == 4)' "$response")"
           jq -e 'all(.[]; type == "number" and . > 0 and floor == .)' <<<"$asset_ids" >/dev/null
           for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
@@ -309,7 +363,6 @@ jobs:
               --output "$existing/$asset"
             test "$(stat -c %s "$existing/$asset")" = "$remote_size"
             test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
-            timeout 2m gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
           done
           expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
           for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
@@ -334,8 +387,13 @@ jobs:
           timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
             | jq -e --arg expected "$expected" \
               '.object.type == "commit" and .object.sha == $expected' >/dev/null
-          timeout 2m gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
-          timeout 2m gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
-          while read -r _ asset; do
-            timeout 2m gh release verify-asset "$TAG" "$existing/$asset" --repo "$GITHUB_REPOSITORY"
-          done < "$existing/SHA256SUMS"
+          timeout 2m gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false >"$post_response"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" >"$post_response"
+          jq -e --argjson release_id "$release_id" --arg tag "$TAG" --arg expected "$expected" \
+            '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
+             .draft == false and .immutable == true and .prerelease == false and
+             (.published_at | type == "string")' "$post_response" >/dev/null
+          jq -c '[.assets[] | {id, name, size, digest}] | sort_by(.name)' \
+            "$post_response" >"$RUNNER_TEMP/post-promotion-assets.json"
+          cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$RUNNER_TEMP/post-promotion-assets.json"
