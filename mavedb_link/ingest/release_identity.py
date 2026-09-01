@@ -15,6 +15,7 @@ import sys
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import urlparse, urlsplit
 
 MAX_METADATA_BYTES = 1024 * 1024
@@ -46,12 +47,30 @@ _TYPED_FIELDS: dict[str, type[object]] = {
     "score_set_count": int,
     "mapped_variant_count": int,
 }
-_CONTENT_IDENTITY_FIELDS = tuple(field for field in _TYPED_FIELDS if field != "build_revision")
+_SEMANTIC_METADATA_FIELDS = (
+    "tag",
+    "schema_version",
+    "source_sha256",
+    "source_url",
+    "score_set_count",
+    "mapped_variant_count",
+)
+_REBUILDABLE_ARTIFACT_FIELDS = (
+    "asset_sha256",
+    "asset_size",
+    "expanded_tree_sha256",
+    "expanded_size",
+)
+_VOLATILE_META_COLUMNS = frozenset({"build_utc", "build_duration_s"})
 _ALL_METADATA_FIELDS = frozenset((*_TYPED_FIELDS, "retrieved_at"))
 
 
 class IdentityComparisonError(ValueError):
     """The supplied release identity is missing, unsafe, or inconsistent."""
+
+
+class _Hash(Protocol):
+    def update(self, data: bytes, /) -> None: ...
 
 
 class ReleaseState(StrEnum):
@@ -140,21 +159,50 @@ def read_database_identity(database: Path) -> DatabaseIdentity:
 
 
 def compare_release_identity(
-    current: Path, existing: Path, *, expected_tag: str
+    current: Path,
+    existing: Path,
+    *,
+    expected_tag: str,
+    current_database: Path | None = None,
+    existing_database: Path | None = None,
+    current_semantic_sha256: str | None = None,
 ) -> IdentityComparison:
-    """Compare content identity; retrieval time and candidate build revision are volatile.
+    """Compare immutable data semantics while accounting for volatile build metadata.
 
-    The publisher separately binds an existing release, Git tag, assets, and
-    attestations to the build revision recorded by the existing metadata.
+    Asset bytes must remain exact and are verified independently. A repeat build
+    necessarily has different SQLite bytes because the mirror records build time
+    and duration in ``meta``. When those rebuildable artifact fields differ, both
+    databases are required and their complete canonical projections must match.
     """
     _validate_expected_tag(expected_tag)
     candidate = _read_metadata(current)
     prior = _read_metadata(existing)
     if candidate["tag"] != expected_tag or prior["tag"] != expected_tag:
         return IdentityComparison(ReleaseState.COLLISION, "tag")
-    for field in _CONTENT_IDENTITY_FIELDS:
+    for field in _SEMANTIC_METADATA_FIELDS:
         if candidate[field] != prior[field]:
             return IdentityComparison(ReleaseState.COLLISION, field)
+    if all(candidate[field] == prior[field] for field in _REBUILDABLE_ARTIFACT_FIELDS):
+        return IdentityComparison(ReleaseState.PUBLISHED_NOOP)
+    if current_database is not None and current_semantic_sha256 is not None:
+        raise IdentityComparisonError("semantic database path and digest are mutually exclusive")
+    if existing_database is None or (current_database is None and current_semantic_sha256 is None):
+        differing = next(
+            field for field in _REBUILDABLE_ARTIFACT_FIELDS if candidate[field] != prior[field]
+        )
+        return IdentityComparison(ReleaseState.COLLISION, differing)
+    if current_semantic_sha256 is None:
+        if (
+            current_database is None
+        ):  # Covered above; keeps the invariant explicit for type checkers.
+            raise IdentityComparisonError("semantic database is missing")
+        candidate_semantic = database_semantic_sha256(current_database)
+    else:
+        candidate_semantic = current_semantic_sha256
+    if _SHA256_RE.fullmatch(candidate_semantic) is None:
+        raise IdentityComparisonError("current semantic database digest is invalid")
+    if candidate_semantic != database_semantic_sha256(existing_database):
+        return IdentityComparison(ReleaseState.COLLISION, "canonical_database_sha256")
     return IdentityComparison(ReleaseState.PUBLISHED_NOOP)
 
 
@@ -164,6 +212,9 @@ def decide_release_identity(
     *,
     existing_is_draft: bool,
     expected_tag: str,
+    current_database: Path | None = None,
+    existing_database: Path | None = None,
+    current_semantic_sha256: str | None = None,
 ) -> IdentityComparison:
     """Select one disjoint mutation state without invoking an external command."""
     _validate_expected_tag(expected_tag)
@@ -172,7 +223,14 @@ def decide_release_identity(
         return IdentityComparison(ReleaseState.COLLISION, "tag")
     if existing is None:
         return IdentityComparison(ReleaseState.CREATE)
-    comparison = compare_release_identity(current, existing, expected_tag=expected_tag)
+    comparison = compare_release_identity(
+        current,
+        existing,
+        expected_tag=expected_tag,
+        current_database=current_database,
+        existing_database=existing_database,
+        current_semantic_sha256=current_semantic_sha256,
+    )
     if comparison.state is ReleaseState.COLLISION:
         return comparison
     state = (
@@ -368,6 +426,67 @@ def _expanded_tree_sha256(path: Path) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
+def database_semantic_sha256(database: Path) -> str:
+    """Hash every readable table while excluding only builder-owned volatile metadata."""
+    if not database.is_file() or database.is_symlink():
+        raise IdentityComparisonError("semantic database is missing or unsafe")
+    digest = hashlib.sha256()
+    try:
+        connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            tables = connection.execute(
+                "SELECT name, sql FROM sqlite_schema "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            ).fetchall()
+            for name, ddl in tables:
+                if not isinstance(name, str) or not isinstance(ddl, str):
+                    raise IdentityComparisonError("semantic database has an invalid table schema")
+                _hash_projection_value(digest, name)
+                _hash_projection_value(digest, ddl)
+                columns = [
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM pragma_table_xinfo(?) WHERE hidden = 0 ORDER BY cid",
+                        (name,),
+                    )
+                    if isinstance(row[0], str)
+                    and not (name == "meta" and row[0] in _VOLATILE_META_COLUMNS)
+                ]
+                if not columns:
+                    raise IdentityComparisonError("semantic database has a table without columns")
+                quoted = [f'"{column.replace(chr(34), chr(34) * 2)}"' for column in columns]
+                table = name.replace('"', '""')
+                query = f'SELECT {", ".join(quoted)} FROM "{table}" ORDER BY {", ".join(quoted)}'  # noqa: S608
+                for row in connection.execute(query):
+                    digest.update(b"R")
+                    for value in row:
+                        _hash_projection_value(digest, value)
+                digest.update(b"E")
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise IdentityComparisonError("semantic database is not readable") from exc
+    return digest.hexdigest()
+
+
+def _hash_projection_value(digest: _Hash, value: object) -> None:
+    """Write a type-preserving, length-delimited scalar into a semantic hash."""
+    if value is None:
+        payload = b"N"
+    elif type(value) is int:
+        payload = b"I" + str(value).encode("ascii")
+    elif type(value) is float:
+        payload = b"F" + value.hex().encode("ascii")
+    elif type(value) is str:
+        payload = b"T" + value.encode("utf-8")
+    elif type(value) is bytes:
+        payload = b"B" + value
+    else:
+        raise IdentityComparisonError("semantic database has an unsupported value type")
+    digest.update(len(payload).to_bytes(8, "big"))
+    digest.update(payload)
+
+
 def _read_bounded(path: Path, *, label: str) -> bytes:
     if not path.is_file() or path.is_symlink():
         raise IdentityComparisonError(f"{label} is missing or unsafe")
@@ -378,6 +497,17 @@ def _read_bounded(path: Path, *, label: str) -> bytes:
     if len(body) > MAX_METADATA_BYTES:
         raise IdentityComparisonError(f"{label} exceeds {MAX_METADATA_BYTES} bytes")
     return body
+
+
+def _read_semantic_digest(path: Path) -> str:
+    """Read exactly one transferred canonical-projection digest."""
+    try:
+        value = _read_bounded(path, label="semantic database digest").decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise IdentityComparisonError("semantic database digest is not ASCII") from exc
+    if re.fullmatch(r"[0-9a-f]{64}\n", value) is None:
+        raise IdentityComparisonError("semantic database digest is invalid")
+    return value.removesuffix("\n")
 
 
 def _sha256_file(path: Path) -> str:
@@ -394,6 +524,9 @@ def _parser() -> argparse.ArgumentParser:
     compare = commands.add_parser("compare", help="Compare two bounded metadata documents.")
     compare.add_argument("--current", required=True, type=Path)
     compare.add_argument("--existing", type=Path)
+    compare.add_argument("--current-database", type=Path)
+    compare.add_argument("--existing-database", type=Path)
+    compare.add_argument("--current-semantic-sha256", type=Path)
     compare.add_argument("--existing-is-draft", action="store_true")
     compare.add_argument("--expected-tag", required=True)
     verify = commands.add_parser("verify-assets", help="Verify downloaded exact release assets.")
@@ -416,11 +549,19 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "compare":
+            current_semantic_sha256 = (
+                _read_semantic_digest(args.current_semantic_sha256)
+                if args.current_semantic_sha256 is not None
+                else None
+            )
             result = decide_release_identity(
                 args.current,
                 args.existing,
                 existing_is_draft=args.existing_is_draft,
                 expected_tag=args.expected_tag,
+                current_database=args.current_database,
+                existing_database=args.existing_database,
+                current_semantic_sha256=current_semantic_sha256,
             )
             sys.stdout.write(
                 json.dumps(asdict(result), default=lambda value: value.value, sort_keys=True)

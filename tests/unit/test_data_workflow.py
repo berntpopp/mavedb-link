@@ -397,14 +397,6 @@ def test_database_identity_rejects_multiple_meta_rows(tmp_path: Path) -> None:
         read_database_identity(database)
 
 
-def test_data_workflow_metadata_uses_canonical_identity_reader() -> None:
-    build_metadata = _workflow_step_from_job("build", "Create exact release metadata")
-    script = str(build_metadata["run"])
-
-    assert "read_database_identity" in script
-    assert "PRAGMA user_version" not in script
-
-
 def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path: Path) -> None:
     from mavedb_link.ingest.builder import build_database
     from tests.dump_fixture import write_mini_dump
@@ -422,6 +414,9 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     (data / "mavedb.sqlite.zst").write_bytes(b"sealed-bundle")
     build_metadata = _workflow_step_from_job("build", "Create exact release metadata")
     workflow_script = str(build_metadata["run"])
+    assert "read_database_identity" in workflow_script
+    assert "database_semantic_sha256" in workflow_script
+    assert "PRAGMA user_version" not in workflow_script
     python_script = workflow_script.split("uv run python - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
 
     result = subprocess.run(  # noqa: S603
@@ -438,6 +433,7 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     assert payload["schema_version"] == "4.0.0"
     assert payload["tag"] == "data-2026-02-06-s4-r3"
     assert payload["build_revision"] == "d" * 40
+    assert (data / "semantic-database.sha256").read_text(encoding="ascii").strip()
 
 
 def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
@@ -451,7 +447,6 @@ def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
 
 
 def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> None:
-    """Publisher effects are reachable only from their one typed release state."""
     workflow = yaml.safe_load((ROOT / ".github/workflows/data.yml").read_text(encoding="utf-8"))
     assert workflow["jobs"]["publish"]["if"] == "github.ref == 'refs/heads/main'"
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
@@ -495,6 +490,8 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert "compare" in str(decide["run"])
     assert "release_identity.py" in str(decide["run"])
     assert '--expected-tag "$TAG"' in str(decide["run"])
+    assert "--current-semantic-sha256 dist/publisher/semantic-database.sha256" in str(decide["run"])
+    assert '--existing-database "$RUNNER_TEMP/existing-mavedb.sqlite"' in str(decide["run"])
     assert 'test "$TAG_TARGET" = "$candidate_build"' in str(decide["run"])
     assert inventory.get("if") is None
     inventory_script = str(inventory["run"])
