@@ -7,7 +7,29 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
+
+_NUMERIC_USER = re.compile(r"^[1-9][0-9]*:[1-9][0-9]*$")
+
+
+class _TagTolerantLoader(yaml.SafeLoader):
+    """SafeLoader that tolerates Compose's custom merge tags (!reset, !override)."""
+
+
+_TagTolerantLoader.add_multi_constructor(
+    "!",
+    lambda loader, suffix, node: (
+        loader.construct_scalar(node) if isinstance(node, yaml.ScalarNode) else None
+    ),
+)
+
+
+def _load_compose(path: Path) -> dict:
+    # _TagTolerantLoader subclasses yaml.SafeLoader (no arbitrary object construction);
+    # ruff cannot see that through the subclass indirection.
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=_TagTolerantLoader)  # noqa: S506
 
 
 def test_release_config_declares_the_init_sidecar_role() -> None:
@@ -90,6 +112,33 @@ def test_npm_compose_overlay_matches_gene_foundry_fleet_contract() -> None:
     assert "bundle_url=latest" not in text
     assert "${NPM_SHARED_NETWORK_NAME:-npm_default}" in text
     assert "ports:" not in text
+
+
+def test_npm_overlay_declares_numeric_user_for_every_service() -> None:
+    """The deploy contract wants a numeric, non-root user in the deployed NPM
+    overlay so the fleet controller's runtime observer can prove the effective
+    uid from /proc for every service, including the data-init sidecar."""
+    compose = _load_compose(ROOT / "docker" / "docker-compose.npm.yml")
+    for name, service in compose["services"].items():
+        user = service.get("user")
+        assert user is not None, f"{name} must declare a numeric user in the NPM overlay"
+        assert _NUMERIC_USER.match(str(user)), (
+            f"{name} declares user={user!r}; the deploy contract requires "
+            "'<uid>:<gid>' with both non-root and numeric"
+        )
+
+
+def test_release_compose_files_never_declare_user() -> None:
+    """The release gate (container_release.py validate-compose) forbids `user`
+    in the Compose files it builds and ships, so none of them may declare it."""
+    release_config = json.loads((ROOT / "container-release.json").read_text(encoding="utf-8"))
+    for rel_path in release_config["service"]["compose_files"]:
+        compose = _load_compose(ROOT / rel_path)
+        for name, service in compose["services"].items():
+            assert "user" not in service, (
+                f"{name} in {rel_path} declares 'user'; the release Compose gate "
+                "(container_release.py validate-compose) forbids it there"
+            )
 
 
 def test_env_docker_example_documents_npm_runtime_knobs() -> None:

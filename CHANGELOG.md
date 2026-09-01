@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Advance the collision-free MaveDB data candidate to `-r3`; retain the audited orphan `-r2`
   draft unchanged.
 
+## [0.5.6] - 2026-09-02
+
+### Fixed
+
+- Deploy: declare the image's numeric uid:gid in docker/docker-compose.npm.yml so the fleet
+  controller can deploy the service; a guard test keeps `user` out of the release Compose files.
+
 ## [0.5.5] - 2026-08-31
 
 ### Fixed

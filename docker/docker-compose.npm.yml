@@ -2,35 +2,55 @@ name: mavedb-link-npm
 
 # Deploy pulls the released, attested image; it never builds from source.
 # Pin a digest, not a tag: there is no `latest`, and only a digest is immutable.
-# Both the data-init sidecar and the server run this same image.
-x-image: &image
-  image: ${MAVEDB_LINK_IMAGE:?Set MAVEDB_LINK_IMAGE to ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
-  pull_policy: missing
-
-x-data: &data
-  MAVEDB_LINK_ENVIRONMENT: production
-  MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
-  MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
-  MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
-  MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
-  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
-  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
-  MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
-  MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
-  MAVEDB_LINK_CACHE__DB_PATH: /data/cache/mavedb_cache.sqlite
+# Both the data-init sidecar and the server run this same image. The image and
+# environment are inlined per service (not shared via top-level `x-*` anchors):
+# the fleet controller's Compose projection
+# (scripts/utils/deployment_preflight.py canonical_projection) rejects any
+# rendered top-level key outside {name, services, networks, volumes, configs,
+# secrets}, and `docker compose config --format json` echoes `x-*` extension
+# keys back at the top level even when only referenced via YAML anchors.
 
 services:
   mavedb_data_init:
-    <<: *image
+    image: ${MAVEDB_LINK_IMAGE:?Set MAVEDB_LINK_IMAGE to ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
+    pull_policy: missing
     entrypoint: ["mavedb-link-data", "pull"]
-    environment: *data
+    environment:
+      MAVEDB_LINK_ENVIRONMENT: production
+      MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
+      MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
+      MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
+      MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
+      MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
+      MAVEDB_LINK_CACHE__DB_PATH: /data/cache/mavedb_cache.sqlite
     volumes:
       - mavedb-data:/data
+    # GeneFoundry deploy contract: the fleet controller (strato_v6_docker_npm,
+    # scripts/utils/deployment_preflight.py) accepts a declared user only as numeric
+    # non-root, and its runtime observer proves the effective uid from /proc.
+    # This is THIS image's own uid:gid (docker/Dockerfile) -- sibling -link images differ.
+    user: "999:999"
+    # The deploy contract's Compose projection requires read_only, cap_drop and
+    # security_opt on every service, including this run-once sidecar. The pull
+    # entrypoint only ever writes under /data (its tempfile use is
+    # `dir=<destination>.parent`, never the container's own /tmp), so the root
+    # filesystem can stay read-only; /tmp is tmpfs only for any libc/sqlite
+    # scratch use, matching the pattern already used by sibling data-init sidecars.
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 256
+    init: true
     restart: "no"
     networks: [mavedb_link_internal_net]
 
   mavedb_link:
-    <<: *image
+    image: ${MAVEDB_LINK_IMAGE:?Set MAVEDB_LINK_IMAGE to ghcr.io/berntpopp/mavedb-link@sha256:<digest>}
+    pull_policy: missing
     container_name: mavedb-link-npm
     depends_on:
       mavedb_data_init:
@@ -38,7 +58,16 @@ services:
     expose:
       - "8000"
     environment:
-      <<: *data
+      MAVEDB_LINK_ENVIRONMENT: production
+      MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
+      MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
+      MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
+      MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
+      MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}
+      MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST: "false"
+      MAVEDB_LINK_CACHE__DB_PATH: /data/cache/mavedb_cache.sqlite
       MAVEDB_LINK_HOST: 0.0.0.0
       MAVEDB_LINK_PORT: 8000
       MAVEDB_LINK_TRANSPORT: unified
@@ -55,6 +84,11 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    # GeneFoundry deploy contract: the fleet controller (strato_v6_docker_npm,
+    # scripts/utils/deployment_preflight.py) accepts a declared user only as numeric
+    # non-root, and its runtime observer proves the effective uid from /proc.
+    # This is THIS image's own uid:gid (docker/Dockerfile) -- sibling -link images differ.
+    user: "999:999"
     read_only: true
     # Quoted deliberately. Unquoted, this is a YAML *flow sequence* and the commas split it
     # into five entries -- ['/tmp:rw', 'noexec', 'nosuid', 'size=512m', 'mode=1777'] -- so

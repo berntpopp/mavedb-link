@@ -107,6 +107,38 @@ its baseline with `make eval-baseline` after an intentional surface change.
 - Keep upstream calls in `api/client.py` (retry/backoff/semaphore); services
   shape, tools wire `_meta`.
 
+### Fleet deploy contract
+
+- `docker/docker-compose.npm.yml` is the file the fleet controller
+  (`strato_v6_docker_npm`) deploys and validates. Every service there —
+  including the `mavedb_data_init` sidecar — declares `user: "<uid>:<gid>"`
+  numerically: this image's own uid:gid from `docker/Dockerfile` (currently
+  `999:999`), never copied from a sibling `-link` repo.
+- `user` must **not** appear in the Compose files listed in
+  `container-release.json` (`docker/docker-compose.yml`,
+  `docker/docker-compose.prod.yml`) — the shared release gate
+  (`container_release.py validate-compose`) forbids it there.
+- The overlay inlines the image reference and shared environment per service
+  rather than a top-level `x-image`/`x-data` YAML anchor: the controller's
+  Compose projection (`canonical_projection`) rejects any rendered top-level
+  key outside `{name, services, networks, volumes, configs, secrets}`, and
+  `docker compose config --format json` echoes `x-*` keys back at the top
+  level even when only referenced through an anchor.
+- Both rules are enforced by `tests/unit/test_npm_deploy_config.py`
+  (`test_npm_overlay_declares_numeric_user_for_every_service`,
+  `test_release_compose_files_never_declare_user`).
+- **Release checklist** (fleet controller pulls a tagged, attested image — it
+  never builds from source): bump `pyproject.toml`, `uv lock`, add a
+  `CHANGELOG.md` heading `## [x.y.z] - YYYY-MM-DD`, bump `CITATION.cff`
+  `version:` **and** `date-released:` (the file's header says it is generated
+  externally, but `test_version_single_source.py::
+  test_citation_matches_current_changelog_release` enforces `date-released`
+  to equal *this repo's* `CHANGELOG.md` heading date for the current version —
+  follow the test, not the header comment), tag `vx.y.z`, then approve the
+  `release` environment gate via
+  `gh api repos/berntpopp/mavedb-link/actions/runs/<id>/pending_deployments`
+  (it can gate twice; `status: waiting` is the gate, not a slow build).
+
 ## Boundary
 
 Research use only. Not clinical decision support. MaveDB functional scores are
