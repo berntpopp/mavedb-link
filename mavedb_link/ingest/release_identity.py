@@ -15,8 +15,25 @@ import sys
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
 from urllib.parse import urlparse, urlsplit
+
+if __package__:  # The publisher runs this file as a standalone, credential-free artifact.
+    from mavedb_link.ingest.semantic_identity import (
+        IdentityComparisonError as _IdentityComparisonError,
+    )
+    from mavedb_link.ingest.semantic_identity import (
+        database_semantic_sha256 as _database_semantic_sha256,
+    )
+else:  # pragma: no cover - exercised by the release workflow.
+    from semantic_identity import (  # type: ignore[import-not-found,no-redef]
+        IdentityComparisonError as _IdentityComparisonError,
+    )
+    from semantic_identity import (  # type: ignore[no-redef]
+        database_semantic_sha256 as _database_semantic_sha256,
+    )
+
+IdentityComparisonError = _IdentityComparisonError
+database_semantic_sha256 = _database_semantic_sha256
 
 MAX_METADATA_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -61,16 +78,7 @@ _REBUILDABLE_ARTIFACT_FIELDS = (
     "expanded_tree_sha256",
     "expanded_size",
 )
-_VOLATILE_META_COLUMNS = frozenset({"build_utc", "build_duration_s"})
 _ALL_METADATA_FIELDS = frozenset((*_TYPED_FIELDS, "retrieved_at"))
-
-
-class IdentityComparisonError(ValueError):
-    """The supplied release identity is missing, unsafe, or inconsistent."""
-
-
-class _Hash(Protocol):
-    def update(self, data: bytes, /) -> None: ...
 
 
 class ReleaseState(StrEnum):
@@ -424,67 +432,6 @@ def _verify_expanded_database(metadata: dict[str, object], database: Path) -> No
 def _expanded_tree_sha256(path: Path) -> str:
     identity = f"mavedb.sqlite\0{0o444:04o}\0{path.stat().st_size}\0{_sha256_file(path)}\n"
     return hashlib.sha256(identity.encode()).hexdigest()
-
-
-def database_semantic_sha256(database: Path) -> str:
-    """Hash every readable table while excluding only builder-owned volatile metadata."""
-    if not database.is_file() or database.is_symlink():
-        raise IdentityComparisonError("semantic database is missing or unsafe")
-    digest = hashlib.sha256()
-    try:
-        connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
-        try:
-            tables = connection.execute(
-                "SELECT name, sql FROM sqlite_schema "
-                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            ).fetchall()
-            for name, ddl in tables:
-                if not isinstance(name, str) or not isinstance(ddl, str):
-                    raise IdentityComparisonError("semantic database has an invalid table schema")
-                _hash_projection_value(digest, name)
-                _hash_projection_value(digest, ddl)
-                columns = [
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT name FROM pragma_table_xinfo(?) WHERE hidden = 0 ORDER BY cid",
-                        (name,),
-                    )
-                    if isinstance(row[0], str)
-                    and not (name == "meta" and row[0] in _VOLATILE_META_COLUMNS)
-                ]
-                if not columns:
-                    raise IdentityComparisonError("semantic database has a table without columns")
-                quoted = [f'"{column.replace(chr(34), chr(34) * 2)}"' for column in columns]
-                table = name.replace('"', '""')
-                query = f'SELECT {", ".join(quoted)} FROM "{table}" ORDER BY {", ".join(quoted)}'  # noqa: S608
-                for row in connection.execute(query):
-                    digest.update(b"R")
-                    for value in row:
-                        _hash_projection_value(digest, value)
-                digest.update(b"E")
-        finally:
-            connection.close()
-    except sqlite3.Error as exc:
-        raise IdentityComparisonError("semantic database is not readable") from exc
-    return digest.hexdigest()
-
-
-def _hash_projection_value(digest: _Hash, value: object) -> None:
-    """Write a type-preserving, length-delimited scalar into a semantic hash."""
-    if value is None:
-        payload = b"N"
-    elif type(value) is int:
-        payload = b"I" + str(value).encode("ascii")
-    elif type(value) is float:
-        payload = b"F" + value.hex().encode("ascii")
-    elif type(value) is str:
-        payload = b"T" + value.encode("utf-8")
-    elif type(value) is bytes:
-        payload = b"B" + value
-    else:
-        raise IdentityComparisonError("semantic database has an unsupported value type")
-    digest.update(len(payload).to_bytes(8, "big"))
-    digest.update(payload)
 
 
 def _read_bounded(path: Path, *, label: str) -> bytes:

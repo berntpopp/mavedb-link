@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -171,12 +172,16 @@ def test_cli_accepts_transferred_canonical_digest_for_a_rerun(tmp_path: Path) ->
         expanded_tree_sha256="e" * 64,
         expanded_size=8193,
     )
+    publisher = tmp_path / "publisher"
+    publisher.mkdir()
+    source_root = Path(__file__).resolve().parents[2] / "mavedb_link/ingest"
+    shutil.copyfile(source_root / "release_identity.py", publisher / "release_identity.py")
+    shutil.copyfile(source_root / "semantic_identity.py", publisher / "semantic_identity.py")
 
     result = subprocess.run(  # noqa: S603
         [
             sys.executable,
-            "-m",
-            "mavedb_link.ingest.release_identity",
+            str(publisher / "release_identity.py"),
             "compare",
             "--current",
             str(current),
@@ -196,6 +201,59 @@ def test_cli_accepts_transferred_canonical_digest_for_a_rerun(tmp_path: Path) ->
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"differing_field": None, "state": "published_noop"}
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "CREATE INDEX user_payload_value ON mirror_payload(value)",
+        "CREATE TRIGGER user_payload_insert AFTER INSERT ON mirror_payload BEGIN SELECT 1; END",
+        "CREATE VIEW user_payload_view AS SELECT value FROM mirror_payload",
+    ],
+)
+def test_canonical_database_hash_binds_every_user_schema_object(
+    tmp_path: Path, statement: str
+) -> None:
+    baseline = _write_semantic_database(
+        tmp_path / "baseline.sqlite", build_utc="2026-08-31T19:52:11Z", build_duration_s=32.1
+    )
+    changed = tmp_path / "changed.sqlite"
+    shutil.copyfile(baseline, changed)
+    with sqlite3.connect(changed) as connection:
+        connection.execute(statement)
+
+    assert database_semantic_sha256(changed) != database_semantic_sha256(baseline)
+
+
+def test_canonical_database_hash_rejects_an_empty_sqlite_database(tmp_path: Path) -> None:
+    empty = tmp_path / "empty.sqlite"
+    sqlite3.connect(empty).close()
+
+    with pytest.raises(IdentityComparisonError, match="application schema"):
+        database_semantic_sha256(empty)
+
+
+@pytest.mark.parametrize(
+    "ddl",
+    [
+        "CREATE TABLE schema_rows (id TEXT PRIMARY KEY, value INTEGER) WITHOUT ROWID",
+        "CREATE TABLE schema_rows (id TEXT PRIMARY KEY, value INTEGER, doubled INTEGER "
+        "GENERATED ALWAYS AS (value * 2) STORED)",
+    ],
+)
+def test_canonical_database_hash_binds_without_rowid_and_generated_schema(
+    tmp_path: Path, ddl: str
+) -> None:
+    baseline = tmp_path / "baseline-schema.sqlite"
+    changed = tmp_path / "changed-schema.sqlite"
+    with sqlite3.connect(baseline) as connection:
+        connection.execute("CREATE TABLE schema_rows (id TEXT PRIMARY KEY, value INTEGER)")
+        connection.execute("INSERT INTO schema_rows VALUES ('row', 3)")
+    with sqlite3.connect(changed) as connection:
+        connection.execute(ddl)
+        connection.execute("INSERT INTO schema_rows (id, value) VALUES ('row', 3)")
+
+    assert database_semantic_sha256(changed) != database_semantic_sha256(baseline)
 
 
 def test_revised_data_tag_is_valid_but_revision_zero_is_not(tmp_path: Path) -> None:

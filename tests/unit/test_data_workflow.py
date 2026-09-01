@@ -416,6 +416,7 @@ def test_workflow_metadata_script_uses_meta_schema_from_authentic_build(tmp_path
     workflow_script = str(build_metadata["run"])
     assert "read_database_identity" in workflow_script
     assert "database_semantic_sha256" in workflow_script
+    assert "semantic_identity.py" in workflow_script
     assert "PRAGMA user_version" not in workflow_script
     python_script = workflow_script.split("uv run python - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
 
