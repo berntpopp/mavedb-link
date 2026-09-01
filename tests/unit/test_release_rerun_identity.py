@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml  # type: ignore[import-untyped]
 
 from mavedb_link.ingest.release_identity import (
     IdentityComparisonError,
@@ -172,11 +173,23 @@ def test_cli_accepts_transferred_canonical_digest_for_a_rerun(tmp_path: Path) ->
         expanded_tree_sha256="e" * 64,
         expanded_size=8193,
     )
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/data.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    build = workflow["jobs"]["build"]
+    upload = next(step for step in build["steps"] if "upload-artifact" in step.get("uses", ""))
+    uploaded = {path.strip() for path in upload["with"]["path"].splitlines() if path.strip()}
     publisher = tmp_path / "publisher"
     publisher.mkdir()
     source_root = Path(__file__).resolve().parents[2] / "mavedb_link/ingest"
-    shutil.copyfile(source_root / "release_identity.py", publisher / "release_identity.py")
-    shutil.copyfile(source_root / "semantic_identity.py", publisher / "semantic_identity.py")
+    if "publisher/release_identity.py" in uploaded:
+        shutil.copyfile(source_root / "release_identity.py", publisher / "release_identity.py")
+    if "publisher/semantic_identity.py" in uploaded:
+        shutil.copyfile(source_root / "semantic_identity.py", publisher / "semantic_identity.py")
+    if "publisher/semantic-database.sha256" in uploaded:
+        shutil.copyfile(digest, publisher / "semantic-database.sha256")
 
     result = subprocess.run(  # noqa: S603
         [
@@ -188,7 +201,7 @@ def test_cli_accepts_transferred_canonical_digest_for_a_rerun(tmp_path: Path) ->
             "--existing",
             str(existing),
             "--current-semantic-sha256",
-            str(digest),
+            str(publisher / "semantic-database.sha256"),
             "--existing-database",
             str(existing_database),
             "--expected-tag",

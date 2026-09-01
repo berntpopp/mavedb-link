@@ -82,6 +82,7 @@ jobs:
           path: |
             release-assets
             publisher/release_identity.py
+            publisher/semantic_identity.py
             publisher/semantic-database.sha256
           if-no-files-found: error
           retention-days: 7
