@@ -462,7 +462,7 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     create = _workflow_step("Create an empty draft for a new identity")
     upload = _workflow_step("Upload new sealed assets")
     attest = _workflow_step("Attest new release assets")
-    promote = _workflow_step("Promote a freshly verified exact draft")
+    promote = _workflow_step("Verify exact draft for owner publication")
 
     inspect_script = str(inspect_existing["run"])
     assert "gh api --include" in inspect_script
@@ -553,8 +553,10 @@ def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> Non
     assert promote_script.count('--expected-tag "$TAG"') >= 2
     assert ".target_commitish == $expected" in promote_script
     assert "git/ref/tags/$TAG" in promote_script
-    assert 'gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id"' in promote_script
-    assert "-F draft=false" in promote_script
+    assert "--method PATCH" not in promote_script
+    assert "Manual publication required" in promote_script
+    assert "Exact draft release ID" in promote_script
+    assert "exit 1" in promote_script
     assert all("skip" not in str(step.get("if", "")).lower() for step in _workflow_steps())
 
 
@@ -562,7 +564,7 @@ def test_data_workflow_carries_one_numeric_release_id_through_draft_promotion() 
     inventory = _workflow_step("Inventory exact release identity")
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     create = _workflow_step("Create an empty draft for a new identity")
-    promote = _workflow_step("Promote a freshly verified exact draft")
+    promote = _workflow_step("Verify exact draft for owner publication")
     inventory_script = str(inventory["run"])
     assert "releases?per_page=100&page=$page" in inventory_script
     assert 'echo "release_id=$release_id"' in inventory_script
@@ -590,4 +592,7 @@ def test_data_workflow_carries_one_numeric_release_id_through_draft_promotion() 
     assert "releases/tags/$TAG" not in promote_script
     assert ".id == $release_id" in promote_script
     assert ".tag_name == $tag" in promote_script
-    assert ".draft == false and .immutable == true" in promote_script
+    assert "--method PATCH" not in promote_script
+    assert "Manual publication required" in promote_script
+    assert "Exact draft release ID" in promote_script
+    assert "exit 1" in promote_script

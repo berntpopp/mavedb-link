@@ -49,8 +49,10 @@ so peak memory is roughly one CSV. Dump CSV headers are denamespaced back to the
 (`scores.score` → `score`, preserving dotted columns like `exp.score`). Per-set score
 distributions are precomputed at build time.
 
-Prebuilt `mavedb.sqlite.zst` artifacts are published to GitHub Releases by
-`.github/workflows/data.yml` (monthly, plus manual dispatch).
+Prebuilt `mavedb.sqlite.zst` artifacts are prepared and attested by
+`.github/workflows/data.yml` (monthly, plus manual dispatch). The workflow stops at a
+verified draft because GitHub's release-update API has no conditional PATCH; an authorized
+owner must recheck and publish the exact numeric release ID shown in the workflow summary.
 
 ## What is served from the mirror
 

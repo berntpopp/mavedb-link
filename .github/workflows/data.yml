@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: 20
     environment: data-release
     concurrency:
-      group: mavedb-data-${{ needs.build.outputs.tag }}
+      group: mavedb-data-publisher
       cancel-in-progress: false
     # Repository rulesets must protect data-* tags from update and deletion. The publisher
     # scopes below are intentionally limited to release contents and attestations.
@@ -334,7 +334,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/release-assets/*"
-      - name: Promote a freshly verified exact draft
+      - name: Verify exact draft for owner publication
         if: steps.decision.outputs.state == 'draft_publish_existing' || steps.decision.outputs.state == 'create'
         env:
           CREATED_RELEASE_ID: ${{ steps.create_release.outputs.release_id }}
@@ -344,7 +344,6 @@ jobs:
           existing="$RUNNER_TEMP/promotion-release"
           expanded="$RUNNER_TEMP/promotion-mavedb.sqlite"
           response="$RUNNER_TEMP/promotion-release.json"
-          post_response="$RUNNER_TEMP/promoted-release.json"
           mkdir -p "$existing"
           release_id="${CREATED_RELEASE_ID:-$EXISTING_RELEASE_ID}"
           grep -Eq '^[1-9][0-9]{0,18}$' <<<"$release_id"
@@ -415,16 +414,15 @@ jobs:
           timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
             | jq -e --arg expected "$expected" \
               '.object.type == "commit" and .object.sha == $expected' >/dev/null
-          timeout 2m gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-            -F draft=false >"$post_response"
-          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" >"$post_response"
-          jq -e --argjson release_id "$release_id" --arg tag "$TAG" --arg expected "$expected" \
-            '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
-             .draft == false and .immutable == true and .prerelease == false and
-             (.published_at | type == "string")' "$post_response" >/dev/null
-          jq -c '[.assets[] | {id, name, size, digest}] | sort_by(.name)' \
-            "$post_response" >"$RUNNER_TEMP/post-promotion-assets.json"
-          cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$RUNNER_TEMP/post-promotion-assets.json"
-          timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
-            | jq -e --arg expected "$expected" \
-              '.object.type == "commit" and .object.sha == $expected' >/dev/null
+          # GitHub's release-update API has no conditional PATCH. Stop before publication:
+          # an authorized owner must inspect and publish this exact numeric release ID.
+          {
+            echo "## Manual publication required"
+            echo
+            echo "Exact draft release ID: \`$release_id\`"
+            echo "Tag: \`$TAG\`"
+            echo
+            echo "The workflow verified the draft, assets, attestations, metadata, and tag."
+            echo "Publish this exact release manually only after rechecking its current state."
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit 1

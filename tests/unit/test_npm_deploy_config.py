@@ -66,7 +66,8 @@ def test_data_workflow_is_draft_first_and_non_overwriting() -> None:
     assert "releases/$release_id" in workflow
     assert 'sha256sum "$existing/$asset"' in workflow
     assert "pre-promotion-assets.json" in workflow
-    assert "post-promotion-assets.json" in workflow
+    assert "--method PATCH" not in workflow
+    assert "Manual publication required" in workflow
     assert "--clobber" not in workflow
 
 
