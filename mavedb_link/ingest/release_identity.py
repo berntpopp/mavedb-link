@@ -33,7 +33,7 @@ _RELEASE_ASSETS = frozenset(
 )
 _CHECKSUM_ASSETS = frozenset(_RELEASE_ASSETS - {"SHA256SUMS"})
 _GITHUB_UPLOAD_HOST = "uploads.github.com"
-_STABLE_FIELDS: dict[str, type[object]] = {
+_TYPED_FIELDS: dict[str, type[object]] = {
     "tag": str,
     "asset_sha256": str,
     "asset_size": int,
@@ -46,7 +46,8 @@ _STABLE_FIELDS: dict[str, type[object]] = {
     "score_set_count": int,
     "mapped_variant_count": int,
 }
-_ALL_METADATA_FIELDS = frozenset((*_STABLE_FIELDS, "retrieved_at"))
+_CONTENT_IDENTITY_FIELDS = tuple(field for field in _TYPED_FIELDS if field != "build_revision")
+_ALL_METADATA_FIELDS = frozenset((*_TYPED_FIELDS, "retrieved_at"))
 
 
 class IdentityComparisonError(ValueError):
@@ -141,13 +142,17 @@ def read_database_identity(database: Path) -> DatabaseIdentity:
 def compare_release_identity(
     current: Path, existing: Path, *, expected_tag: str
 ) -> IdentityComparison:
-    """Compare exact stable identity fields; retrieval time is intentionally volatile."""
+    """Compare content identity; retrieval time and candidate build revision are volatile.
+
+    The publisher separately binds an existing release, Git tag, assets, and
+    attestations to the build revision recorded by the existing metadata.
+    """
     _validate_expected_tag(expected_tag)
     candidate = _read_metadata(current)
     prior = _read_metadata(existing)
     if candidate["tag"] != expected_tag or prior["tag"] != expected_tag:
         return IdentityComparison(ReleaseState.COLLISION, "tag")
-    for field in _STABLE_FIELDS:
+    for field in _CONTENT_IDENTITY_FIELDS:
         if candidate[field] != prior[field]:
             return IdentityComparison(ReleaseState.COLLISION, field)
     return IdentityComparison(ReleaseState.PUBLISHED_NOOP)
@@ -258,7 +263,7 @@ def _read_metadata(path: Path) -> dict[str, object]:
         raise IdentityComparisonError(
             f"release metadata keys are invalid: missing={missing}, extra={extra}"
         )
-    for field, expected_type in _STABLE_FIELDS.items():
+    for field, expected_type in _TYPED_FIELDS.items():
         value = payload[field]
         if type(value) is not expected_type:  # bool is not an accepted integer identity.
             raise IdentityComparisonError(f"release metadata field {field} has an invalid type")

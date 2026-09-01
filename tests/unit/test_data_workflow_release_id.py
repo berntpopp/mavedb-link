@@ -30,12 +30,11 @@ def test_asset_lifecycle_remains_bound_to_one_numeric_release_id() -> None:
     assert '"$upload_url?name=$asset"' in upload_script
     assert "validate-upload-url" in upload_script
 
-    promote_script = str(_step("Promote a freshly verified exact draft")["run"])
+    promote_script = str(_step("Verify exact draft for owner publication")["run"])
     assert "releases/$release_id" in promote_script
     assert "releases/tags/$TAG" not in promote_script
     assert "gh release verify" not in promote_script
     assert "pre-promotion-assets.json" in promote_script
-    assert "post-promotion-assets.json" in promote_script
     assert "cmp" in promote_script
 
 
@@ -44,6 +43,47 @@ def test_existing_and_promoted_release_states_are_closed() -> None:
     assert workflow.count(".prerelease == false") >= 3
     assert workflow.count(".published_at == null") >= 2
     assert '(.published_at | type == "string")' in workflow
+
+
+def test_final_draft_verification_precedes_fail_closed_owner_handoff() -> None:
+    """The workflow never seals a draft after a non-atomic final verification."""
+    script = str(_step("Verify exact draft for owner publication")["run"])
+    assert 'prepatch_response="$RUNNER_TEMP/pre-patch-release.json"' in script
+    assert 'prepatch_assets="$RUNNER_TEMP/pre-patch-assets.json"' in script
+    verification = script.index("verify-assets")
+    fresh_release = script.index(
+        'timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" '
+        '\\\n  >"$prepatch_response"'
+    )
+    fresh_assets = script.index('cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$prepatch_assets"')
+    fresh_tag = script.index('timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"')
+    handoff = script.index("Manual publication required")
+
+    assert verification < fresh_release < fresh_assets < fresh_tag < handoff
+    prepatch_block = " ".join(script[fresh_release:fresh_assets].split())
+    assert ".id == $release_id and .tag_name == $tag" in prepatch_block
+    assert ".target_commitish == $expected" in prepatch_block
+    assert ".draft == true and .immutable == false and .published_at == null" in prepatch_block
+    assert '.object.type == "commit" and .object.sha == $expected' in script[fresh_tag:handoff]
+
+
+def test_workflow_fails_closed_and_requires_exact_id_owner_publication() -> None:
+    """The workflow must never publish a mutable draft after a non-atomic GET."""
+    script = str(_step("Verify exact draft for owner publication")["run"])
+
+    assert "--method PATCH" not in script
+    assert "Manual publication required" in script
+    assert "Exact draft release ID" in script
+    assert "$release_id" in script
+    assert "exit 1" in script
+
+
+def test_all_publisher_runs_share_one_non_cancelling_serialization_group() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/data.yml").read_text(encoding="utf-8"))
+    assert workflow["jobs"]["publish"]["concurrency"] == {
+        "group": "mavedb-data-publisher",
+        "cancel-in-progress": False,
+    }
 
 
 @pytest.mark.parametrize(

@@ -57,8 +57,10 @@ The NPM/prod overlay refuses to start unless the data bundle is pinned — these
 | `MAVEDB_DATA_EXPANDED_SHA256` | SHA-256 of the expanded database |
 | `MAVEDB_DATA_SCHEMA_VERSION` | Mirror schema version (default `4.0.0`) |
 
-Bundles are published to GitHub Releases by `.github/workflows/data.yml` (monthly + manual).
-Build one locally with `make data-build && make data-pack`. See [data.md](data.md).
+Bundles are prepared and attested by `.github/workflows/data.yml` (monthly + manual), which
+stops at a verified draft because GitHub's release-update API has no conditional PATCH. An
+authorized owner must recheck and publish the exact numeric release ID shown in the workflow
+summary. Build one locally with `make data-build && make data-pack`. See [data.md](data.md).
 
 ## Reverse proxy
 
