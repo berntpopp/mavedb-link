@@ -111,7 +111,6 @@ jobs:
         run: |
           set -euo pipefail
           response="$RUNNER_TEMP/tag-ref.response"
-          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
           set +e
           timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >"$response"
           status=$?
@@ -119,12 +118,14 @@ jobs:
           if test "$status" -eq 0; then
             grep -Eq '^HTTP/[0-9.]+ 200 ' "$response"
             awk 'body {print} /^\r?$/{body=1}' "$response" >"$RUNNER_TEMP/tag-ref.json"
-            jq -e --arg expected "$expected" \
-              '.object.type == "commit" and .object.sha == $expected' \
-              "$RUNNER_TEMP/tag-ref.json" >/dev/null
+            target="$(jq -er '.object | select(.type == "commit") | .sha |
+              select(type == "string" and test("^[0-9a-f]{40}$"))' \
+              "$RUNNER_TEMP/tag-ref.json")"
             echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "target=$target" >> "$GITHUB_OUTPUT"
           elif grep -Eq '^HTTP/[0-9.]+ 404 ' "$response"; then
             echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "target=" >> "$GITHUB_OUTPUT"
           else
             cat "$response" >&2
             test "$status" -ne 0 || status=1
@@ -161,6 +162,8 @@ jobs:
         id: existing
         env:
           RELEASE_ID: ${{ steps.inventory.outputs.release_id }}
+          TAG_PRESENT: ${{ steps.tag_ref.outputs.present }}
+          TAG_TARGET: ${{ steps.tag_ref.outputs.target }}
         run: |
           set -euo pipefail
           existing="$RUNNER_TEMP/existing-release"
@@ -172,9 +175,9 @@ jobs:
             timeout 60s gh api --include "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" >"$response"
             grep -Eq '^HTTP/[0-9.]+ 200 ' "$response"
             awk 'body {print} /^\r?$/{body=1}' "$response" >"$RUNNER_TEMP/release.json"
-            expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
-            jq -e --argjson release_id "$RELEASE_ID" --arg tag "$TAG" --arg expected "$expected" \
-              '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
+            jq -e --argjson release_id "$RELEASE_ID" --arg tag "$TAG" \
+              '.id == $release_id and .tag_name == $tag and
+               (.target_commitish | type == "string" and test("^[0-9a-f]{40}$")) and
                .prerelease == false and
                ((.draft == true and .immutable == false and .published_at == null) or
                 (.draft == false and .immutable == true and (.published_at | type == "string")))' \
@@ -199,6 +202,10 @@ jobs:
               test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
             done
             expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+            jq -e --arg expected "$expected_build" \
+              '.target_commitish == $expected' "$RUNNER_TEMP/release.json" >/dev/null
+            test "$TAG_PRESENT" = true
+            test "$TAG_TARGET" = "$expected_build"
             for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
               timeout 2m gh attestation verify "$existing/$asset" \
                 --repo "$GITHUB_REPOSITORY" \
@@ -225,6 +232,7 @@ jobs:
           EXISTING_PRESENT: ${{ steps.existing.outputs.present }}
           EXISTING_IS_DRAFT: ${{ steps.existing.outputs.is_draft }}
           TAG_PRESENT: ${{ steps.tag_ref.outputs.present }}
+          TAG_TARGET: ${{ steps.tag_ref.outputs.target }}
         run: |
           set -euo pipefail
           args=(compare --current dist/release-assets/bundle-metadata.json)
@@ -235,6 +243,9 @@ jobs:
           if test "$EXISTING_PRESENT" = true; then
             args+=(--existing "$RUNNER_TEMP/existing-release/bundle-metadata.json")
             if test "$EXISTING_IS_DRAFT" = true; then args+=(--existing-is-draft); fi
+          elif test "$TAG_PRESENT" = true; then
+            candidate_build="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
+            test "$TAG_TARGET" = "$candidate_build"
           fi
           set +e
           result="$(python3 dist/publisher/release_identity.py "${args[@]}" --expected-tag "$TAG")"
@@ -335,10 +346,10 @@ jobs:
           mkdir -p "$existing"
           release_id="${CREATED_RELEASE_ID:-$EXISTING_RELEASE_ID}"
           grep -Eq '^[1-9][0-9]{0,18}$' <<<"$release_id"
-          expected="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
           timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" >"$response"
-          jq -e --argjson release_id "$release_id" --arg tag "$TAG" --arg expected "$expected" \
-            '.id == $release_id and .tag_name == $tag and .target_commitish == $expected and
+          jq -e --argjson release_id "$release_id" --arg tag "$TAG" \
+            '.id == $release_id and .tag_name == $tag and
+             (.target_commitish | type == "string" and test("^[0-9a-f]{40}$")) and
              .draft == true and .immutable == false and .published_at == null and
              .prerelease == false and
              ([.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"])' \
@@ -365,6 +376,8 @@ jobs:
             test "sha256:$(sha256sum "$existing/$asset" | cut -d' ' -f1)" = "$remote_digest"
           done
           expected_build="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+          jq -e --arg expected "$expected_build" \
+            '.target_commitish == $expected' "$response" >/dev/null
           for asset in mavedb.sqlite.zst mavedb.sqlite.zst.sha256 bundle-metadata.json SHA256SUMS; do
             timeout 2m gh attestation verify "$existing/$asset" \
               --repo "$GITHUB_REPOSITORY" \
