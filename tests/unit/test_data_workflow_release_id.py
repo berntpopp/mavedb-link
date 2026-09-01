@@ -46,6 +46,37 @@ def test_existing_and_promoted_release_states_are_closed() -> None:
     assert '(.published_at | type == "string")' in workflow
 
 
+def test_promotion_rechecks_release_and_tag_immediately_before_patch() -> None:
+    """A concurrent API writer cannot change the sealed release before promotion."""
+    script = str(_step("Promote a freshly verified exact draft")["run"])
+    assert 'prepatch_response="$RUNNER_TEMP/pre-patch-release.json"' in script
+    assert 'prepatch_assets="$RUNNER_TEMP/pre-patch-assets.json"' in script
+    verification = script.index("verify-assets")
+    fresh_release = script.index(
+        'timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" '
+        '\\\n  >"$prepatch_response"'
+    )
+    fresh_assets = script.index('cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$prepatch_assets"')
+    fresh_tag = script.index('timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"')
+    patch = script.index(
+        'timeout 2m gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id"'
+    )
+    post_assets = script.index(
+        'cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$RUNNER_TEMP/post-promotion-assets.json"'
+    )
+    post_tag = script.index(
+        'timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"', fresh_tag + 1
+    )
+
+    assert verification < fresh_release < fresh_assets < fresh_tag < patch
+    assert patch < post_assets < post_tag
+    prepatch_block = " ".join(script[fresh_release:fresh_assets].split())
+    assert ".id == $release_id and .tag_name == $tag" in prepatch_block
+    assert ".target_commitish == $expected" in prepatch_block
+    assert ".draft == true and .immutable == false and .published_at == null" in prepatch_block
+    assert '.object.type == "commit" and .object.sha == $expected' in script[fresh_tag:patch]
+
+
 @pytest.mark.parametrize(
     "candidate",
     [

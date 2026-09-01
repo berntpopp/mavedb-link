@@ -91,6 +91,8 @@ jobs:
     concurrency:
       group: mavedb-data-${{ needs.build.outputs.tag }}
       cancel-in-progress: false
+    # Repository rulesets must protect data-* tags from update and deletion. The publisher
+    # scopes below are intentionally limited to release contents and attestations.
     permissions:
       contents: write
       id-token: write
@@ -397,6 +399,19 @@ jobs:
             --expected-tag "$TAG" \
             | jq -e '.state == "draft_publish_existing"' >/dev/null
           expected="$(jq -er .build_revision "$existing/bundle-metadata.json")"
+          prepatch_response="$RUNNER_TEMP/pre-patch-release.json"
+          prepatch_assets="$RUNNER_TEMP/pre-patch-assets.json"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            >"$prepatch_response"
+          jq -e --argjson release_id "$release_id" --arg tag "$TAG" --arg expected "$expected" \
+            '.id == $release_id and .tag_name == $tag and .name == $tag and
+             .target_commitish == $expected and .draft == true and .immutable == false and
+             .published_at == null and .prerelease == false and
+             ([.assets[].name] | sort == ["SHA256SUMS", "bundle-metadata.json", "mavedb.sqlite.zst", "mavedb.sqlite.zst.sha256"])' \
+            "$prepatch_response" >/dev/null
+          jq -c '[.assets[] | {id, name, size, digest}] | sort_by(.name)' \
+            "$prepatch_response" >"$prepatch_assets"
+          cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$prepatch_assets"
           timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
             | jq -e --arg expected "$expected" \
               '.object.type == "commit" and .object.sha == $expected' >/dev/null
@@ -410,3 +425,6 @@ jobs:
           jq -c '[.assets[] | {id, name, size, digest}] | sort_by(.name)' \
             "$post_response" >"$RUNNER_TEMP/post-promotion-assets.json"
           cmp "$RUNNER_TEMP/pre-promotion-assets.json" "$RUNNER_TEMP/post-promotion-assets.json"
+          timeout 60s gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+            | jq -e --arg expected "$expected" \
+              '.object.type == "commit" and .object.sha == $expected' >/dev/null
