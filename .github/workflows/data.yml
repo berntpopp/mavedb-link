@@ -37,9 +37,10 @@ jobs:
           import hashlib, json, os
           from datetime import UTC, datetime
           from pathlib import Path
-          from mavedb_link.ingest.release_identity import read_database_identity
+          from mavedb_link.ingest.release_identity import database_semantic_sha256, read_database_identity
           db=Path("data/mavedb.sqlite"); asset=Path("data/mavedb.sqlite.zst")
           identity=read_database_identity(db)
+          Path("data/semantic-database.sha256").write_text(database_semantic_sha256(db)+"\n",encoding="ascii")
           # The bundle's identity is (upstream dump, mirror schema), not the dump alone: the
           # same Zenodo dump built by newer code yields a different schema. Tagging on the
           # dump date alone made those two collide, and the publish step correctly refused to
@@ -72,6 +73,8 @@ jobs:
           cp data/mavedb.sqlite.zst data/mavedb.sqlite.zst.sha256 data/bundle-metadata.json \
             data/SHA256SUMS release-assets/
           cp mavedb_link/ingest/release_identity.py publisher/release_identity.py
+          cp mavedb_link/ingest/semantic_identity.py publisher/semantic_identity.py
+          cp data/semantic-database.sha256 publisher/semantic-database.sha256
           echo "tag=$(cat tag.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -79,6 +82,8 @@ jobs:
           path: |
             release-assets
             publisher/release_identity.py
+            publisher/semantic_identity.py
+            publisher/semantic-database.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -243,7 +248,9 @@ jobs:
             exit 1
           fi
           if test "$EXISTING_PRESENT" = true; then
-            args+=(--existing "$RUNNER_TEMP/existing-release/bundle-metadata.json")
+            args+=(--existing "$RUNNER_TEMP/existing-release/bundle-metadata.json" \
+              --current-semantic-sha256 dist/publisher/semantic-database.sha256 \
+              --existing-database "$RUNNER_TEMP/existing-mavedb.sqlite")
             if test "$EXISTING_IS_DRAFT" = true; then args+=(--existing-is-draft); fi
           elif test "$TAG_PRESENT" = true; then
             candidate_build="$(jq -er .build_revision dist/release-assets/bundle-metadata.json)"
