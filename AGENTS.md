@@ -127,6 +127,16 @@ its baseline with `make eval-baseline` after an intentional surface change.
 - Both rules are enforced by `tests/unit/test_npm_deploy_config.py`
   (`test_npm_overlay_declares_numeric_user_for_every_service`,
   `test_release_compose_files_never_declare_user`).
+- `container-release.json` also declares `service.deployed_compose_files:
+  ["docker/docker-compose.npm.yml"]` — the exact file the controller deploys.
+  Both reusable-workflow pins (`.github/workflows/container-ci.yml`,
+  `.github/workflows/container-release.yml`) must track the same
+  `genefoundry-router` revision: the shared `_container-release.yml` workflow
+  runs `container_release.py validate-deployed-overlay` against the declared
+  file before every release (including the no-top-level-`x-*`-keys rule this
+  overlay already satisfies above), and `_container-ci.yml` loads the same
+  `ReleaseConfig` schema from its own pin to validate this JSON, so an older
+  pin there rejects new fields.
 - **Release checklist** (fleet controller pulls a tagged, attested image — it
   never builds from source): bump `pyproject.toml`, `uv lock`, add a
   `CHANGELOG.md` heading `## [x.y.z] - YYYY-MM-DD`, bump `CITATION.cff`
