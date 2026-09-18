@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-18
+
+### Changed
+
+- Consolidated Dependabot maintenance updates: bumped Pydantic to 2.13.5, Typer to 0.27.2, Ruff to 0.16.8, and MyPy to 2.3.1.
+- Updated reusable container workflow pins to genefoundry-router v0.9.1.
+- Updated GitHub Actions pins for setup-uv (v10.1.0) and CodeQL (v4.38.0).
+- Configured Dependabot grouping for Python dependencies and GitHub Actions.
+
+### Fixed
+
 - Fail closed on orphaned same-tag GitHub draft releases before creating the exact data tag.
 - Advance the collision-free MaveDB data candidate to `-r3`; retain the audited orphan `-r2`
   draft unchanged.
