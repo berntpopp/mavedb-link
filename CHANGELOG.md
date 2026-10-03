@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-10-03
+
+### Fixed
+
+- Run the release smoke stack in production mode against the exact immutable MaveDB bundle
+  pinned by the application manifest, including the one-shot data initializer.
+
 ## [0.5.9] - 2026-10-03
 
 ### Fixed

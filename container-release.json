@@ -44,6 +44,16 @@
     ]
   },
   "data_identity_contract": "runtime-v1",
+  "smoke_environment": [
+    "MAVEDB_LINK_ENVIRONMENT=production",
+    "MAVEDB_LINK_MIRROR__BUNDLE_URL=https://github.com/berntpopp/mavedb-link/releases/download/data-2026-06-24-s4-r3/mavedb.sqlite.zst",
+    "MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG=data-2026-06-24-s4-r3",
+    "MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256=b6afdf81eacae732f372c27ffab2a0bc2e0337f801912d5eaf58640fd02d3b33",
+    "MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256=5f2315d8036eca4c93574238f261e22d5b5199f45c370f58a0455616ad7d26b9",
+    "MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION=4.0.0",
+    "MAVEDB_LINK_MIRROR__DEVELOPMENT_LATEST=false"
+  ],
+  "preparation": "docker/ci-prepare-smoke.sh",
   "runtime_cache": {
     "path": "/data/cache/mavedb_cache.sqlite",
     "eviction": "Deletable mapped-variant cache; repopulates from live MaveDB without losing authoritative mirror data.",
