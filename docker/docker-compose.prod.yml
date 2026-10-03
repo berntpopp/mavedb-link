@@ -2,7 +2,7 @@
 #
 #   MAVEDB_LINK_IMAGE=ghcr.io/berntpopp/mavedb-link@sha256:<digest> \
 #   MAVEDB_DATA_BUNDLE_URL=https://github.com/berntpopp/mavedb-link/releases/download/data-YYYY-MM-DD/mavedb.sqlite.zst \
-#   MAVEDB_DATA_RELEASE_TAG=data-YYYY-MM-DD \
+#   MAVEDB_DATA_RELEASE_TAG=data-YYYY-MM-DD-sN-rN \
 #   MAVEDB_DATA_SHA256=<compressed sha256> \
 #   MAVEDB_DATA_EXPANDED_SHA256=<expanded sha256> \
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
@@ -25,7 +25,7 @@ services:
       MAVEDB_LINK_MIRROR__DATA_DIR: /data/reference/current
       MAVEDB_LINK_MIRROR__REFERENCE_ROOT: /data/reference
       MAVEDB_LINK_MIRROR__BUNDLE_URL: ${MAVEDB_DATA_BUNDLE_URL:?set exact release asset URL}
-      MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set data-YYYY-MM-DD}
+      MAVEDB_LINK_MIRROR__BUNDLE_RELEASE_TAG: ${MAVEDB_DATA_RELEASE_TAG:?set exact immutable data release tag}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SHA256: ${MAVEDB_DATA_SHA256:?set compressed SHA-256}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_EXPANDED_SHA256: ${MAVEDB_DATA_EXPANDED_SHA256:?set expanded SHA-256}
       MAVEDB_LINK_MIRROR__BUNDLE_EXPECTED_SCHEMA_VERSION: ${MAVEDB_DATA_SCHEMA_VERSION:-4.0.0}

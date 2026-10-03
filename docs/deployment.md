@@ -52,15 +52,26 @@ The NPM/prod overlay refuses to start unless the data bundle is pinned — these
 | Variable | Meaning |
 |----------|---------|
 | `MAVEDB_DATA_BUNDLE_URL` | Exact release-asset URL |
-| `MAVEDB_DATA_RELEASE_TAG` | `data-YYYY-MM-DD` |
+| `MAVEDB_DATA_RELEASE_TAG` | Exact immutable `data-YYYY-MM-DD[-sN[-rN]]` release tag |
 | `MAVEDB_DATA_SHA256` | SHA-256 of the compressed bundle |
 | `MAVEDB_DATA_EXPANDED_SHA256` | SHA-256 of the expanded database |
 | `MAVEDB_DATA_SCHEMA_VERSION` | Mirror schema version (default `4.0.0`) |
+
+`container-release.json` declares the runtime identity digest as the expanded-tree SHA-256;
+the compressed SHA remains a separate installer integrity check.
 
 Bundles are prepared and attested by `.github/workflows/data.yml` (monthly + manual), which
 stops at a verified draft because GitHub's release-update API has no conditional PATCH. An
 authorized owner must recheck and publish the exact numeric release ID shown in the workflow
 summary. Build one locally with `make data-build && make data-pack`. See [data.md](data.md).
+
+For pinned production releases, `/health` reports the fleet `runtime-v1` identity only after
+the process hashes the active read-only SQLite database and verifies its materializer record,
+release tag, schema, and configured expected digest. A mismatch aborts startup before the MCP
+service can accept traffic, so no unverified data identity is published.
+The startup check is a bounded-memory sequential read of the database; the separate semantic
+probe opens the same configured file in immutable read-only mode and reports its schema,
+score-set count, and a deterministic row hash.
 
 ## Reverse proxy
 
