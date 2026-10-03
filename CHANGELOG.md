@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-10-03
+
+- Update PyJWT to 2.15.0 and Ruff to 0.16.9, preserving the open GitHub Actions updates.
+- Refresh the pinned Python 3.14 base image and router v0.9.3 reusable container workflows.
+
+
 ## [0.5.7] - 2026-09-18
 
 ### Changed
