@@ -30,8 +30,9 @@
   },
   "data": {
     "mode": "external-reference",
-    "release_tag": "data-2026-06-24",
-    "digest": "sha256:30b2b4fdbdff9a1a2e9f13e9f7de072a22ff07e70dea5d45eba297a5b9a5155a",
+    "release_tag": "data-2026-06-24-s4-r3",
+    "digest": "sha256:5f2315d8036eca4c93574238f261e22d5b5199f45c370f58a0455616ad7d26b9",
+    "schema_compatibility": ["4.0.0"],
     "image_allowlist": [
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/__init__.py",
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/cache_cli.py",
@@ -42,7 +43,7 @@
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/schema.sql"
     ]
   },
-  "data_identity_contract": "unadopted",
+  "data_identity_contract": "runtime-v1",
   "runtime_cache": {
     "path": "/data/cache/mavedb_cache.sqlite",
     "eviction": "Deletable mapped-variant cache; repopulates from live MaveDB without losing authoritative mirror data.",

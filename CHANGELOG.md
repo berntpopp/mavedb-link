@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-10-03
+
+### Fixed
+
+- Verify the active, read-only MaveDB mirror against its pinned release at startup and publish
+  the runtime-v1 identity and semantic query probe required by fleet data admission.
+- Pin application release metadata to the provenance-complete `data-2026-06-24-s4-r3` bundle.
+
 ## [0.5.8] - 2026-10-03
 
 - Update PyJWT to 2.15.0 and Ruff to 0.16.9, preserving the open GitHub Actions updates.
