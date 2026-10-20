@@ -143,11 +143,11 @@ def _recency_key(hit: dict[str, object]) -> tuple[str, int, int]:
     published = str(meta.get("publication_date") or "")
     try:
         version = int(str(meta.get("version") or 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         version = 0
     try:
         record_id = int(str(hit.get("id") or 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         record_id = 0
     return (published, version, record_id)
 

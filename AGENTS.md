@@ -82,7 +82,7 @@ its baseline with `make eval-baseline` after an intentional surface change.
 
 ## Coding standards
 
-- Python **3.12+**; deps + venv via **uv** (`uv sync --group dev`, `uv run`).
+- Python **3.14**; deps + venv via **uv** (`uv sync --group dev`, `uv run`).
 - Modern typing (`X | None`, builtin generics); `ruff` + `mypy strict` must pass.
 - **600-LOC per module**, enforced by `scripts/check_file_size.py` (`make lint-loc`).
 - TDD: write a failing test, see it fail, implement minimally, see it pass.

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Verify a pinned mirror, then close the shared client on shutdown."""
     logger = configure_logging()
     logger.info("mavedb-link starting", host=settings.host, port=settings.port)
