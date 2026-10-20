@@ -449,7 +449,7 @@ def _workflow_step_from_job(job_name: str, step_name: str) -> dict[str, object]:
 
 def test_data_workflow_has_four_explicit_non_destructive_identity_gates() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/data.yml").read_text(encoding="utf-8"))
-    assert workflow["jobs"]["publish"]["if"] == "github.ref == 'refs/heads/main'"
+    assert workflow["jobs"]["publish"]["environment"] == "data-release"
     inspect_existing = _workflow_step("Inspect and verify an existing same-tag release")
     inspect_tag = _workflow_step("Inspect exact Git tag target")
     decide = _workflow_step("Resolve the exact release identity state")
