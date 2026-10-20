@@ -87,33 +87,35 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
+  # Ungated, read-only twin of publish's identity checks: an unchanged monthly dump must
+  # not request data-release approval just to discover it has nothing to do. Draft
+  # releases are invisible to a read-only token, so only a verified identical
+  # *published* release yields published_noop; anything else (or a failure) still
+  # reaches the gate, where publish re-runs the same steps with write scope.
+  precheck:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: data-release
-    concurrency:
-      group: mavedb-data-publisher
-      cancel-in-progress: false
-    # Repository rulesets must protect data-* tags from update and deletion. The publisher
-    # scopes below are intentionally limited to release contents and attestations.
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
+    outputs:
+      state: ${{ steps.decision.outputs.state }}
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.build.outputs.tag }}
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: mavedb-data-${{ needs.build.outputs.tag }}
           path: dist
-      - name: Verify transferred bytes
+      - &verify_bytes
+        name: Verify transferred bytes
         working-directory: dist/release-assets
         run: sha256sum --check SHA256SUMS
-      - name: Inspect exact Git tag target
+      - &tag_ref
+        name: Inspect exact Git tag target
         id: tag_ref
         run: |
           set -euo pipefail
@@ -138,7 +140,8 @@ jobs:
             test "$status" -ne 0 || status=1
             exit "$status"
           fi
-      - name: Inventory exact release identity
+      - &inventory
+        name: Inventory exact release identity
         id: inventory
         run: |
           set -euo pipefail
@@ -165,7 +168,8 @@ jobs:
           if test -n "$release_id"; then grep -Eq '^[1-9][0-9]{0,18}$' <<<"$release_id"; fi
           echo "present=$present" >> "$GITHUB_OUTPUT"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
-      - name: Inspect and verify an existing same-tag release
+      - &existing
+        name: Inspect and verify an existing same-tag release
         id: existing
         env:
           RELEASE_ID: ${{ steps.inventory.outputs.release_id }}
@@ -233,7 +237,8 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "is_draft=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Resolve the exact release identity state
+      - &decision
+        name: Resolve the exact release identity state
         id: decision
         env:
           EXISTING_PRESENT: ${{ steps.existing.outputs.present }}
@@ -267,6 +272,34 @@ jobs:
             echo "same-tag release collision: $(printf '%s' "$result" | jq -r .differing_field)" >&2
             exit "$status"
           fi
+
+  publish:
+    needs: [build, precheck]
+    if: >-
+      !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/main' &&
+      needs.precheck.outputs.state != 'published_noop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: data-release
+    concurrency:
+      group: mavedb-data-publisher
+      cancel-in-progress: false
+    # Repository rulesets must protect data-* tags from update and deletion. The publisher
+    # scopes below are intentionally limited to release contents and attestations.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - *download
+      - *verify_bytes
+      - *tag_ref
+      - *inventory
+      - *existing
+      - *decision
       - name: Create exact Git tag for a new identity
         if: >-
           steps.decision.outputs.state == 'create' &&
