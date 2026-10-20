@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-10-20
+
+### Security
+
+- Upgrade `mcp` to 1.30.0 (requires `mcp>=1.30.0`), fixing unbounded session accumulation in the
+  StreamableHTTP transport (Dependabot alert: resource exhaustion).
+
+### Changed
+
+- Dependency bumps: `ast-serialize`, `fastapi`, `librt`, `mypy`, `orjson`, `pydantic`,
+  `pydantic-core`, `pydantic-settings`, `ruff`, `typer`, `typing-inspection`.
+- CI/GitHub Actions bumps: `astral-sh/setup-uv` 10.3.0, `actions/upload-artifact` 7.0.2,
+  `actions/download-artifact` 8.0.2, `github/codeql-action` 4.38.3; router reusable workflows
+  pinned to `genefoundry-router` v0.10.4.
+
 ## [0.5.10] - 2026-10-03
 
 ### Fixed
