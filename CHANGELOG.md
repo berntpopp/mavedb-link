@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.13] - 2026-11-11
+
+### Security
+
+- authlib 1.9.5 (GHSA critical + 2 high/medium; patched >=1.9.1), joserfc 1.8.0 (>=1.7.6), dnspython 2.9.2 (>=2.9.0), fastmcp/fastmcp-slim 3.4.11 (>=3.4.10), opentelemetry-api 1.45.2 (>=1.45.1).
+
+### Changed
+
+- Full `uv lock --upgrade`; fastmcp floor raised to 3.4.10; GitHub Actions pins bumped (setup-python 7.1.0, setup-uv 10.3.2, codeql-action 4.39.1).
+
 ## [0.5.12] - 2026-10-20
 
 ### Security

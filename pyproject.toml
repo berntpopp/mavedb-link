@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mavedb-link"
-version = "0.5.12"
+version = "0.5.13"
 description = "MCP/API server that grounds variant-effect work in MaveDB (multiplexed assays of variant effect)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -37,7 +37,7 @@ dependencies = [
     "rich>=13.0.0,<16.0.0",
     "typer>=0.27.2,<1.0.0",
     "mcp[cli]>=1.30.0,<2.0.0",
-    "fastmcp>=3.4.7,<4.0.0",
+    "fastmcp>=3.4.10,<4.0.0",
     "zstandard>=0.22.0,<1.0.0",
 ]
 
