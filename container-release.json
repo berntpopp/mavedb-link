@@ -32,8 +32,14 @@
     "mode": "external-reference",
     "release_tag": "data-2026-06-24-s4-r3",
     "digest": "sha256:5f2315d8036eca4c93574238f261e22d5b5199f45c370f58a0455616ad7d26b9",
-    "schema_compatibility": ["4.0.0"],
+    "schema_compatibility": [
+      "4.0.0"
+    ],
     "image_allowlist": [
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/__init__.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdataabc.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdatacode.py",
+      "opt/venv/lib/python3.14/site-packages/beartype/_check/cls/hint/data/hintdataerror.py",
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/__init__.py",
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/cache_cli.py",
       "opt/venv/lib/python3.14/site-packages/mavedb_link/data/hybrid.py",

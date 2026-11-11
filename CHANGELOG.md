@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- container-release.json image_allowlist: beartype now ships `hint/data/` modules (false positive of the data-path policy).
 - Full `uv lock --upgrade`; fastmcp floor raised to 3.4.10; GitHub Actions pins bumped (setup-python 7.1.0, setup-uv 10.3.2, codeql-action 4.39.1).
 
 ## [0.5.12] - 2026-10-20
