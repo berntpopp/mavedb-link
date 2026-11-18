@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 
 from mavedb_link.exceptions import AmbiguousQueryError, InvalidInputError, NotFoundError
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool

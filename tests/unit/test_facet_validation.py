@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import pytest
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 
 from mavedb_link.exceptions import InvalidInputError
 from mavedb_link.mcp.envelope import (

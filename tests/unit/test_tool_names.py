@@ -116,7 +116,7 @@ def test_every_tool_is_annotated_read_only() -> None:
     assert tools
     for tool in tools:
         ann = getattr(tool, "annotations", None)
-        read_only = getattr(ann, "readOnlyHint", None) if ann is not None else None
+        read_only = getattr(ann, "read_only_hint", None) if ann is not None else None
         assert read_only is True, f"{tool.name} is missing readOnlyHint"
 
 

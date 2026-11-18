@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 from pydantic import ValidationError as PydanticValidationError
 
 from mavedb_link.constants import RESPONSE_TOKEN_BUDGET, TOKEN_ESTIMATE_CHARS_PER_TOKEN
