@@ -4,7 +4,7 @@ Shared instructions for AI coding agents working in this repository.
 
 ## What this project is
 
-`mavedb-link` is a **read-only FastMCP 3.x server** for variant-effect /
+`mavedb-link` is a **read-only FastMCP 4.x server** for variant-effect /
 multiplexed-assay data from MaveDB. It is a member of the GeneFoundry `*-link`
 fleet and federates into `genefoundry-router` under the `mavedb` namespace. It is
 a *server* to MCP hosts and a *client* to the MaveDB API.
@@ -86,7 +86,7 @@ its baseline with `make eval-baseline` after an intentional surface change.
 - Modern typing (`X | None`, builtin generics); `ruff` + `mypy strict` must pass.
 - **600-LOC per module**, enforced by `scripts/check_file_size.py` (`make lint-loc`).
 - TDD: write a failing test, see it fail, implement minimally, see it pass.
-- FastMCP 3.x symbols are post-training-cutoff — **verify imports against the
+- FastMCP 4.x symbols are post-training-cutoff — **verify imports against the
   installed package** before relying on them.
 
 ## Project-specific guidance

@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 import respx
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.untrusted_content import FORBIDDEN_CODEPOINTS

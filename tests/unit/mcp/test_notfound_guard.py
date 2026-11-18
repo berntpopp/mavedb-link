@@ -1,6 +1,6 @@
 """FastMCP-core not-found reflection guard, driven through the REAL MCP surface.
 
-FastMCP core (pinned >=3.4.4,<4.0.0) reflects the caller's OWN requested tool
+FastMCP core (pinned >=4.2.2,<5.0.0) reflects the caller's OWN requested tool
 name / resource URI / prompt name back to the caller (and to logs) BEFORE any
 backend middleware runs. On this stack the probe confirmed EVERY sub-surface
 leaks on pristine main:
@@ -42,7 +42,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ResourceError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from mcp.types import INVALID_PARAMS, JSONRPCMessage, JSONRPCRequest
+from mcp.types import INVALID_PARAMS, METHOD_NOT_FOUND, JSONRPCNotification, JSONRPCRequest
 
 from mavedb_link.mcp.facade import create_mavedb_mcp
 from mavedb_link.mcp.untrusted_content import FORBIDDEN_CODEPOINTS
@@ -112,6 +112,7 @@ _LOG_TARGETS = (
     "fastmcp.server.mixins.mcp_operations",
     "mcp.server.lowlevel.server",  # "Tool cache miss for <name>"
     "mcp.shared.session",
+    "mcp.server.runner",  # notification-drop records echo the caller method
 )
 
 
@@ -147,9 +148,14 @@ def _assert_all_content_clean(result: Any) -> None:
             _assert_clean_text(text, where=f"content[{index}]")
 
 
-async def _raw_request(mcp_server: Any, method: str, params: dict[str, Any]) -> Any:
+async def _raw_request(
+    mcp_server: Any,
+    method: str,
+    params: dict[str, Any],
+    notify_method: str | None = None,
+) -> Any:
     """Drive a raw JSON-RPC request through the low-level session (bypasses the
-    Client's client-side AnyUrl pre-validation) and return the JSON-RPC root."""
+    Client's client-side AnyUrl pre-validation) and return the JSON-RPC message."""
     low_level = mcp_server._mcp_server
     init_options = low_level.create_initialization_options()
     root: Any = None
@@ -159,26 +165,44 @@ async def _raw_request(mcp_server: Any, method: str, params: dict[str, Any]) -> 
         async with anyio.create_task_group() as task_group:
 
             async def _run() -> None:
-                await low_level.run(
-                    server_read,
-                    server_write,
-                    init_options,
-                    stateless=True,  # start Initialized: skip the handshake
-                    raise_exceptions=False,
-                )
+                await low_level.run(server_read, server_write, init_options, raise_exceptions=False)
 
             task_group.start_soon(_run)
-            request = JSONRPCRequest(jsonrpc="2.0", id=1, method=method, params=params)
-            await client_write.send(SessionMessage(message=JSONRPCMessage(request)))
-            with anyio.fail_after(5):
-                for _ in range(6):
-                    message = await client_read.receive()
-                    if isinstance(message, Exception):
-                        raise message
-                    candidate = message.message.root
-                    if isinstance(candidate, (mcp_types.JSONRPCError, mcp_types.JSONRPCResponse)):
-                        root = candidate
-                        break
+
+            async def _recv(req_id: int) -> Any:
+                with anyio.fail_after(5):
+                    while True:
+                        message = await client_read.receive()
+                        if isinstance(message, Exception):
+                            raise message
+                        candidate = message.message
+                        if getattr(candidate, "id", None) == req_id and isinstance(
+                            candidate, (mcp_types.JSONRPCError, mcp_types.JSONRPCResponse)
+                        ):
+                            return candidate
+
+            initialize = JSONRPCRequest(
+                jsonrpc="2.0",
+                id=1,
+                method="initialize",
+                params={
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "hostile", "version": "0"},
+                },
+            )
+            await client_write.send(SessionMessage(message=initialize))
+            await _recv(1)
+            initialized = JSONRPCNotification(
+                jsonrpc="2.0", method="notifications/initialized", params={}
+            )
+            await client_write.send(SessionMessage(message=initialized))
+            if notify_method is not None:
+                notification = JSONRPCNotification(jsonrpc="2.0", method=notify_method)
+                await client_write.send(SessionMessage(message=notification))
+            request = JSONRPCRequest(jsonrpc="2.0", id=42, method=method, params=params)
+            await client_write.send(SessionMessage(message=request))
+            root = await _recv(42)
             task_group.cancel_scope.cancel()
     return root
 
@@ -249,6 +273,7 @@ async def test_unknown_resource_no_reflection_to_caller_or_logs() -> None:
     with _capture_server_logs() as logs:
         root = await _raw_request(mcp, "resources/read", {"uri": HOSTILE_VALID_UNKNOWN_URI})
     assert isinstance(root, mcp_types.JSONRPCError)
+    assert root.error.code == INVALID_PARAMS
     _assert_clean_text(root.error.message, where="resource-frame")
     assert "Unknown resource" not in root.error.message
     if isinstance(root.error.data, str):
@@ -288,10 +313,28 @@ async def test_unknown_prompt_no_reflection_to_caller_or_logs() -> None:
             mcp, "prompts/get", {"name": HOSTILE_PROMPT_NAME, "arguments": {}}
         )
     assert isinstance(root, mcp_types.JSONRPCError)
+    assert root.error.code == INVALID_PARAMS
     _assert_clean_text(root.error.message, where="prompt-frame")
     assert "Unknown prompt" not in root.error.message
     if isinstance(root.error.data, str):
         _assert_clean_text(root.error.data, where="prompt-frame-data")
+    _assert_logs_clean(logs)
+
+
+@pytest.mark.asyncio
+async def test_unknown_jsonrpc_method_not_reflected_via_raw() -> None:
+    """MCP SDK 2.x echoes an unknown method in METHOD_NOT_FOUND ``data``; the
+    outermost lowlevel middleware strips it, and the runner's notification-drop
+    logs are scrubbed."""
+    mcp = create_mavedb_mcp()
+    with _capture_server_logs() as logs:
+        root = await _raw_request(
+            mcp, HOSTILE_TOOL_NAME, {}, notify_method=f"notifications/{HOSTILE_TOOL_NAME}"
+        )
+    assert isinstance(root, mcp_types.JSONRPCError)
+    assert root.error.code == METHOD_NOT_FOUND
+    assert root.error.data is None
+    _assert_clean_text(root.model_dump_json(), where="method-frame")
     _assert_logs_clean(logs)
 
 

@@ -7,7 +7,7 @@ Claude Code entrypoint only:
 - Use `AGENTS.md` for shared repository instructions.
 - Keep Claude-specific additions here short and tool-specific.
 - Prefer `make ci-local` before final handoff (runs `lint-loc`, the 600-LOC budget).
-- FastMCP 3.x symbols are post-training-cutoff and fast-moving — verify imports
+- FastMCP 4.x symbols are post-training-cutoff and fast-moving — verify imports
   against the installed package before relying on them.
 - The two-plane boundary is non-negotiable: services return plain dicts + raise
   typed exceptions; `run_mcp_tool` owns `success`/`_meta` and returns (never

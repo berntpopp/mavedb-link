@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-18
+
+### Changed
+
+- Upgrade FastMCP 3.4 → 4.2.2 and MCP SDK 1.x → 2.x; supports the 2026-07-28 sessionless protocol era alongside the legacy handshake.
+- Not-found reflection guard Layer 3 ported to the SDK 2.x `get_request_handler`/`add_request_handler` API; resource/prompt backstop now raises `MCPError(INVALID_PARAMS)` (-32602) instead of a bare exception (which SDK 2.x would send as JSON-RPC code 0).
+- `ToolAnnotations` / `CallToolResult` use the SDK 2.x snake_case fields.
+
+### Security
+
+- MCP SDK 2.x echoes an unknown JSON-RPC method verbatim in the METHOD_NOT_FOUND error `data`; a new outermost low-level middleware strips it (both eras), and the log scrub now covers `mcp.server.runner` notification-drop records.
+
 ## [0.5.14] - 2026-11-13
 
 ### Changed
