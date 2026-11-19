@@ -177,6 +177,8 @@ class MaveDBService:
         payload["urn"] = score_set_urn
         payload["offset"] = payload["start"]
         payload["next_offset"] = payload["next_start"]
+        if response_mode == "full" and isinstance(record, dict):  # as get_score_set at full
+            payload["dataset_columns"] = record.get("datasetColumns")
         if raw_calibrations:
             for row in payload["rows"]:
                 verdict = primary_classification(row.get("score"), raw_calibrations)
@@ -544,6 +546,7 @@ class MaveDBService:
             calibration_urn=calibration_urn,
             limit=limit,
             offset=offset,
+            response_mode=response_mode,
         )
 
     async def get_collection(

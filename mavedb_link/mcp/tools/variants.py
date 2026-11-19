@@ -69,7 +69,8 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "use get_score_distribution for summary statistics instead. The top-level "
             "calibrations threshold ladder is record-level data shipped once (the "
             "first page, start=0) or at full — not re-sent on every forward page; the "
-            "per-row classification rides on every page. "
+            "per-row classification rides on every page. full also adds dataset_columns "
+            "(which CSV columns are scores vs counts). "
             "Signature: get_variant_scores(urn, offset=, limit=, drop_na_columns=, "
             "response_mode=)."
         ),

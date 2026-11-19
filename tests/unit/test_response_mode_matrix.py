@@ -183,3 +183,26 @@ async def test_string_score_variant_classifies_across_tiers(
         v = payload["variants"][0]
         assert v["score"] == -1.2, mode
         assert v["classifications"][0]["classification"] == "abnormal", mode
+
+
+def _substance(payload: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in payload.items() if k != "_meta"}
+
+
+@pytest.mark.parametrize("calibrated", [True, False])
+@pytest.mark.parametrize("tool", ["get_variant_scores", "get_classified_variants"])
+async def test_full_differs_from_compact(
+    respx_router: respx.Router, facade: Any, structured: Any, tool: str, calibrated: bool
+) -> None:
+    # Contract truth (behaviour probe): an advertised response_mode must change the
+    # payload. full adds record-level detail even when the score set is uncalibrated.
+    _mock_surface(respx_router)
+    if not calibrated:
+        respx_router.get(f"/score-sets/{fixtures.SCORE_SET_URN}").mock(
+            return_value=httpx.Response(200, json=fixtures.SCORE_SET_RAW)
+        )
+    args = {"urn": fixtures.SCORE_SET_URN}
+    compact = structured(await facade.call_tool(tool, {**args, "response_mode": "compact"}))
+    full = structured(await facade.call_tool(tool, {**args, "response_mode": "full"}))
+    assert compact["success"] and full["success"]
+    assert _substance(compact) != _substance(full)

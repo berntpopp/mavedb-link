@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-19
+
+### Fixed
+
+- `get_variant_scores` and `get_classified_variants` advertised `response_mode` but returned identical payloads at `compact` and `full` (contract truth; caught by the behaviour probe, router #314). `full` now adds record-level detail: `dataset_columns` (score vs count CSV columns, as `get_score_set` at full) and the calibration threshold ladder (`calibration`) respectively.
+
 ## [0.6.0] - 2026-11-18
 
 ### Changed
