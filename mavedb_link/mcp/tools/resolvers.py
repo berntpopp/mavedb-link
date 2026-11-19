@@ -195,6 +195,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
             "(or a given calibration_urn); filter with classification=abnormal|"
             "normal|not_specified (omit for all). Each variant carries its score, "
             "HGVS, class label, and ACMG criterion. Paged via offset/limit. "
+            "response_mode='full' adds the calibration threshold ladder (calibration). "
             "Signature: get_classified_variants(urn, classification=, calibration_urn=, "
             "limit=, offset=, response_mode=)."
         ),

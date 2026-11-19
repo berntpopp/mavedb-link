@@ -33,7 +33,7 @@ from mavedb_link.identifiers import (
     variant_index_of,
 )
 from mavedb_link.services import variant_lookup
-from mavedb_link.services.calibration import classify_score, coerce_score
+from mavedb_link.services.calibration import classify_score, coerce_score, shape_calibrations
 from mavedb_link.services.scores import hgvs_core
 from mavedb_link.services.shaping import shape_mapped_variant, shape_single_variant
 
@@ -487,13 +487,15 @@ async def get_classified_variants(
     calibration_urn: str | None = None,
     limit: int = DEFAULT_CLASSIFIED_LIMIT,
     offset: int = 0,
+    response_mode: str = "compact",
 ) -> dict[str, Any]:
     """Return a score set's variants in a calibrated functional class.
 
     Resolves the primary calibration (or ``calibration_urn``), then lists its
     variants from ``/score-calibrations/{urn}/variants`` (grouped by class id),
     optionally filtered to one ``classification`` (abnormal | normal |
-    not_specified). Paged via offset/limit.
+    not_specified). Paged via offset/limit. ``full`` adds the calibration's
+    threshold ladder (``calibration``) so the class ranges are visible.
     """
     score_set_urn = validate_score_set_urn(urn)
     if classification is not None and classification not in FUNCTIONAL_CLASSES:
@@ -534,7 +536,7 @@ async def get_classified_variants(
     variants.sort(key=lambda v: v.get("variant_urn") or "")
     total = len(variants)
     page = variants[offset : offset + capped]
-    return {
+    payload = {
         "urn": score_set_urn,
         "calibration_urn": calib_urn,
         "calibration_title": calibration.get("title"),
@@ -542,3 +544,8 @@ async def get_classified_variants(
         "variants": page,
         **_page_block(total=total, returned=len(page), limit=capped, offset=offset),
     }
+    if response_mode == "full":
+        payload["calibration"] = shape_calibrations(
+            [calibration], full=True, record_id_base=score_set_urn
+        )[0]
+    return payload
