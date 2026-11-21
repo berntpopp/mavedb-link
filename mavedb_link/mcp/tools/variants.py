@@ -209,15 +209,20 @@ def register_variant_tools(mcp: FastMCP) -> None:
             "assay coordinates to reference-genome/clinical coordinates. Rows are "
             "ordered numerically by variant_index to match get_variant_scores, but "
             "JOIN on variant_urn/variant_index (do not zip by row — some variants "
-            "are unmapped). current_only (default true) collapses the "
-            "current/superseded pair to one row per variant. Paged via offset/limit. "
+            "are unmapped). MaveDB serves only each variant's current mapping, so "
+            "current_only=false returns the same rows (kept for compatibility). "
+            "Paged via offset/limit. "
             "Signature: get_mapped_variants(urn, current_only=, limit=, offset=, response_mode=)."
         ),
     )
     async def get_mapped_variants(
         urn: ScoreSetUrnStr,
         current_only: Annotated[
-            bool, Field(description="Keep only the current mapping per variant (default true).")
+            bool,
+            Field(
+                description="No effect: MaveDB serves only the current mapping per "
+                "variant, so false returns the same rows (kept for compatibility)."
+            ),
         ] = True,
         limit: _MappedLimit = DEFAULT_MAPPED_LIMIT,
         offset: _Offset = 0,

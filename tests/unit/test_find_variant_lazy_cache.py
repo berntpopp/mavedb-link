@@ -104,7 +104,7 @@ async def test_find_variant_variant_urn_warms_and_reuses_cache(
     service: MaveDBService,
 ) -> None:
     with respx.mock(base_url=BASE_URL, assert_all_called=False) as mock:
-        mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/mapped-variants").mock(
+        mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         rollup_route = mock.get(f"/variants/vrs/{quote(VRS_ID, safe='')}").mock(
@@ -128,7 +128,7 @@ async def test_find_variant_hgvs_warms_gene_sets_and_reuses_cache(
     service: MaveDBService,
 ) -> None:
     with respx.mock(base_url=BASE_URL, assert_all_called=False) as mock:
-        mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/mapped-variants").mock(
+        mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         rollup_route = mock.get(f"/variants/vrs/{quote(VRS_ID, safe='')}").mock(

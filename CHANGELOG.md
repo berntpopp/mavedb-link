@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-21
+
+### Fixed
+
+- `get_mapped_variants` works again (#137). MaveDB removed `GET /score-sets/{urn}/mapped-variants` (HTTP 410); mapped variants now come from the NDJSON `GET /score-sets/{urn}/variant-details` export, streamed line by line so only each variant's mapping is held in memory. A legacy JSON-array body is still read. A truncated export (row count short of `X-Total-Count`, seen live as a 200) and a mid-stream drop are errors, never a silently short list; retryable statuses are retried. The lazy mapped-variant cache warm-up uses the same path.
+- `current_only` (`get_mapped_variants`) and `only_current` (`find_variant`) cannot widen a result any more: MaveDB serves only each variant's current mapping. Their descriptions say so, and `false` adds a `note` to the response; `find_variant` no longer sends the parameter upstream.
+
 ## [0.7.1] - 2026-11-21
 
 ### Fixed

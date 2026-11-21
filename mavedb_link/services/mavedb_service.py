@@ -13,6 +13,7 @@ from typing import Any
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.constants import (
     CALIBRATION_TOOLS,
+    CURRENT_ONLY_NOTE,
     DEFAULT_CLASSIFIED_LIMIT,
     DEFAULT_COLLECTION_LIMIT,
     DEFAULT_FIND_LIMIT,
@@ -431,10 +432,10 @@ class MaveDBService:
         offset: int = 0,
         response_mode: str = shaping.DEFAULT_RESPONSE_MODE,
     ) -> dict[str, Any]:
-        """Fetch genome-mapped (VRS) alleles for a score set (``GET …/mapped-variants``).
+        """Fetch genome-mapped (VRS) alleles for a score set (``GET …/variant-details``).
 
-        Upstream emits both the current and superseded mapping per variant (a 2x
-        doubling); ``current_only`` (default) collapses to one row per variant.
+        Upstream now serves only each variant's current mapping, so
+        ``current_only=False`` returns the same rows and says so in ``note``.
         Upstream returns the list UNORDERED, so rows are sorted **numerically by
         the variant index** (``#1, #2, … #10``) to match ``get_variant_scores``;
         each row carries ``variant_index``. Because some variants may be unmapped,
@@ -445,19 +446,14 @@ class MaveDBService:
         capped = _clamp(limit, 1, MAX_MAPPED_LIMIT)
         items = self._mirror_mapped_variants(score_set_urn, current_only, response_mode)
         if items is None:
-            fetch = getattr(self._client, "ensure_mapped_variants", None)
-            if callable(fetch):
-                items = await fetch(score_set_urn)
-            else:
-                raw = await self._client.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-                items = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
+            items = await self._client.ensure_mapped_variants(score_set_urn)
             if current_only:
                 items = [it for it in items if isinstance(it, dict) and it.get("current")]
         items = sorted(items, key=_mapped_sort_key)
         total = len(items)
         page = items[offset : offset + capped]
         results = [shaping.shape_mapped_variant(it, response_mode) for it in page]
-        return {
+        payload = {
             "urn": score_set_urn,
             "mapped_variants": results,
             "current_only": current_only,
@@ -465,6 +461,9 @@ class MaveDBService:
             "join_key": "variant_urn",
             **_page_block(total=total, returned=len(results), limit=capped, offset=offset),
         }
+        if not current_only:
+            payload["note"] = CURRENT_ONLY_NOTE.format(param="current_only")
+        return payload
 
     def _mirror_mapped_variants(
         self, urn: str, current_only: bool, response_mode: str

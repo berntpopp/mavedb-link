@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.constants import (
+    CURRENT_ONLY_NOTE,
     DEFAULT_CLASSIFIED_LIMIT,
     DEFAULT_FIND_LIMIT,
     FUNCTIONAL_CLASSES,
@@ -364,10 +365,7 @@ async def find_variant(
     capped = _clamp(limit, 1, MAX_FIND_LIMIT)
     merged: dict[Any, Any] = {}
     for ident in idents:
-        raw = await client.get_json(
-            f"/variants/vrs/{quote(ident, safe='')}",
-            params={"only_current": only_current},
-        )
+        raw = await client.get_json(f"/variants/vrs/{quote(ident, safe='')}")
         rows = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])
         for row in rows:
             merged.setdefault(_mapped_variant_urn(row) or id(row), row)
@@ -389,6 +387,8 @@ async def find_variant(
     # path lean (the user's token-cost concern).
     if len(idents) > 1:
         extra["resolved_vrs"] = idents
+    if not only_current:
+        extra["note"] = CURRENT_ONLY_NOTE.format(param="only_current")
     return {
         "vrs_id": idents[0],
         "resolved_by": resolved_by,

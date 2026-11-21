@@ -333,9 +333,11 @@ def build_capabilities() -> dict[str, Any]:
             "get_mapped_variants": [
                 "Some variants are unmapped, so this list and get_variant_scores can "
                 "differ in length -- JOIN on variant_urn/variant_index, never by row.",
-                "The default (current_only, compact/minimal) read is mirror-served and "
-                "fast; standard/full (full VRS objects) and current_only=False reach "
-                "the live endpoint (_meta.data_source reports which answered).",
+                "The default compact/minimal read is mirror-served and fast; "
+                "standard/full (full VRS objects) reach the live variant-details "
+                "export (_meta.data_source reports which answered).",
+                "MaveDB serves only each variant's current mapping: current_only=false "
+                "returns the same rows and adds a note saying so.",
             ],
             "get_score_set": [
                 "score_calibrations is present only for the MINORITY of sets MaveDB "
