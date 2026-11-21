@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-21
+
+### Fixed
+
+- Mirror and live now return the same VRS ids and the same rows (#140). The dump stores the bare post-mapped VRS digest, so mirror-served reads returned `2NPp…` where live returns `ga4gh:VA.2NPp…`, and mirror and live rows could not be joined. The mirror repository now serves every stored digest as `ga4gh:VA.<digest>` on read (every post-mapped variant is an Allele, verified live). Existing mirrors self-heal on read; no rebuild or migration is needed.
+- The `find_variant` cross-dataset rollup (`/variants/vrs/{id}`) is always live: the mirror only held same-allele rows from its snapshot, while live also matches the variant at the other levels (genomic/cDNA/protein), so the mirror answered with fewer rows. VRS resolution (variant URN or HGVS to VRS) stays mirror-served, so `_meta.data_source` reads `mixed`.
+- `find_variant` accepts a bare 32-character VRS digest as well as `ga4gh:VA.<digest>`.
+
 ## [0.7.2] - 2026-11-21
 
 ### Fixed

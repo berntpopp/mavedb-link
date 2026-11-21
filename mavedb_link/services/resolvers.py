@@ -32,6 +32,7 @@ from mavedb_link.identifiers import (
     validate_hgvs_variant,
     validate_score_set_urn,
     variant_index_of,
+    vrs_allele_id,
 )
 from mavedb_link.services import variant_lookup
 from mavedb_link.services.calibration import classify_score, coerce_score, shape_calibrations
@@ -200,6 +201,7 @@ async def _resolve_cross_dataset_ident(
             hint="Get a VRS id from get_mapped_variants/get_variant_score, or pass a "
             "variant_urn to resolve it internally.",
         )
+    candidate = vrs_allele_id(candidate)  # a bare digest (mirror form) is accepted
     if candidate.startswith(_VRS_PREFIX):
         return candidate, "vrs_id"
     if is_variant_urn(candidate):  # friendly: a variant URN where a VRS id would go

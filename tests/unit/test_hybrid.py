@@ -62,11 +62,17 @@ async def test_search_served_from_mirror(hybrid: HybridClient) -> None:
     assert resp["scoreSets"][0]["urn"] == CALIBRATED_URN
 
 
-async def test_vrs_rollup_served_from_mirror(hybrid: HybridClient) -> None:
-    provenance.begin()
-    items = await hybrid.get_json("/variants/vrs/ga4gh%3AVA.MINI_digest1")
-    assert items[0]["variantUrn"] == f"{CALIBRATED_URN}#1"
-    assert items[0]["postMapped"]["id"] == "ga4gh:VA.MINI_digest1"
+async def test_vrs_rollup_is_always_live(hybrid: HybridClient) -> None:
+    # #140: only live matches across genomic/cDNA/protein levels, so the mirror
+    # never answers the rollup (its rows would differ from live's).
+    with respx.mock(base_url=BASE_URL) as mock:
+        route = mock.get("/variants/vrs/ga4gh%3AVA.MINI_digest1xxxxxxxxxxxxxxxxxxxx").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        assert (
+            await hybrid.get_json("/variants/vrs/ga4gh%3AVA.MINI_digest1xxxxxxxxxxxxxxxxxxxx") == []
+        )
+    assert route.called
 
 
 async def test_mirror_miss_falls_through_to_live(hybrid: HybridClient) -> None:
@@ -149,7 +155,7 @@ async def test_mapped_variants_served_from_mirror(hybrid: HybridClient) -> None:
     out = await MaveDBService(hybrid).get_mapped_variants(CALIBRATED_URN)
     assert out["total"] == 2
     assert out["mapped_variants"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
-    assert out["mapped_variants"][0]["vrs_id"] == "ga4gh:VA.MINI_digest1"
+    assert out["mapped_variants"][0]["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"
     assert out["mapped_variants"][0]["clingen_allele_id"] == "CA999001"
     assert provenance.snapshot()["data_source"] == "mirror"
 
@@ -168,7 +174,7 @@ async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClie
                         "variantUrn": f"{CALIBRATED_URN}#1",
                         "preMapped": {"id": "pre1"},
                         "postMapped": {
-                            "id": "ga4gh:VA.MINI_digest1",
+                            "id": "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx",
                             "type": "Allele",
                             "location": {
                                 "sequenceReference": {
@@ -233,13 +239,13 @@ async def test_mapped_variants_mirror_and_live_compact_interchangeable(
                     json=[
                         {
                             "variantUrn": f"{CALIBRATED_URN}#1",
-                            "postMapped": {"id": "ga4gh:VA.MINI_digest1"},
+                            "postMapped": {"id": "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"},
                             "clingenAlleleId": "CA999001",
                             "current": True,
                         },
                         {
                             "variantUrn": f"{CALIBRATED_URN}#2",
-                            "postMapped": {"id": "ga4gh:VA.MINI_digest2"},
+                            "postMapped": {"id": "ga4gh:VA.MINI_digest2xxxxxxxxxxxxxxxxxxxx"},
                             "clingenAlleleId": "CA999002",
                             "current": True,
                         },
@@ -252,29 +258,46 @@ async def test_mapped_variants_mirror_and_live_compact_interchangeable(
     assert mirror_out == live_out
 
 
+def _mock_rollup(mock: respx.Router) -> None:
+    mock.get("/variants/vrs/ga4gh%3AVA.MINI_digest1xxxxxxxxxxxxxxxxxxxx").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "variantUrn": f"{CALIBRATED_URN}#1",
+                    "vrsId": "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx",
+                }
+            ],
+        )
+    )
+
+
 async def test_find_variant_resolves_vrs_and_rollup_from_mirror(hybrid: HybridClient) -> None:
     # D.3: find_variant(variant_urn=) resolves the variant's VRS from the annotation
-    # index (no live /variants fetch) and rolls it up from the mirror -- so the
-    # cross-dataset consolidation path is fully mirror-served when enrich is off.
+    # index (no live /variants fetch); the rollup itself is live (#140).
     provenance.begin()
-    out = await MaveDBService(hybrid).find_variant(variant_urn=f"{CALIBRATED_URN}#1", enrich=False)
-    assert out["resolved_by"] == "variant_urn"
-    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
-    assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
-    assert provenance.snapshot()["data_source"] == "mirror"
+    with respx.mock(base_url=BASE_URL) as mock:
+        _mock_rollup(mock)
+        out = await MaveDBService(hybrid).find_variant(
+            variant_urn=f"{CALIBRATED_URN}#1", enrich=False
+        )
+        assert out["resolved_by"] == "variant_urn"
+        assert out["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"
+        assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
+        assert provenance.snapshot()["data_source"] == "mixed"  # VRS from mirror, rollup live
 
 
 async def test_vrs_for_hgvs_served_from_mirror(hybrid: HybridClient) -> None:
     # The calibrated (BRCA2) set carries hgvs_pro p.Met1Leu -> VRS digest1.
     provenance.begin()
     rows = hybrid.vrs_for_hgvs("p.met1leu", gene="BRCA2")
-    assert any(r["vrs_id"] == "ga4gh:VA.MINI_digest1" for r in rows)
+    assert any(r["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx" for r in rows)
     assert provenance.snapshot()["data_source"] == "mirror"
 
 
 async def test_vrs_for_hgvs_genomic_served_from_mirror(hybrid: HybridClient) -> None:
     rows = hybrid.vrs_for_hgvs("g.32316461a>t", "nc_000013.11:g.32316461a>t")
-    assert [r["vrs_id"] for r in rows] == ["ga4gh:VA.MINI_digest1"]
+    assert [r["vrs_id"] for r in rows] == ["ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"]
 
 
 async def test_vrs_for_hgvs_miss_returns_empty(hybrid: HybridClient) -> None:
@@ -288,22 +311,28 @@ async def test_gene_identity_thin_from_mirror(hybrid: HybridClient) -> None:
 
 async def test_find_variant_by_genomic_hgvs_end_to_end(hybrid: HybridClient) -> None:
     # Full stack: a genomic HGVS resolves to VRS via the post-mapped columns (the
-    # core/full split) and rolls up from the mirror, no live call, enrich off.
+    # core/full split) from the mirror; the rollup is live (#140), enrich off.
     provenance.begin()
-    out = await MaveDBService(hybrid).find_variant(hgvs="NC_000013.11:g.32316461A>T", enrich=False)
-    assert out["resolved_by"] == "hgvs"
-    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
-    assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
-    assert provenance.snapshot()["data_source"] == "mirror"
+    with respx.mock(base_url=BASE_URL) as mock:
+        _mock_rollup(mock)
+        out = await MaveDBService(hybrid).find_variant(
+            hgvs="NC_000013.11:g.32316461A>T", enrich=False
+        )
+        assert out["resolved_by"] == "hgvs"
+        assert out["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"
+        assert out["hits"][0]["variant_urn"] == f"{CALIBRATED_URN}#1"
+        assert provenance.snapshot()["data_source"] == "mixed"  # VRS from mirror, rollup live
 
 
 async def test_find_variant_by_target_hgvs_end_to_end(hybrid: HybridClient) -> None:
     # Target-relative HGVS (p.Met1Leu) scoped by gene resolves via hgvs_index.
     provenance.begin()
-    out = await MaveDBService(hybrid).find_variant(hgvs="p.Met1Leu", gene="BRCA2", enrich=False)
-    assert out["resolved_by"] == "hgvs"
-    assert out["vrs_id"] == "ga4gh:VA.MINI_digest1"
-    assert provenance.snapshot()["data_source"] == "mirror"
+    with respx.mock(base_url=BASE_URL) as mock:
+        _mock_rollup(mock)
+        out = await MaveDBService(hybrid).find_variant(hgvs="p.Met1Leu", gene="BRCA2", enrich=False)
+        assert out["resolved_by"] == "hgvs"
+        assert out["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx"
+        assert provenance.snapshot()["data_source"] == "mixed"  # VRS from mirror, rollup live
 
 
 async def test_diagnostics_reports_mirror_status(hybrid: HybridClient) -> None:
