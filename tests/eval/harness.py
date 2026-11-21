@@ -75,7 +75,7 @@ def mock_surface(router: respx.Router) -> None:
     router.get("/api/version").mock(
         return_value=httpx.Response(200, json=fixtures.API_VERSION_RESPONSE)
     )
-    router.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    router.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW)
     )
     router.get(f"/score-calibrations/score-set/{fixtures.SCORE_SET_URN}/primary").mock(

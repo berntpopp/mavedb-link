@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-21
+
+### Fixed
+
+- Follow MaveDB's reshaped variant API (#136). `GET /variants/{urn}` now carries `scores`/`counts`/`mapped`/`postMapped` instead of `data.score_data`/`hgvsNt`/`mappedVariants`, so `get_variant_score` by URN and `find_variant` enrichment returned no score, and the live HGVS probe found no VRS and answered a false `not_found` for transcript `c.` input (e.g. `NM_000546.6:c.455C>T`, `ENST00000269305.9:c.455C>T`). The record is now read in its current shape (legacy keys as fallback), and the cross-dataset rollup calls `/variants/vrs/{id}` (the old `/mapped-variants/vrs/{id}` is a 301), which also returns the protein-level score sets for a coding variant.
+- `find_variant` errors with `gene=` now offer a ready `get_gene_score_sets {"symbol": gene}` next command, and the `not_found` prose no longer uses call syntax that the gateway rewrote into a non-callable form.
+
 ## [0.7.0] - 2026-11-19
 
 ### Fixed

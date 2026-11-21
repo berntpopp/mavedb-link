@@ -44,7 +44,7 @@ def _mock_all(router: respx.Router) -> None:
         return_value=httpx.Response(200, json=fixtures.API_VERSION_RESPONSE)
     )
     # P1 resolver routes (single-hit VRS so enrichment stays within mocked routes).
-    router.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    router.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW[:1])
     )
     router.post("/hgvs/validate").mock(return_value=httpx.Response(200, json=True))

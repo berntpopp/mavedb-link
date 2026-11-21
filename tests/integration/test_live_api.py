@@ -131,6 +131,13 @@ async def test_find_variant_live(live_service: MaveDBService) -> None:
     assert all(h.get("score_set_urn") for h in out["hits"])
 
 
+async def test_find_variant_coding_hgvs_live(live_service: MaveDBService) -> None:
+    # #136: a transcript c. form reaches the protein-level sets, and hits carry a score.
+    out = await live_service.find_variant(hgvs="ENST00000269305.9:c.455C>T", gene="TP53")
+    assert "urn:mavedb:00000068-0-1" in {h["score_set_urn"] for h in out["hits"]}
+    assert all(h.get("score") is not None for h in out["hits"])
+
+
 async def test_get_hgvs_validation_live(live_service: MaveDBService) -> None:
     valid = await live_service.get_hgvs_validation("NM_000059.4:c.8167G>A")
     assert valid["valid"] is True

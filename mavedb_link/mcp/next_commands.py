@@ -67,6 +67,8 @@ def default_error_next_commands(
         if value and not looks_like_mavedb_urn(value):
             return [cmd("search_score_sets", text=value), cmd("get_server_capabilities")]
         return [cmd("search_score_sets"), cmd("get_server_capabilities")]
+    if tool == "find_variant" and arguments.get("gene_symbol"):
+        return [cmd("get_gene_score_sets", symbol=str(arguments["gene_symbol"]))]
     if tool == "get_gene_score_sets" and value:
         return [cmd("search_score_sets", text=value)]
     return [cmd("get_server_capabilities")]

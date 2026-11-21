@@ -274,8 +274,8 @@ async def _live_probe_hgvs(client: MaveDBClient, hgvs: str, gene: str) -> tuple[
     if not found:
         raise NotFoundError(
             "No genome-mapped variant was found in the probed score sets. Confirm the "
-            "HGVS spelling, or call get_gene_score_sets(symbol) and probe "
-            "get_variant_score(urn, hgvs=) directly."
+            "HGVS spelling, or list the gene's score sets with get_gene_score_sets and "
+            "look the variant up in each with get_variant_score."
         )
     return sorted(found), truncated
 
@@ -365,7 +365,7 @@ async def find_variant(
     merged: dict[Any, Any] = {}
     for ident in idents:
         raw = await client.get_json(
-            f"/mapped-variants/vrs/{quote(ident, safe='')}",
+            f"/variants/vrs/{quote(ident, safe='')}",
             params={"only_current": only_current},
         )
         rows = raw if isinstance(raw, list) else (raw.get("mappedVariants") or [])

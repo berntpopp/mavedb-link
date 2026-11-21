@@ -64,7 +64,7 @@ async def test_search_served_from_mirror(hybrid: HybridClient) -> None:
 
 async def test_vrs_rollup_served_from_mirror(hybrid: HybridClient) -> None:
     provenance.begin()
-    items = await hybrid.get_json("/mapped-variants/vrs/ga4gh%3AVA.MINI_digest1")
+    items = await hybrid.get_json("/variants/vrs/ga4gh%3AVA.MINI_digest1")
     assert items[0]["variantUrn"] == f"{CALIBRATED_URN}#1"
     assert items[0]["postMapped"]["id"] == "ga4gh:VA.MINI_digest1"
 
