@@ -107,7 +107,7 @@ async def test_find_variant_variant_urn_warms_and_reuses_cache(
         mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/mapped-variants").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
-        rollup_route = mock.get(f"/mapped-variants/vrs/{quote(VRS_ID, safe='')}").mock(
+        rollup_route = mock.get(f"/variants/vrs/{quote(VRS_ID, safe='')}").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         variant_route = mock.get(f"/variants/{VARIANT_URN.replace('#', '%23')}").mock(
@@ -131,7 +131,7 @@ async def test_find_variant_hgvs_warms_gene_sets_and_reuses_cache(
         mapped_route = mock.get(f"/score-sets/{SCORE_SET_URN}/mapped-variants").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
-        rollup_route = mock.get(f"/mapped-variants/vrs/{quote(VRS_ID, safe='')}").mock(
+        rollup_route = mock.get(f"/variants/vrs/{quote(VRS_ID, safe='')}").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         gene_route = mock.get("/genes/BRCA1").mock(

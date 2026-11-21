@@ -341,7 +341,7 @@ DISTRIBUTION_SCORES_CSV = "accession,hgvs_nt,score\n" + "".join(
 )
 
 #: Cross-dataset VRS lookup: one allele present in two score sets, as
-#: GET /mapped-variants/vrs/{identifier} returns it (a bare list).
+#: GET /variants/vrs/{identifier} returns it (a bare list).
 VRS_ID = "ga4gh:VA.KJ_post2"
 VRS_ID_ENCODED = "ga4gh%3AVA.KJ_post2"
 VRS_CROSS_DATASET_RAW: list[dict[str, Any]] = [

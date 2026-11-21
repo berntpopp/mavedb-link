@@ -362,7 +362,7 @@ def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         # The numeric join key: align with get_variant_scores rows by this value,
         # NOT by row position (some variants are unmapped, so the lists differ).
         "variant_index": variant_index_of(variant_urn) if variant_urn else None,
-        "vrs_id": post.get("id") if isinstance(post, dict) else None,
+        "vrs_id": (post.get("id") if isinstance(post, dict) else None) or raw.get("vrsId"),
         "clingen_allele_id": raw.get("clingenAlleleId"),
         "current": raw.get("current"),
     }
@@ -394,6 +394,32 @@ def shape_mapped_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
     return _drop_empty(payload)
 
 
+def _mapped_hgvs(mapped: dict[str, Any], *levels: str) -> str | None:
+    """First post-mapped HGVS string among ``levels`` of a record's ``mapped`` block."""
+    for level in levels:
+        entry = mapped.get(level)
+        if isinstance(entry, dict) and entry.get("hgvs"):
+            return str(entry["hgvs"])
+    return None
+
+
+def _record_mapping(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """The current record's own VRS pair as one mapped-variant row (or none)."""
+    if not isinstance(raw.get("postMapped"), dict):
+        return []
+    return [
+        {
+            "variantUrn": raw.get("urn"),
+            "preMapped": raw.get("preMapped"),
+            "postMapped": raw["postMapped"],
+            "clingenAlleleId": raw.get("clingenAlleleId"),
+            # The record's own postMapped IS its current mapping; isCurrent is
+            # score-set currency and must not hide a superseded set's VRS.
+            "current": True,
+        }
+    ]
+
+
 def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project one variant record (``GET /variants/{urn}``) to its score + hgvs.
 
@@ -401,8 +427,11 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
     in every mode; the full ``score_data``/``count_data`` and mapped alleles only
     in standard/full.
     """
+    # Current upstream: top-level scores/counts/mapped/postMapped; the legacy
+    # data.score_data/hgvsNt/mappedVariants keys are kept as a fallback.
     data = raw.get("data") or {}
-    score_data = data.get("score_data") or {}
+    score_data = raw.get("scores") or data.get("score_data") or {}
+    hgvs = raw.get("mapped") or {}
     variant_urn = raw.get("urn")
     score_set = raw.get("scoreSet") or {}
     score_set_urn = score_set.get("urn") if isinstance(score_set, dict) else None
@@ -412,8 +441,8 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
         "variant_urn": variant_urn,
         "variant_index": variant_index_of(variant_urn) if isinstance(variant_urn, str) else None,
         "score_set_urn": score_set_urn,
-        "hgvs_nt": raw.get("hgvsNt"),
-        "hgvs_pro": raw.get("hgvsPro"),
+        "hgvs_nt": raw.get("hgvsNt") or _mapped_hgvs(hgvs, "cdna", "genomic"),
+        "hgvs_pro": raw.get("hgvsPro") or _mapped_hgvs(hgvs, "protein"),
         # Coerce to float: the variant record can serialise score as a string for
         # some sets, which would otherwise crash the classifier (GAP-2).
         "score": coerce_score(score_data.get("score")),
@@ -421,13 +450,13 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
     if response_mode in ("standard", "full"):
         # Embedded mappings are current-only except at full -- the by-URN path used
         # to leak superseded current:false rows (F2).
-        mapped = raw.get("mappedVariants") or []
+        mapped = raw.get("mappedVariants") or _record_mapping(raw)
         if response_mode != "full":
             mapped = [m for m in mapped if isinstance(m, dict) and m.get("current")]
         payload.update(
             {
                 "score_data": score_data,
-                "count_data": data.get("count_data"),
+                "count_data": raw.get("counts") or data.get("count_data"),
                 "mapped_variants": [shape_mapped_variant(m, response_mode) for m in mapped],
             }
         )

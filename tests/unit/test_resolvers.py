@@ -43,7 +43,7 @@ async def test_find_variant_by_variant_urn_resolves_vrs_internally(
     respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
     )
-    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    respx_mock.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW)
     )
     out = await service.find_variant(variant_urn=fixtures.VARIANT_URN, enrich=False)
@@ -63,7 +63,7 @@ async def test_find_variant_auto_detects_variant_urn_in_first_arg(
     respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VARIANT_RAW)
     )
-    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    respx_mock.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW[:1])
     )
     out = await service.find_variant(fixtures.VARIANT_URN, enrich=False)
@@ -90,7 +90,7 @@ async def test_find_variant_unmapped_variant_is_not_found(
 async def test_find_variant_spans_score_sets(
     respx_mock: respx.Router, service: MaveDBService
 ) -> None:
-    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    respx_mock.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW)
     )
     out = await service.find_variant(fixtures.VRS_ID, enrich=False)
@@ -105,7 +105,7 @@ async def test_find_variant_spans_score_sets(
 async def test_find_variant_enriches_with_score_and_classification(
     respx_mock: respx.Router, service: MaveDBService
 ) -> None:
-    respx_mock.get(f"/mapped-variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
+    respx_mock.get(f"/variants/vrs/{fixtures.VRS_ID_ENCODED}").mock(
         return_value=httpx.Response(200, json=fixtures.VRS_CROSS_DATASET_RAW[:1])
     )
     respx_mock.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(
