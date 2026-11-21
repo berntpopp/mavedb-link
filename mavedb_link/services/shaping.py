@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from mavedb_link.api.client import mapped_row
 from mavedb_link.constants import MAVEDB_WEB_URL
 from mavedb_link.identifiers import score_set_urn_of_variant, variant_index_of
 from mavedb_link.mcp.untrusted_content import fence_prose
@@ -403,23 +404,6 @@ def _mapped_hgvs(mapped: dict[str, Any], *levels: str) -> str | None:
     return None
 
 
-def _record_mapping(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    """The current record's own VRS pair as one mapped-variant row (or none)."""
-    if not isinstance(raw.get("postMapped"), dict):
-        return []
-    return [
-        {
-            "variantUrn": raw.get("urn"),
-            "preMapped": raw.get("preMapped"),
-            "postMapped": raw["postMapped"],
-            "clingenAlleleId": raw.get("clingenAlleleId"),
-            # The record's own postMapped IS its current mapping; isCurrent is
-            # score-set currency and must not hide a superseded set's VRS.
-            "current": True,
-        }
-    ]
-
-
 def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, Any]:
     """Project one variant record (``GET /variants/{urn}``) to its score + hgvs.
 
@@ -450,7 +434,9 @@ def shape_single_variant(raw: dict[str, Any], response_mode: str) -> dict[str, A
     if response_mode in ("standard", "full"):
         # Embedded mappings are current-only except at full -- the by-URN path used
         # to leak superseded current:false rows (F2).
-        mapped = raw.get("mappedVariants") or _record_mapping(raw)
+        mapped = raw.get("mappedVariants") or (
+            [mapped_row(raw)] if isinstance(raw.get("postMapped"), dict) else []
+        )
         if response_mode != "full":
             mapped = [m for m in mapped if isinstance(m, dict) and m.get("current")]
         payload.update(

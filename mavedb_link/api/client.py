@@ -21,6 +21,7 @@ for absolute request paths.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
 from collections import OrderedDict
@@ -227,15 +228,38 @@ class MaveDBClient:
         return response.json()
 
     async def ensure_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
-        """Return a score set's raw mapped-variant list from the live API.
+        """Return a score set's mapped-variant rows from the live API.
 
         The contract :class:`~mavedb_link.data.hybrid.HybridClient` overrides to
         serve/persist via the on-disk cache; the base client always fetches live.
-        Returns the list upstream emits (current + superseded), shaped exactly as
-        ``GET /score-sets/{urn}/mapped-variants``.
+        Reads the NDJSON ``GET /score-sets/{urn}/variant-details`` export (the
+        retired ``/mapped-variants`` now answers 410) line by line, keeping only
+        each record's mapping: a full record is ~13 KB, a set can hold 100k+.
         """
-        raw = await self.get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-        return _as_mapped_list(raw)
+        path = f"/score-sets/{score_set_urn}/variant-details"
+        client = await self._ensure_client()
+        rows: list[dict[str, Any]] = []
+        total: str | None = None
+        for attempt in range(self._config.max_retries + 1):
+            last = attempt == self._config.max_retries
+            try:
+                async with (
+                    self._semaphore,
+                    client.stream(
+                        "GET", f"{self._base_url}{path}", headers={"Accept": "application/x-ndjson"}
+                    ) as response,
+                ):
+                    if last or response.status_code not in _RETRYABLE_STATUS:
+                        rows, total = await _read_mapped_rows(response)
+                        break
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                if last:
+                    raise ServiceUnavailableError("MaveDB variant-details export failed.") from exc
+            await asyncio.sleep(random.uniform(0, _BACKOFF_BASE_SECONDS))  # noqa: S311
+        # A mid-stream upstream drop still ends in a 200; never cache a short list.
+        if total is not None and total.isdigit() and int(total) != len(rows):
+            raise ServiceUnavailableError("MaveDB variant-details export was truncated.")
+        return rows
 
     def clear_cache(self) -> None:
         """Drop the in-process response cache (test/maintenance helper)."""
@@ -248,14 +272,41 @@ class MaveDBClient:
             await client.aclose()
 
 
-def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:
-    """Normalise a ``/mapped-variants`` response to a list of dict records."""
-    items = (
-        raw
-        if isinstance(raw, list)
-        else (raw.get("mappedVariants") if isinstance(raw, dict) else None)
-    )
-    return [it for it in (items or []) if isinstance(it, dict)]
+async def _read_mapped_rows(response: httpx.Response) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse an NDJSON export into mapping rows (+ its ``X-Total-Count``)."""
+    MaveDBClient._raise_for_status(response)
+    rows: list[dict[str, Any]] = []
+    async for line in response.aiter_lines():
+        if line.strip():
+            try:
+                parsed = json.loads(line)  # a legacy JSON-array body is one line
+            except ValueError as exc:  # a cut-off last line: the export was truncated
+                raise ServiceUnavailableError(
+                    "MaveDB variant-details export was truncated."
+                ) from exc
+            for item in parsed if isinstance(parsed, list) else [parsed]:
+                if isinstance(item, dict):
+                    rows.append(mapped_row(item))
+    return rows, response.headers.get("x-total-count")
+
+
+def mapped_row(record: dict[str, Any]) -> dict[str, Any]:
+    """A variant record's own VRS pair as one mapped-variant row.
+
+    ``GET /variants/{urn}`` and the ``variant-details`` export carry the variant's
+    one current mapping (``postMapped``); ``isCurrent`` there is score-set
+    currency, not mapping currency. A legacy mapped-variant row (``variantUrn``)
+    passes through unchanged.
+    """
+    if "variantUrn" in record:
+        return record
+    return {
+        "variantUrn": record.get("urn"),
+        "preMapped": record.get("preMapped"),
+        "postMapped": record.get("postMapped"),
+        "clingenAlleleId": record.get("clingenAlleleId"),
+        "current": True,
+    }
 
 
 def _cache_key(prefix: str, path: str, params: dict[str, Any] | None) -> str:

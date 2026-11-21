@@ -228,8 +228,7 @@ class HybridClient(MaveDBClient):
 
     async def _fetch_live_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
         provenance.record("live")
-        raw = await super().get_json(f"/score-sets/{score_set_urn}/mapped-variants")
-        return _as_mapped_list(raw)
+        return await super().ensure_mapped_variants(score_set_urn)
 
     def _mapped_cache_get(self, score_set_urn: str) -> list[dict[str, Any]] | None:
         if self._mapped_cache is None:
@@ -354,16 +353,6 @@ def _mapping_coverage(raw: Any) -> dict[str, int] | None:
         return None
     keys = ("complete", "incomplete", "failed", "none")
     return {key: int(data.get(key, 0) or 0) for key in keys}
-
-
-def _as_mapped_list(raw: Any) -> list[dict[str, Any]]:
-    """Normalise a ``/mapped-variants`` response to raw dict records."""
-    items = (
-        raw
-        if isinstance(raw, list)
-        else (raw.get("mappedVariants") if isinstance(raw, dict) else None)
-    )
-    return [it for it in (items or []) if isinstance(it, dict)]
 
 
 def _score_set_urn_for_variant(variant_urn: str) -> str | None:

@@ -107,7 +107,7 @@ async def test_ensure_mapped_variants_fetches_once_then_uses_cache(
     hybrid: HybridClient,
 ) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{COMPLETE_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{COMPLETE_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         first = await hybrid.ensure_mapped_variants(COMPLETE_URN)
@@ -122,7 +122,7 @@ async def test_failed_mapping_state_caches_empty_without_live_call(
     hybrid: HybridClient,
 ) -> None:
     with respx.mock(base_url=BASE_URL, assert_all_called=False) as mock:
-        route = mock.get(f"/score-sets/{FAILED_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{FAILED_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items(FAILED_URN))
         )
         items = await hybrid.ensure_mapped_variants(FAILED_URN)
@@ -134,7 +134,7 @@ async def test_failed_mapping_state_caches_empty_without_live_call(
 async def test_absent_mapping_state_still_fetches_live(hybrid: HybridClient) -> None:
     expected = _mapped_items(NO_STATE_URN)
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{NO_STATE_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{NO_STATE_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=expected)
         )
         items = await hybrid.ensure_mapped_variants(NO_STATE_URN)
@@ -145,7 +145,7 @@ async def test_absent_mapping_state_still_fetches_live(hybrid: HybridClient) -> 
 
 async def test_concurrent_cold_calls_single_flight(hybrid: HybridClient) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{COMPLETE_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{COMPLETE_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         results = await asyncio.gather(
@@ -158,7 +158,7 @@ async def test_concurrent_cold_calls_single_flight(hybrid: HybridClient) -> None
 
 async def test_live_errors_propagate_and_do_not_cache(hybrid: HybridClient) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        mock.get(f"/score-sets/{COMPLETE_URN}/mapped-variants").mock(
+        mock.get(f"/score-sets/{COMPLETE_URN}/variant-details").mock(
             return_value=httpx.Response(503, json={"detail": "upstream down"})
         )
         with pytest.raises(ServiceUnavailableError):
@@ -171,7 +171,7 @@ async def test_live_errors_propagate_and_do_not_cache(hybrid: HybridClient) -> N
 
 async def test_helpers_read_vrs_from_cached_mapped_variants(hybrid: HybridClient) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        mock.get(f"/score-sets/{COMPLETE_URN}/mapped-variants").mock(
+        mock.get(f"/score-sets/{COMPLETE_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         await hybrid.ensure_mapped_variants(COMPLETE_URN)
@@ -189,7 +189,7 @@ async def test_helpers_read_vrs_from_cached_mapped_variants(hybrid: HybridClient
 
 async def test_mapped_cache_status_reports_cache_stats(hybrid: HybridClient) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        mock.get(f"/score-sets/{COMPLETE_URN}/mapped-variants").mock(
+        mock.get(f"/score-sets/{COMPLETE_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_mapped_items())
         )
         await hybrid.ensure_mapped_variants(COMPLETE_URN)

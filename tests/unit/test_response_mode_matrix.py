@@ -53,7 +53,7 @@ def _mock_surface(router: respx.Router) -> None:
     router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
     )
-    router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=fixtures.MAPPED_VARIANTS_RAW)
     )
     # The offending shape: a variant record whose score is a string.

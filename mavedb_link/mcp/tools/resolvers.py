@@ -94,7 +94,11 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         variant: _VariantAnchor,
         gene_symbol: _GeneSymbol = None,
         only_current: Annotated[
-            bool, Field(description="Keep only current genome mappings (default true).")
+            bool,
+            Field(
+                description="No effect: MaveDB serves only current genome mappings, "
+                "so false returns the same hits (kept for compatibility)."
+            ),
         ] = True,
         enrich: Annotated[
             bool, Field(description="Attach each hit's score + classifications (default true).")
