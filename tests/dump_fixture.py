@@ -67,14 +67,14 @@ _CALIBRATED_SCORES_NS = (
     "urn:mavedb:00001224-a-1#3,c.3G>A,NA,p.Gly2Arg,1.0\n"
 )
 
-#: annotations.csv (mapped-variant identity layer: VRS digest + ClinGen).
+#: annotations.csv (identity layer: the BARE VRS digest, as the real dump ships it, + ClinGen).
 _CALIBRATED_ANNOTATIONS_NS = (
     "accession,hgvs_nt,hgvs_splice,hgvs_pro,mavedb.post_mapped_hgvs_g,"
     "mavedb.post_mapped_vrs_digest,clingen.clingen_allele_id\n"
     "urn:mavedb:00001224-a-1#1,c.1A>T,NA,p.Met1Leu,NC_000013.11:g.32316461A>T,"
-    "ga4gh:VA.MINI_digest1,CA999001\n"
+    "MINI_digest1xxxxxxxxxxxxxxxxxxxx,CA999001\n"
     "urn:mavedb:00001224-a-1#2,c.2T>G,NA,p.Met1Arg,NC_000013.11:g.32316462T>G,"
-    "ga4gh:VA.MINI_digest2,CA999002\n"
+    "MINI_digest2xxxxxxxxxxxxxxxxxxxx,CA999002\n"
 )
 
 #: The dump-wide "as of" timestamp (provenance).

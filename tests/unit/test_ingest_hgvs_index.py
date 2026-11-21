@@ -40,5 +40,5 @@ def test_build_populates_hgvs_index(tmp_path: Path) -> None:
     assert repo is not None
     # The calibrated (BRCA2) set has hgvs_pro p.Met1Leu mapped to a VRS digest.
     rows = repo.resolve_hgvs("p.met1leu", gene="BRCA2")
-    assert any(r["vrs_id"] == "ga4gh:VA.MINI_digest1" for r in rows)
+    assert any(r["vrs_id"] == "ga4gh:VA.MINI_digest1xxxxxxxxxxxxxxxxxxxx" for r in rows)
     repo.close()

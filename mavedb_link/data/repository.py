@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from mavedb_link.constants import MIRROR_SCHEMA_VERSION as SCHEMA_VERSION
+from mavedb_link.identifiers import vrs_allele_id
 
 #: FTS5 token pattern (alphanumerics; gene symbols, accessions, words).
 _TOKEN = re.compile(r"[A-Za-z0-9]+")
@@ -141,10 +142,6 @@ class MirrorRepository:
 
     # --- mapped-variant identity (cross-dataset) ------------------------------
 
-    def mapped_by_vrs(self, vrs_id: str) -> list[dict[str, Any]]:
-        """Mapped-variant rows for a VRS id (across every score set)."""
-        return self._mapped("vrs_id", vrs_id)
-
     def mapped_by_clingen(self, clingen_allele_id: str) -> list[dict[str, Any]]:
         """Mapped-variant rows for a ClinGen allele id (across every score set)."""
         return self._mapped("clingen_allele_id", clingen_allele_id)
@@ -163,7 +160,7 @@ class MirrorRepository:
             "ORDER BY score_set_urn, variant_urn",
             (value,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_with_vrs_id(dict(r)) for r in rows]
 
     # --- gene + search --------------------------------------------------------
 
@@ -264,7 +261,7 @@ class MirrorRepository:
         ).fetchall():
             out.setdefault((r["variant_urn"], r["vrs_id"]), dict(r))
         return sorted(
-            out.values(),
+            (_with_vrs_id(r) for r in out.values()),
             key=lambda d: (d.get("score_set_urn") or "", d.get("variant_urn") or ""),
         )
 
@@ -376,3 +373,10 @@ def _has_author(record: dict[str, Any], wanted_lower: list[str]) -> bool:
                 names.append(str(author["name"]).lower())
     blob = " ".join(names)
     return any(w in blob for w in wanted_lower)
+
+
+def _with_vrs_id(row: dict[str, Any]) -> dict[str, Any]:
+    """Serve a stored bare VRS digest as live's ``ga4gh:VA.`` id (self-heals old mirrors)."""
+    if row.get("vrs_id"):
+        row["vrs_id"] = vrs_allele_id(row["vrs_id"])
+    return row

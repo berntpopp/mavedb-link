@@ -68,7 +68,7 @@ def test_build_reads_targz_dump_like_zip(tmp_path: Path) -> None:
         con.close()
     # CSV members were denamespaced from the tarball just like the zip path.
     assert scores_csv.splitlines()[0] == "accession,hgvs_nt,hgvs_splice,hgvs_pro,score,sd,exp.score"
-    assert mapped[0] == "ga4gh:VA.MINI_digest1"
+    assert mapped[0] == "MINI_digest1xxxxxxxxxxxxxxxxxxxx"  # stored as the dump ships it
 
 
 def test_build_summary_and_meta(tmp_path: Path) -> None:
@@ -203,7 +203,11 @@ def test_mapped_variant_index_from_annotations(tmp_path: Path) -> None:
         ).fetchone()
     finally:
         con.close()
-    assert rows[0] == (f"{CALIBRATED_URN}#1", "ga4gh:VA.MINI_digest1", "CA999001")
+    assert rows[0] == (
+        f"{CALIBRATED_URN}#1",
+        "MINI_digest1xxxxxxxxxxxxxxxxxxxx",
+        "CA999001",
+    )
     assert by_clingen[0] == CALIBRATED_URN
 
 

@@ -7,8 +7,9 @@ upstream reads it can from the local SQLite mirror and delegates everything else
 unchanged. Each answered read records its source (mirror | live) for ``_meta``.
 
 Intercepted from the mirror: ``GET /score-sets/{urn}``, ``GET /experiments/{urn}``,
-``GET /score-sets/{urn}/scores`` + ``/counts``, ``GET /variants/vrs/{id}``,
-and ``POST /score-sets/search``; the per-set mapped-variant enumeration is served
+``GET /score-sets/{urn}/scores`` + ``/counts``, and ``POST /score-sets/search``
+(the cross-dataset ``GET /variants/vrs/{id}`` rollup is always live: only live
+matches a variant across genomic/cDNA/protein levels, #140); the per-set mapped-variant enumeration is served
 via :meth:`score_set_mapped_variants` (current-only compact/minimal) from the same
 annotation index. HGVS-first resolution is served via :meth:`vrs_for_hgvs` (the
 hgvs_index) and a thin gene identity via :meth:`gene_identity`. Rich HGNC gene
@@ -22,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
-from urllib.parse import unquote
 
 from mavedb_link.api.client import MaveDBClient
 from mavedb_link.config import MaveDBApiConfig
@@ -276,9 +276,6 @@ class HybridClient(MaveDBClient):
         if len(parts) == 2 and parts[0] == "experiments" and parts[1] != "search":
             record = self._repo.experiment_record(parts[1])
             return record if record is not None else _MISS
-        if len(parts) == 3 and parts[0] == "variants" and parts[1] == "vrs":
-            items = self._repo.mapped_by_vrs(unquote(parts[2]))
-            return _as_mapped_variants(items) if items else _MISS
         return _MISS
 
     def _mirror_text(self, path: str, params: dict[str, Any] | None) -> str | None:

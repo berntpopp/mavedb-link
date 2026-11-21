@@ -13,7 +13,7 @@ from mavedb_link.constants import (
     MAX_CLASSIFIED_LIMIT,
     MAX_FIND_LIMIT,
 )
-from mavedb_link.identifiers import is_variant_urn
+from mavedb_link.identifiers import is_variant_urn, vrs_allele_id
 from mavedb_link.mcp.annotations import READ_ONLY_OPEN_WORLD
 from mavedb_link.mcp.envelope import McpErrorContext, run_mcp_tool
 from mavedb_link.mcp.next_commands import (
@@ -118,7 +118,7 @@ def register_resolver_tools(mcp: FastMCP) -> None:
         vrs_id: str | None = None
         variant_urn: str | None = None
         hgvs: str | None = None
-        if anchor.startswith("ga4gh:") or is_variant_urn(anchor):
+        if vrs_allele_id(anchor).startswith("ga4gh:") or is_variant_urn(anchor):
             vrs_id = anchor
         else:
             hgvs = variant

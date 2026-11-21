@@ -25,10 +25,23 @@ _EXPERIMENT_RE = re.compile(rf"^{_BASE}-[a-z0-9]+$")
 _SCORE_SET_RE = re.compile(rf"^{_BASE}-[a-z0-9]+-\d+$")
 _VARIANT_RE = re.compile(rf"^{_BASE}-[a-z0-9]+-\d+#\d+$")
 _TMP_RE = re.compile(r"^tmp:[0-9a-fA-F-]{8,}$")
+#: A bare GA4GH digest (upstream's ``/variants/vrs`` identifier pattern, sans prefix).
+_VRS_DIGEST_RE = re.compile(r"^[0-9A-Za-z_-]{32}$")
 
 #: A loose HGNC-style gene symbol (uppercase letters/digits/hyphen, e.g. BRCA1,
 #: HBB, TP53, C1orf127). Not authoritative — just enough to route input.
 _GENE_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9-]{0,19}$")
+
+
+def vrs_allele_id(value: str) -> str:
+    """The ``ga4gh:VA.<digest>`` form of a VRS id given bare or prefixed (#140).
+
+    The dump stores the bare post-mapped digest; live serves the prefixed id. Every
+    post-mapped variant is an Allele (``VA``) -- verified live on 2026-11-21, multi-
+    variant ``p.[...;...]`` rows included. Anything else is returned stripped.
+    """
+    candidate = value.strip()
+    return f"ga4gh:VA.{candidate}" if _VRS_DIGEST_RE.match(candidate) else candidate
 
 
 def normalize_urn(value: str) -> str:
