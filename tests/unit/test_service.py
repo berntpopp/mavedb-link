@@ -367,7 +367,7 @@ async def test_search_experiments_reranks_target_gene_above_namesake(
 
 @respx.mock(base_url=BASE)
 async def test_get_mapped_variants_pages(respx_mock: respx.Router, service: MaveDBService) -> None:
-    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=fixtures.MAPPED_VARIANTS_RAW)
     )
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN, limit=1, offset=0)
@@ -444,7 +444,7 @@ async def test_get_mapped_variants_current_only_collapses_and_orders(
             "current": False,
         },
     ]
-    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=raw)
     )
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN)
@@ -466,7 +466,7 @@ async def test_get_mapped_variants_current_only_false_keeps_both(
         {"variantUrn": f"{fixtures.SCORE_SET_URN}#1", "postMapped": {"id": "a"}, "current": True},
         {"variantUrn": f"{fixtures.SCORE_SET_URN}#1", "postMapped": {"id": "b"}, "current": False},
     ]
-    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=raw)
     )
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN, current_only=False)
@@ -489,7 +489,7 @@ async def test_get_mapped_variants_orders_numerically_not_lexically(
         {"variantUrn": f"{fixtures.SCORE_SET_URN}#2", "postMapped": {"id": "v2"}, "current": True},
         {"variantUrn": f"{fixtures.SCORE_SET_URN}#1", "postMapped": {"id": "v1"}, "current": True},
     ]
-    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    respx_mock.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=raw)
     )
     out = await service.get_mapped_variants(fixtures.SCORE_SET_URN, limit=10)

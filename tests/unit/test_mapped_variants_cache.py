@@ -71,7 +71,7 @@ async def test_get_mapped_variants_standard_and_full_reuse_lazy_cache(
     service: MaveDBService,
 ) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_raw_mapped_variants())
         )
 
@@ -97,7 +97,7 @@ async def test_get_mapped_variants_current_false_uses_cached_raw_list(
     service: MaveDBService,
 ) -> None:
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=_raw_mapped_variants())
         )
 

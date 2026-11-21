@@ -160,7 +160,7 @@ async def test_mapped_variants_standard_falls_through_to_live(hybrid: HybridClie
     # (assembly/sequence_id/start/end/ref/alt) and DROPS pre_mapped; full keeps both.
     provenance.begin()
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/variant-details").mock(
             return_value=httpx.Response(
                 200,
                 json=[
@@ -209,7 +209,7 @@ async def test_mapped_variants_current_false_falls_through_to_live(hybrid: Hybri
     # asks for superseded rows too) must therefore go live for completeness.
     provenance.begin()
     with respx.mock(base_url=BASE_URL) as mock:
-        route = mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+        route = mock.get(f"/score-sets/{CALIBRATED_URN}/variant-details").mock(
             return_value=httpx.Response(200, json=[])
         )
         await MaveDBService(hybrid).get_mapped_variants(CALIBRATED_URN, current_only=False)
@@ -227,7 +227,7 @@ async def test_mapped_variants_mirror_and_live_compact_interchangeable(
     live = MaveDBClient(MaveDBApiConfig(base_url=BASE_URL, max_retries=0))
     try:
         with respx.mock(base_url=BASE_URL) as mock:
-            mock.get(f"/score-sets/{CALIBRATED_URN}/mapped-variants").mock(
+            mock.get(f"/score-sets/{CALIBRATED_URN}/variant-details").mock(
                 return_value=httpx.Response(
                     200,
                     json=[

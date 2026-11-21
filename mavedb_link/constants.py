@@ -145,3 +145,10 @@ TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4
 
 #: Score-table CSV namespaces selectable via get_variant_scores.
 SCORE_NAMESPACES: list[str] = ["scores", "counts"]
+
+#: MaveDB serves only each variant's current mapping (the superseded-mapping
+#: exports were retired, #137), so the current-only flags cannot widen a result.
+CURRENT_ONLY_NOTE = (
+    "{param}=false has no effect: MaveDB now serves only each variant's current "
+    "mapping, so the rows are the same as with {param}=true."
+)

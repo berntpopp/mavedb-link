@@ -24,7 +24,7 @@ def _mock_all(router: respx.Router) -> None:
     router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/scores").mock(
         return_value=httpx.Response(200, text=fixtures.SCORES_CSV)
     )
-    router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/mapped-variants").mock(
+    router.get(f"/score-sets/{fixtures.SCORE_SET_URN}/variant-details").mock(
         return_value=httpx.Response(200, json=fixtures.MAPPED_VARIANTS_RAW)
     )
     router.get(f"/variants/{fixtures.VARIANT_URN_ENCODED}").mock(

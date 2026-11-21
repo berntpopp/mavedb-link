@@ -212,6 +212,7 @@ MAPPED_VARIANTS_SCHEMA = _envelope(
     # get_variant_scores rows by value, never by fragile position (F1).
     mapped_variants=_ARR,
     current_only=_BOOL,
+    note=_STR,  # present when current_only=false: the flag has no effect (#137)
     ordering=_STR,
     join_key=_STR,
     **_PAGE,
@@ -237,6 +238,7 @@ FIND_VARIANT_SCHEMA = _envelope(
     probe_truncated=_BOOL,  # live-probe hit its score-set cap (hgvs path only)
     hits=_ARR,  # each: {score_set_urn, variant_urn, vrs_id, clingen_allele_id, score?, classifications?}
     enriched=_BOOL,
+    note=_STR,  # present when only_current=false: the flag has no effect (#137)
     **_PAGE,
 )
 
