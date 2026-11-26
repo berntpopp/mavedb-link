@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-26
+
+### Added
+
+- Response-Envelope v1.2 provenance (#145): every successful data result carries `_meta.source` (`mavedb`), `_meta.data_version` (the Zenodo release the mirror was built from, or `live` for a live read) and `_meta.retrieved_at` (RFC 3339 UTC, `Z`), at every `response_mode`. `retrieved_at` is the time of the upstream fetch: a mirror read reports the snapshot build, a cached read keeps the time of the fetch that filled the entry, and a result from several fetches reports the oldest. `_meta.data_source` and `_meta.mirror_as_of` are unchanged. `get_server_capabilities` and `get_diagnostics` are outside the rule.
+- Every error envelope now carries `_meta.elapsed_ms` (argument-binding and unknown-tool errors lacked it).
+- Conformance: the envelope JSON Schema (genefoundry-envelope v1.2.0, sha256-pinned) is vendored and every data tool is validated against it in-process; `tests/conformance/behaviour.py` is re-vendored with the provenance check.
+
+### Known gaps
+
+- The payload is still returned flat beside `success`; the schema's `result`/`results` primary key (v1 §1) is not met and is tracked by a strict-xfail test.
+
 ## [0.7.3] - 2026-11-21
 
 ### Fixed

@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 
 from mavedb_link.config import MaveDBApiConfig
+from mavedb_link.data import provenance
 from mavedb_link.exceptions import (
     InvalidInputError,
     NotFoundError,
@@ -52,7 +53,7 @@ class _TTLCache:
         """Initialise with a max entry count and per-entry TTL (seconds)."""
         self._maxsize = maxsize
         self._ttl = ttl
-        self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
+        self._store: OrderedDict[str, tuple[float, Any, str]] = OrderedDict()
 
     def get(self, key: str) -> Any | None:
         """Return a live cached value, or ``None`` on miss/expiry."""
@@ -61,18 +62,19 @@ class _TTLCache:
         hit = self._store.get(key)
         if hit is None:
             return None
-        expires_at, value = hit
+        expires_at, value, fetched_at = hit
         if time.monotonic() >= expires_at:
             self._store.pop(key, None)
             return None
         self._store.move_to_end(key)
+        provenance.fetched(fetched_at)  # a cache hit keeps its original fetch time
         return value
 
     def set(self, key: str, value: Any) -> None:
         """Insert a value, evicting the least-recently-used entry if full."""
         if self._maxsize <= 0 or self._ttl <= 0:
             return
-        self._store[key] = (time.monotonic() + self._ttl, value)
+        self._store[key] = (time.monotonic() + self._ttl, value, provenance.utc())
         self._store.move_to_end(key)
         while len(self._store) > self._maxsize:
             self._store.popitem(last=False)

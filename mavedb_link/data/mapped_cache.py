@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from mavedb_link.constants import MAPPED_CACHE_LRU_SETS, MAPPED_CACHE_VERSION
+from mavedb_link.data import provenance
 
 #: A present row means "this set was enriched" -- even a stored ``[]`` (the set has
 #: zero mappings) is a recorded result, distinct from "not yet fetched" (no row).
@@ -131,6 +132,14 @@ class MappedVariantCache:
         items: _Items = json.loads(row[0])
         self._lru.set(score_set_urn, items)
         return items
+
+    def fetched_at(self, score_set_urn: str) -> str | None:
+        """When the set's rows were fetched from the live API (RFC 3339 UTC, ``Z``)."""
+        row = self._con.execute(
+            "SELECT fetched_at FROM mapped_variants WHERE score_set_urn = ? AND data_version = ?",
+            (score_set_urn, self._data_version),
+        ).fetchone()
+        return provenance.utc(row[0]) if row else None
 
     def put(self, score_set_urn: str, items: _Items) -> None:
         """Store ``items`` for a score set (replacing any existing entry)."""

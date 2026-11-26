@@ -147,6 +147,9 @@ def build_capabilities() -> dict[str, Any]:
             "elapsed_ms",
             "truncated",
             "token_estimate",
+            "source",
+            "data_version",
+            "retrieved_at",
             "data_source",
             "mirror_as_of",
             "capabilities_version",
@@ -156,7 +159,10 @@ def build_capabilities() -> dict[str, Any]:
             "Every response's _meta carries uniform observability scalars -- tool, "
             "request_id, elapsed_ms, truncated (a machine-readable completeness "
             "signal), and token_estimate (~chars/4) -- at EVERY response_mode, so a "
-            "caller always has a reliable latency + completeness signal. When a local "
+            "caller always has a reliable latency + completeness signal. Every "
+            "successful data result also names its provenance: source (mavedb), "
+            "data_version (the mirror's Zenodo release, or 'live') and retrieved_at "
+            "(UTC time of the upstream fetch; a cache hit keeps the original). When a local "
             "mirror is active, _meta also reports data_source (mirror|live|mixed) and "
             "mirror_as_of (the snapshot date) for served calls. compact/standard/full "
             "additionally carry next_commands + capabilities_version; minimal is the "

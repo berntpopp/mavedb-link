@@ -98,6 +98,7 @@ def unknown_tool_envelope() -> dict[str, Any]:
         "recovery_action": "switch_tool",
         "_meta": {
             "request_id": uuid.uuid4().hex[:12],
+            "elapsed_ms": 0,
             "next_commands": [cmd("get_server_capabilities")],
             "unsafe_for_clinical_use": True,
         },

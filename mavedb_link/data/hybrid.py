@@ -47,7 +47,14 @@ class HybridClient(MaveDBClient):
         """Wrap the live client config and a read-only mirror repository."""
         super().__init__(config)
         self._repo = repository
-        self._mirror_as_of = repository.meta().get("dump_as_of")
+        meta = repository.meta()
+        version = meta.get("zenodo_version") or meta.get("dump_as_of") or meta.get("source_sha256")
+        built = meta.get("build_utc")  # the dump is downloaded right before the build
+        self._mirror: dict[str, Any] = {
+            "mirror_as_of": meta.get("dump_as_of"),
+            "data_version": str(version) if version else None,
+            "retrieved_at": provenance.utc(built) if built else None,
+        }
         self._mapped_cache = cache
         self._mapped_inflight: dict[str, asyncio.Lock] = {}
 
@@ -55,7 +62,7 @@ class HybridClient(MaveDBClient):
         """Serve a GET-JSON read from the mirror when possible, else live."""
         hit = self._mirror_json(path, params)
         if hit is not _MISS:
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
             return hit
         provenance.record("live")
         return await super().get_json(path, params=params)
@@ -66,7 +73,7 @@ class HybridClient(MaveDBClient):
         """Serve a GET-text (CSV) read from the mirror when possible, else live."""
         hit = self._mirror_text(path, params)
         if hit is not None:
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
             return hit
         provenance.record("live")
         return await super().get_text(path, params=params, accept=accept)
@@ -87,13 +94,13 @@ class HybridClient(MaveDBClient):
             records = self._repo.search_score_sets(
                 body.get("text"), targets=body.get("targets"), authors=body.get("authors")
             )
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
             return {"scoreSets": records, "numScoreSets": len(records)}
         if path.strip("/") == "experiments/search":
             body = json or {}
             if not body.get("text") and not body.get("authors"):
                 records = self._repo.all_experiments()
-                provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+                provenance.record("mirror", **self._mirror)
                 return {"experiments": records, "numExperiments": len(records)}
         provenance.record("live")
         return await super().post_json(path, json=json, params=params)
@@ -124,7 +131,7 @@ class HybridClient(MaveDBClient):
                 return None
             provenance.record("live")
             return [it for it in cached if isinstance(it, dict) and it.get("current")]
-        provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+        provenance.record("mirror", **self._mirror)
         return _as_mapped_variants(rows)
 
     def mapped_vrs_for_variant(self, variant_urn: str) -> str | None:
@@ -137,7 +144,7 @@ class HybridClient(MaveDBClient):
         for row in self._repo.mapped_by_variant_urn(variant_urn):
             vrs = row.get("vrs_id")
             if vrs:
-                provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+                provenance.record("mirror", **self._mirror)
                 return str(vrs)
         score_set_urn = _score_set_urn_for_variant(variant_urn)
         cached = self._mapped_cache_get(score_set_urn) if score_set_urn else None
@@ -158,7 +165,7 @@ class HybridClient(MaveDBClient):
         """
         rows = [r for r in self._repo.resolve_hgvs(core, full, gene=gene) if r.get("vrs_id")]
         if rows:
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
         cached = self._cached_vrs_for_hgvs(core, gene=gene)
         if cached:
             provenance.record("live")
@@ -168,14 +175,14 @@ class HybridClient(MaveDBClient):
         """Thin gene identity (symbol + organism) from the mirror index, or None."""
         ident = self._repo.gene_identity(symbol)
         if ident is not None:
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
         return ident
 
     def score_set_urns_for_gene(self, symbol: str) -> list[str]:
         """Score-set URNs for a gene from the mirror index, ordered."""
         urns = self._repo.gene_score_set_urns(symbol)
         if urns:
-            provenance.record("mirror", mirror_as_of=self._mirror_as_of)
+            provenance.record("mirror", **self._mirror)
         return urns
 
     async def ensure_mapped_variants(self, score_set_urn: str) -> list[dict[str, Any]]:
@@ -234,7 +241,10 @@ class HybridClient(MaveDBClient):
         if self._mapped_cache is None:
             return None
         try:
-            return self._mapped_cache.get(score_set_urn)
+            hit = self._mapped_cache.get(score_set_urn)
+            if hit is not None:  # a cache hit keeps its original fetch time (v1.2)
+                provenance.fetched(self._mapped_cache.fetched_at(score_set_urn))
+            return hit
         except Exception:
             return None
 
