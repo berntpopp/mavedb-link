@@ -78,3 +78,13 @@ async def test_classified_variants_rejects_hostile_calibration_urn(client: Any) 
             client, "urn:mavedb:00000001-a-1", calibration_urn=HOSTILE
         )
     assert info.value.field == "calibration_urn"
+
+
+async def test_classified_variants_does_not_echo_hostile_classification(client: Any) -> None:
+    with pytest.raises(InvalidInputError) as info:
+        await resolvers.get_classified_variants(
+            client, "urn:mavedb:00000001-a-1", classification=HOSTILE
+        )
+    assert HOSTILE not in str(info.value)
+    assert info.value.field == "classification"
+    assert "classification" in str(info.value)

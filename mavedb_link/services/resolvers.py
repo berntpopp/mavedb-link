@@ -507,7 +507,7 @@ async def get_classified_variants(
     score_set_urn = validate_score_set_urn(urn)
     if classification is not None and classification not in FUNCTIONAL_CLASSES:
         raise InvalidInputError(
-            f"Unknown classification '{classification}'.",
+            "Unknown classification; use one of allowed_values.",
             field="classification",
             allowed=FUNCTIONAL_CLASSES,
         )
