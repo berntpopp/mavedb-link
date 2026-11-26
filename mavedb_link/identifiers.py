@@ -166,6 +166,29 @@ def validate_gene_symbol(value: str, *, field: str = "gene_symbol") -> str:
     return candidate
 
 
+#: URN forms a tool puts into an upstream URL path, with the example its error names.
+_PATH_URNS = {
+    "experiment": (_EXPERIMENT_RE, "urn:mavedb:00000001-a"),
+    "collection": (
+        re.compile(r"^urn:mavedb:collection-[A-Za-z0-9-]{1,64}$"),
+        "urn:mavedb:collection-<uuid>",
+    ),
+    "calibration": (
+        re.compile(r"^urn:mavedb:calibration-[A-Za-z0-9-]{1,64}$"),
+        "urn:mavedb:calibration-<id>",
+    ),
+}
+
+
+def validate_urn(value: str, kind: str, field: str = "urn") -> str:
+    """Return the trimmed ``kind`` URN, safe for a URL path, or raise ``InvalidInputError``."""
+    candidate = value.strip()
+    pattern, example = _PATH_URNS[kind]
+    if not pattern.match(candidate):
+        raise InvalidInputError(f"Not a {kind} URN. Expected '{example}'.", field=field)
+    return candidate
+
+
 def validate_score_set_urn(value: str) -> str:
     """Return the trimmed score-set URN, or raise ``InvalidInputError``."""
     candidate = value.strip()

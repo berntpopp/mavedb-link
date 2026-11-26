@@ -8,6 +8,7 @@ message.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -19,6 +20,7 @@ from typing import Any
 from fastmcp.tools import ToolResult
 from pydantic import ValidationError as PydanticValidationError
 
+from mavedb_link.config import settings
 from mavedb_link.constants import RESPONSE_TOKEN_BUDGET, TOKEN_ESTIMATE_CHARS_PER_TOKEN
 from mavedb_link.data import provenance
 from mavedb_link.exceptions import (
@@ -157,7 +159,7 @@ def _classify(exc: BaseException) -> tuple[str, str, str | None]:
         return "upstream_unavailable", _safe_message(exc), "data_unavailable"
     if isinstance(exc, RateLimitError):
         return "rate_limited", "Upstream rate limit hit. Retry shortly.", None
-    if isinstance(exc, ServiceUnavailableError):
+    if isinstance(exc, (ServiceUnavailableError, TimeoutError)):  # TimeoutError: tool_deadline
         return "upstream_unavailable", "The MaveDB API is temporarily unavailable.", None
     if isinstance(exc, UntrustedTextLimitError):
         # Response-Envelope v1.1 §Limits: an over-ceiling untrusted payload is an
@@ -530,7 +532,7 @@ async def run_mcp_tool(
     provenance.begin()
     start = time.perf_counter()
     try:
-        result = await call()
+        result = await asyncio.wait_for(call(), settings.api.tool_deadline)  # bounds retries
         elapsed = int((time.perf_counter() - start) * 1000)
         if isinstance(result, dict):
             existing_meta: dict[str, Any] = result.get("_meta") or {}
@@ -557,15 +559,12 @@ async def run_mcp_tool(
             _apply_budget_guard(result, ctx)
             if (pagination := pagination_meta(result)) is not None:  # after the trim
                 result["_meta"]["pagination"] = pagination
-            # Response-Envelope v1.1 §Limits: bound the FINAL (post-budget-trim)
-            # payload's fenced prose across every row -- per-object + total bytes,
-            # not per shaped record. A breach raises UntrustedTextLimitError, mapped
-            # to a typed `response_too_large` error (never silent omission). Runs
-            # after the budget guard so a page it already trimmed is measured as
-            # shipped, not pre-trim. The object-count ceiling is lifted well above
-            # the real max (list tools cap at 100 rows x 3 fenced prose fields ~= 300
-            # objects) so a legitimate full-mode list is never falsely rejected; the
-            # per-object (2 MiB) and total (8 MiB) byte ceilings stay at the standard.
+            # Response-Envelope v1.1 §Limits: bound the FINAL (post-budget-trim) payload's
+            # fenced prose across every row (per-object + total bytes). A breach raises
+            # UntrustedTextLimitError -> typed `response_too_large` (never silent omission).
+            # The object-count ceiling sits well above the real max (100 rows x 3 fenced
+            # fields) so a full-mode list is never falsely rejected; the per-object (2 MiB)
+            # and total (8 MiB) byte ceilings stay at the standard.
             enforce_untrusted_text_limits(collect_untrusted_texts(result), max_objects=10_000)
             metrics.record(tool_name, elapsed, ok=success)
             # A body that RETURNED a failure envelope (success:false) must also carry

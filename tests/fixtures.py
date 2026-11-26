@@ -154,7 +154,7 @@ MAPPED_VARIANTS_RAW: list[dict[str, Any]] = [
     },
 ]
 
-COLLECTION_URN = "abcdEFGH"
+COLLECTION_URN = "urn:mavedb:collection-603dafbf-4a3f-4d70-ab8c-aafb226fbff4"
 COLLECTION_RAW: dict[str, Any] = {
     "urn": COLLECTION_URN,
     "name": "UBE2I datasets",

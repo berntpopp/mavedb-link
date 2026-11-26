@@ -34,6 +34,7 @@ from mavedb_link.identifiers import (
     looks_like_gene_symbol,
     validate_gene_symbol,
     validate_score_set_urn,
+    validate_urn,
 )
 from mavedb_link.mcp.untrusted_content import sanitize_message
 from mavedb_link.services import distribution, resolvers, shaping, variant_lookup
@@ -288,7 +289,7 @@ class MaveDBService:
         self, urn: str, *, response_mode: str = shaping.DEFAULT_RESPONSE_MODE
     ) -> dict[str, Any]:
         """Fetch one experiment record (``GET /experiments/{urn}``)."""
-        raw = await self._client.get_json(f"/experiments/{urn.strip()}")
+        raw = await self._client.get_json(f"/experiments/{validate_urn(urn, 'experiment')}")
         return shaping.shape_experiment(raw, response_mode)
 
     async def search_experiments(
@@ -559,7 +560,7 @@ class MaveDBService:
     ) -> dict[str, Any]:
         """Fetch a curated collection (``GET /collections/{urn}``), paging members (F12)."""
         capped = _clamp(limit, 1, MAX_COLLECTION_LIMIT)
-        raw = await self._client.get_json(f"/collections/{urn.strip()}")
+        raw = await self._client.get_json(f"/collections/{validate_urn(urn, 'collection')}")
         return shaping.shape_collection(raw, response_mode, limit=capped, offset=offset)
 
     async def get_diagnostics(self) -> dict[str, Any]:

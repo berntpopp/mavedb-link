@@ -38,6 +38,13 @@ class MaveDBApiConfig(BaseModel):
         le=300.0,
         description="Per-request HTTP timeout in seconds.",
     )
+    tool_deadline: float = Field(
+        default=60.0,
+        ge=0.01,
+        le=600.0,
+        description="Total seconds a tool call may spend, retries included, before it "
+        "answers upstream_unavailable (retryable).",
+    )
     max_concurrency: int = Field(
         default=5,
         ge=1,
