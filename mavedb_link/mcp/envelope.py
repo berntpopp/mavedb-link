@@ -228,6 +228,7 @@ def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, A
         "_meta": {
             "tool": context.tool_name,
             "request_id": _request_id(),
+            "elapsed_ms": 0,
             # Fleet Response-Envelope Standard v1: the research-use disclaimer is a
             # per-call _meta flag, not a one-time capability, so every error carries
             # it too (see _MANDATORY_META_KEYS for how it survives minimal-mode tiering).
@@ -294,6 +295,7 @@ def build_arg_error_envelope(
             "_meta": {
                 "tool": tool_name,
                 "request_id": _request_id(),
+                "elapsed_ms": 0,
                 "next_commands": [cmd("get_server_capabilities")],
                 "unsafe_for_clinical_use": True,
             },
@@ -318,6 +320,7 @@ def build_arg_error_envelope(
         "_meta": {
             "tool": tool_name,
             "request_id": _request_id(),
+            "elapsed_ms": 0,
             "next_commands": [cmd("get_server_capabilities")],
             "unsafe_for_clinical_use": True,
         },
@@ -340,7 +343,14 @@ _OBSERVABILITY_KEYS = (
     "truncated",
     "data_source",
     "mirror_as_of",
+    "source",
+    "data_version",
+    "retrieved_at",
 )
+
+#: Tools that orient a client and return no upstream data: outside the
+#: Response-Envelope v1.2 provenance rule.
+_OPS_TOOLS = frozenset({"get_server_capabilities", "get_diagnostics"})
 
 #: Keys that must survive ``minimal``-mode tiering even though they are not
 #: observability scalars. Fleet Response-Envelope Standard v1: the research-use
@@ -502,8 +512,8 @@ async def run_mcp_tool(
                 "elapsed_ms": elapsed,
                 # Hoist a uniform completeness signal from the body (GAP-5/G7).
                 "truncated": bool(result.get("truncated")),
-                # Honest mirror-vs-live provenance for this call (empty if no mirror).
-                **provenance.snapshot(),
+                # v1.2 provenance + mirror-vs-live detail (none for an ops tool).
+                **({} if tool_name in _OPS_TOOLS else provenance.snapshot()),
                 # Fleet Response-Envelope Standard v1: per-call research-use
                 # disclaimer, stamped last so no tool body can accidentally
                 # override it via existing_meta.

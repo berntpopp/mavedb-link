@@ -96,6 +96,25 @@ async def test_envelope_reports_mirror_provenance(hybrid: HybridClient) -> None:
     assert env["success"] is True
     assert env["_meta"]["data_source"] == "mirror"
     assert env["_meta"]["mirror_as_of"] == DUMP_AS_OF
+    # Response-Envelope v1.2: the snapshot's release and its download time.
+    meta = hybrid._repo.meta()
+    assert env["_meta"]["source"] == "mavedb"
+    assert env["_meta"]["data_version"] == DUMP_AS_OF  # no zenodo_version in this build
+    assert env["_meta"]["retrieved_at"] == provenance.utc(meta["build_utc"])
+
+
+async def test_cache_hit_keeps_the_original_fetch_time(hybrid: HybridClient) -> None:
+    # A live read served from the TTL cache reports the fetch that filled the entry.
+    with respx.mock(base_url=BASE_URL) as mock:
+        mock.get("/collections/x").mock(return_value=httpx.Response(200, json={"urn": "x"}))
+        await hybrid.get_json("/collections/x")
+        key, (expires, value, _) = next(iter(hybrid._cache._store.items()))
+        hybrid._cache._store[key] = (expires, value, "2020-01-01T00:00:00Z")
+        provenance.begin()
+        await hybrid.get_json("/collections/x")
+        assert mock.calls.call_count == 1
+    assert provenance.snapshot()["retrieved_at"] == "2020-01-01T00:00:00Z"
+    assert provenance.snapshot()["data_version"] == "live"
 
 
 async def test_envelope_reports_mixed_when_one_read_is_live(hybrid: HybridClient) -> None:

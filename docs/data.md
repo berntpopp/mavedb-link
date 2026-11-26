@@ -82,7 +82,9 @@ mavedb-link-cache clear --yes # drop it
 ## Provenance on every response
 
 Each response stamps `_meta.data_source` as `mirror` | `live` | `mixed`, alongside
-`mirror_as_of` (the snapshot date). `get_diagnostics.mirror` reports snapshot status and
+`mirror_as_of` (the snapshot date), and the Response-Envelope v1.2 provenance: `source`
+(`mavedb`), `data_version` (the mirror's Zenodo release, or `live`) and `retrieved_at` (UTC time of
+the upstream fetch; a mirror read reports the snapshot build, a cache hit its original fetch). `get_diagnostics.mirror` reports snapshot status and
 `get_diagnostics.cache` reports the mapped-variant cache state.
 
 Local mirror and cache files are **operational state only**. They are written to disk to make

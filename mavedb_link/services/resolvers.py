@@ -25,6 +25,7 @@ from mavedb_link.constants import (
     MAX_FIND_LIMIT,
     MAX_GENE_LIMIT,
 )
+from mavedb_link.data import provenance
 from mavedb_link.exceptions import AmbiguousQueryError, InvalidInputError, NotFoundError
 from mavedb_link.identifiers import (
     is_variant_urn,
@@ -46,7 +47,8 @@ _VRS_PREFIX = "ga4gh:"
 #: idempotent (a string is valid-or-not regardless of when asked), so a repeat is
 #: served without the ~1.6s round-trip (D.2). Bounded FIFO; only settled results
 #: (valid / parseable-but-wrong) are stored -- transient errors raise before here.
-_HGVS_CACHE: dict[str, dict[str, Any]] = {}
+#: Each memo entry keeps its upstream fetch time (Response-Envelope v1.2).
+_HGVS_CACHE: dict[str, tuple[dict[str, Any], str]] = {}
 _HGVS_CACHE_MAX = 2048
 
 
@@ -57,7 +59,7 @@ def clear_hgvs_validation_cache() -> None:
 
 #: Process-wide memo of /genes identity (rich HGNC fields post-date the dump, so it
 #: is fetched live; idempotent within a snapshot window). Bounded FIFO.
-_GENE_IDENTITY_CACHE: dict[str, dict[str, Any]] = {}
+_GENE_IDENTITY_CACHE: dict[str, tuple[dict[str, Any], str]] = {}
 
 
 def clear_gene_identity_cache() -> None:
@@ -75,7 +77,8 @@ async def resolve_gene_identity(client: MaveDBClient, symbol: str) -> tuple[dict
     sym = symbol.strip()
     cached = _GENE_IDENTITY_CACHE.get(sym)
     if cached is not None:
-        return dict(cached), "cache"
+        provenance.fetched(cached[1])
+        return dict(cached[0]), "cache"
     thin_fn = getattr(client, "gene_identity", None)
     thin = thin_fn(sym) if callable(thin_fn) else None
     try:
@@ -90,7 +93,7 @@ async def resolve_gene_identity(client: MaveDBClient, symbol: str) -> tuple[dict
     if isinstance(raw, dict):
         if len(_GENE_IDENTITY_CACHE) >= GENE_IDENTITY_CACHE_MAX:
             _GENE_IDENTITY_CACHE.pop(next(iter(_GENE_IDENTITY_CACHE)), None)
-        _GENE_IDENTITY_CACHE[sym] = raw
+        _GENE_IDENTITY_CACHE[sym] = (raw, provenance.utc())
     return raw, "live"
 
 
@@ -437,7 +440,8 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
     candidate = validate_hgvs_variant(variant)
     cached = _HGVS_CACHE.get(candidate)
     if cached is not None:
-        return dict(cached)  # a copy so a caller cannot mutate the shared entry
+        provenance.fetched(cached[1])
+        return dict(cached[0])  # a copy so a caller cannot mutate the shared entry
     try:
         result = await client.post_json("/hgvs/validate", json={"variant": candidate})
     except InvalidInputError:  # 400/422: invalid, but NEVER echo the upstream body
@@ -460,7 +464,7 @@ async def get_hgvs_validation(client: MaveDBClient, variant: str) -> dict[str, A
         }
     if len(_HGVS_CACHE) >= _HGVS_CACHE_MAX:  # bounded FIFO: evict the oldest entry
         _HGVS_CACHE.pop(next(iter(_HGVS_CACHE)), None)
-    _HGVS_CACHE[candidate] = payload
+    _HGVS_CACHE[candidate] = (payload, provenance.utc())
     return dict(payload)
 
 
