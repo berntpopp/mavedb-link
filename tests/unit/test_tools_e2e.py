@@ -120,7 +120,7 @@ async def test_get_variant_scores(respx_mock: respx.Router, facade: Any, structu
     payload = structured(res)
     _assert_envelope_ok(payload)
     assert payload["returned"] == 3
-    assert payload["rows"][0]["score"] == 0.5
+    assert payload["results"][0]["score"] == 0.5
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -131,7 +131,7 @@ async def test_get_variant_score_by_urn_chains(
     res = await facade.call_tool("get_variant_score", {"urn": fixtures.VARIANT_URN})
     payload = structured(res)
     _assert_envelope_ok(payload)
-    assert payload["variants"][0]["score"] == -1.2
+    assert payload["results"][0]["score"] == -1.2
     assert payload["urn"] == fixtures.SCORE_SET_URN
     tools = [s["tool"] for s in payload["_meta"]["next_commands"]]
     assert "get_score_set" in tools
@@ -148,7 +148,7 @@ async def test_get_variant_score_by_hgvs(
     payload = structured(res)
     _assert_envelope_ok(payload)
     assert payload["match_count"] == 1
-    assert payload["variants"][0]["score"] == -1.2
+    assert payload["results"][0]["score"] == -1.2
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -178,7 +178,7 @@ async def test_get_experiment_and_search(
 ) -> None:
     _mock_all(respx_mock)
     res = await facade.call_tool("get_experiment", {"urn": fixtures.EXPERIMENT_URN})
-    assert structured(res)["score_set_urns"] == [fixtures.SCORE_SET_URN]
+    assert structured(res)["result"]["score_set_urns"] == [fixtures.SCORE_SET_URN]
     res2 = await facade.call_tool("search_experiments", {"text": "UBE2I"})
     assert structured(res2)["results"][0]["urn"] == fixtures.EXPERIMENT_URN
 
@@ -192,7 +192,7 @@ async def test_get_mapped_variants_and_collection(
     payload = structured(res)
     assert payload["truncated"] is True
     res2 = await facade.call_tool("get_collection", {"urn": fixtures.COLLECTION_URN})
-    assert structured(res2)["name"] == "UBE2I datasets"
+    assert structured(res2)["result"]["name"] == "UBE2I datasets"
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -203,7 +203,7 @@ async def test_find_variant_enriches_and_chains(
     res = await facade.call_tool("find_variant", {"vrs_id": fixtures.VRS_ID})
     payload = structured(res)
     _assert_envelope_ok(payload)
-    hit = payload["hits"][0]
+    hit = payload["results"][0]
     assert hit["score_set_urn"] == fixtures.SCORE_SET_URN
     assert hit["score"] == -1.2  # enriched
     assert hit["classifications"][0]["classification"] == "abnormal"
@@ -223,7 +223,7 @@ async def test_find_variant_by_variant_urn_resolves_and_rolls_up(
     _assert_envelope_ok(payload)
     assert payload["resolved_by"] == "variant_urn"
     assert payload["vrs_id"] == fixtures.VRS_ID
-    assert payload["hits"][0]["score_set_urn"] == fixtures.SCORE_SET_URN
+    assert payload["results"][0]["score_set_urn"] == fixtures.SCORE_SET_URN
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -256,7 +256,7 @@ async def test_get_hgvs_validation_valid(
     res = await facade.call_tool("get_hgvs_validation", {"variant": "NM_000059.4:c.8167G>A"})
     payload = structured(res)
     _assert_envelope_ok(payload)
-    assert payload["valid"] is True
+    assert payload["result"]["valid"] is True
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -285,7 +285,7 @@ async def test_get_classified_variants_abnormal(
     payload = structured(res)
     _assert_envelope_ok(payload)
     assert payload["total"] == 1
-    assert payload["variants"][0]["classification"] == "abnormal"
+    assert payload["results"][0]["classification"] == "abnormal"
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -298,9 +298,9 @@ async def test_get_score_distribution_summarises_and_locates(
     )
     payload = structured(res)
     _assert_envelope_ok(payload)
-    assert payload["n"] == 2  # SCORES_CSV has two numeric scores
-    assert "histogram" in payload
-    assert payload["query"]["score"] == 0.5
+    assert payload["result"]["n"] == 2  # SCORES_CSV has two numeric scores
+    assert "histogram" in payload["result"]
+    assert payload["result"]["query"]["score"] == 0.5
     tools = [s["tool"] for s in payload["_meta"]["next_commands"]]
     assert "get_variant_scores" in tools
 

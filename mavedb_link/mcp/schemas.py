@@ -3,6 +3,9 @@
 The schemas are deliberately **permissive** (``additionalProperties: true``,
 nothing ``required``) because ``response_mode`` projects fields out and the error
 envelope is returned by the same tool body and must also validate.
+
+They list each payload's fields. On the wire the envelope nests them (v1 §1): a
+collection tool's list is ``results``, a record tool's fields sit under ``result``.
 """
 
 from __future__ import annotations

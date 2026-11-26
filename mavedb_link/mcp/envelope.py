@@ -478,6 +478,36 @@ def _apply_budget_guard(result: dict[str, Any], context: McpErrorContext) -> Non
         meta["token_estimate"] = _estimate_tokens(result)
 
 
+#: v1 §1 primary payload key: the list each collection tool returns as ``results``;
+#: every other data tool returns its record under ``result``.
+_RESULTS_KEY = {
+    "search_score_sets": "results",
+    "search_experiments": "results",
+    "get_gene_score_sets": "score_sets",
+    "get_variant_scores": "rows",
+    "get_variant_score": "variants",
+    "get_classified_variants": "variants",
+    "get_mapped_variants": "mapped_variants",
+    "find_variant": "hits",
+}
+#: Envelope keys and list metadata that stay at the top level beside the payload.
+_TOP_LEVEL = frozenset(
+    {"success", "_meta", "total", "returned", "limit", "offset", "start"}
+    | {"truncated", "next_offset", "next_start"}
+)
+
+
+def _nest_payload(tool_name: str, result: dict[str, Any]) -> None:
+    """Move a successful data payload under ``results`` (array) or ``result`` (object)."""
+    if tool_name in _OPS_TOOLS:
+        return
+    key = _RESULTS_KEY.get(tool_name)
+    if key is not None:
+        result["results"] = result.pop(key, [])
+    else:
+        result["result"] = {k: result.pop(k) for k in list(result) if k not in _TOP_LEVEL}
+
+
 async def run_mcp_tool(
     tool_name: str,
     call: Callable[[], Awaitable[dict[str, Any]]],
@@ -544,6 +574,7 @@ async def run_mcp_tool(
             if not success:
                 _canonicalize_envelope_code(result)
                 return ToolResult(structured_content=result, is_error=True)
+            _nest_payload(tool_name, result)  # last: the guards above read the flat page
         return result
     except Exception as exc:  # broad catch is the error-boundary contract
         elapsed = int((time.perf_counter() - start) * 1000)

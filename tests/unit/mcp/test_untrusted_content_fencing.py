@@ -8,13 +8,13 @@ JSON mirror, strip ONLY the control/zero-width/bidi code points (so the injectio
 survives verbatim as data), digest the exact raw bytes, and never synthesize a tool sibling.
 
 Fenced surfaces exercised end-to-end:
-- get_score_set     -> /short_description, /abstract_text, /method_text,
-                       /score_calibrations/*/baseline_score_description, /notes
-- get_experiment    -> /short_description, /abstract_text, /method_text
+- get_score_set     -> /result/short_description, abstract_text, method_text,
+                       /result/score_calibrations/*/baseline_score_description, /notes
+- get_experiment    -> /result/short_description, abstract_text, method_text
 - search_score_sets -> /results/*/short_description | abstract_text | method_text (full)
-- get_gene_score_sets -> /score_sets/*/short_description | abstract_text | method_text (full)
+- get_gene_score_sets -> /results/*/short_description | abstract_text | method_text (full)
 - search_experiments -> /results/*/short_description | abstract_text | method_text (full)
-- get_collection    -> /description
+- get_collection    -> /result/description
 """
 
 from __future__ import annotations
@@ -125,9 +125,9 @@ async def test_get_score_set_prose_and_calibration_fenced_in_both_views(
         "get_score_set", {"urn": fixtures.SCORE_SET_URN, "response_mode": "full"}
     )
     for view in _both_views(res):
-        _assert_prose_row(view, urn=fixtures.SCORE_SET_URN)
+        _assert_prose_row(view["result"], urn=fixtures.SCORE_SET_URN)
         # calibration prose (baseline_score_description + notes) is fenced too
-        calib = view["score_calibrations"][0]
+        calib = view["result"]["score_calibrations"][0]
         _assert_fenced(
             calib["baseline_score_description"],
             record_id=f"{fixtures.SCORE_SET_URN}#baselineScoreDescription",
@@ -148,7 +148,7 @@ async def test_get_experiment_prose_is_fenced_in_both_views(
         "get_experiment", {"urn": fixtures.EXPERIMENT_URN, "response_mode": "full"}
     )
     for view in _both_views(res):
-        _assert_prose_row(view, urn=fixtures.EXPERIMENT_URN)
+        _assert_prose_row(view["result"], urn=fixtures.EXPERIMENT_URN)
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -178,7 +178,7 @@ async def test_get_gene_score_sets_full_row_prose_is_fenced_in_both_views(
         "get_gene_score_sets", {"symbol": "UBE2I", "response_mode": "full"}
     )
     for view in _both_views(res):
-        _assert_prose_row(view["score_sets"][0], urn=fixtures.SCORE_SET_URN)
+        _assert_prose_row(view["results"][0], urn=fixtures.SCORE_SET_URN)
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)
@@ -207,7 +207,7 @@ async def test_get_collection_description_is_fenced_in_both_views(
     )
     res = await facade.call_tool("get_collection", {"urn": fixtures.COLLECTION_URN})
     for view in _both_views(res):
-        _assert_fenced(view["description"], record_id=fixtures.COLLECTION_URN)
+        _assert_fenced(view["result"]["description"], record_id=fixtures.COLLECTION_URN)
         _assert_no_synth_sibling(view)
 
 
@@ -287,8 +287,8 @@ async def test_upstream_400_body_not_echoed_in_hgvs_validation(
     )
     res = await facade.call_tool("get_hgvs_validation", {"variant": "NM_000059.4:c.8167A>G"})
     for view in _both_views(res):
-        assert view["valid"] is False
-        _assert_message_safe(view["message"])
+        assert view["result"]["valid"] is False
+        _assert_message_safe(view["result"]["message"])
 
 
 @respx.mock(base_url=BASE, assert_all_called=False)

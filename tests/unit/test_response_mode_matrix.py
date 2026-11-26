@@ -142,10 +142,11 @@ async def test_calibrated_listing_is_leaner_than_record(
     record = structured(await facade.call_tool("get_score_set", {"urn": fixtures.SCORE_SET_URN}))
 
     assert listing["success"] and record["success"]
-    entry = listing["score_sets"][0]
+    entry = listing["results"][0]
     assert "score_calibrations" not in entry
     assert entry["has_calibrations"] is True
-    assert record["score_calibrations"]  # the record carries the ladder the listing dropped
+    # the record carries the ladder the listing dropped
+    assert record["result"]["score_calibrations"]
     assert listing["_meta"]["token_estimate"] < record["_meta"]["token_estimate"]
 
 
@@ -180,7 +181,7 @@ async def test_string_score_variant_classifies_across_tiers(
             )
         )
         assert payload["success"] is True, mode
-        v = payload["variants"][0]
+        v = payload["results"][0]
         assert v["score"] == -1.2, mode
         assert v["classifications"][0]["classification"] == "abnormal", mode
 

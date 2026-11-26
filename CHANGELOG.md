@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-26
+
+### Changed
+
+- **Breaking:** every data tool's payload now sits under the Response-Envelope v1 §1 primary key, `results` (array) for a collection tool and `result` (object) for a record tool. List metadata (`total`, `returned`, `limit`, `offset`, `start`, `truncated`, `next_offset`, `next_start`) stays at the envelope top level, and the other keys of a collection tool stay beside `results`. `get_server_capabilities` and `get_diagnostics` are unchanged. Old key to new key:
+
+  | Tool | Old | New |
+  |---|---|---|
+  | `search_score_sets`, `search_experiments` | `results` | `results` (unchanged) |
+  | `get_gene_score_sets` | `score_sets` | `results` |
+  | `get_variant_scores` | `rows` | `results` |
+  | `get_variant_score` | `variants` | `results` |
+  | `get_classified_variants` | `variants` | `results` |
+  | `get_mapped_variants` | `mapped_variants` | `results` |
+  | `find_variant` | `hits` | `results` |
+  | `get_score_set`, `get_experiment`, `get_collection`, `get_hgvs_validation`, `get_score_distribution` | every top-level field `<field>` | `result.<field>` |
+
+- Conformance: the vendored envelope schema now applies in full; the strict-xfail exclusion of the `result`/`results` rule is removed.
+
 ## [0.8.0] - 2026-11-26
 
 ### Added
