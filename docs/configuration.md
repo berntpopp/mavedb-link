@@ -44,7 +44,7 @@ token upstream.
 |----------|---------|
 | `MAVEDB_LINK_API__BASE_URL` | `https://api.mavedb.org/api/v1` |
 | `MAVEDB_LINK_API__REQUEST_TIMEOUT` | `30.0` seconds (1–300) |
-| `MAVEDB_LINK_API__TOOL_DEADLINE` | `60.0` seconds (0.01–600): total per tool call, retries included; then `upstream_unavailable` (retryable) |
+| `MAVEDB_LINK_API__TOOL_DEADLINE` | `45.0` seconds (0.01–600): total per tool call, retries included; then `upstream_unavailable` (retryable) |
 | `MAVEDB_LINK_API__MAX_CONCURRENCY` | `5` in-flight requests (1–64) |
 | `MAVEDB_LINK_API__MAX_RETRIES` | `4` — transient 429/5xx/network faults |
 | `MAVEDB_LINK_API__CACHE_TTL` | `600` seconds (0 disables) |

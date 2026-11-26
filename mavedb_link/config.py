@@ -39,7 +39,7 @@ class MaveDBApiConfig(BaseModel):
         description="Per-request HTTP timeout in seconds.",
     )
     tool_deadline: float = Field(
-        default=60.0,
+        default=45.0,
         ge=0.01,
         le=600.0,
         description="Total seconds a tool call may spend, retries included, before it "
