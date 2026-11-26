@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-26
+
+### Fixed
+
+- `_meta.next_commands` no longer carries the caller's unvalidated input (GTS-CORE-TXT-04). A step forwards a URN or gene symbol only after it passes the identifier check. A search's page/widen step repeats the query only when it is at most 200 characters with no control or format characters (new `safe_echo` helper), otherwise the step is omitted. Affects `search_score_sets`, `search_experiments`, and the error steps of `get_score_set`, `get_variant_scores`, `get_mapped_variants`, `get_experiment`, `get_gene_score_sets` and `find_variant`.
+- Facet validation messages (`targets`, `target_organism_names`, `authors`, `facet_mode`) are fixed text naming the parameter and no longer echo the caller's value.
+
 ## [0.10.1] - 2026-11-26
 
 ### Fixed

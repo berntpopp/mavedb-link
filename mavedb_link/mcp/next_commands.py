@@ -7,6 +7,7 @@ by the error boundary; the per-tool ``after_*`` chainers steer the success path
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from mavedb_link.constants import (
@@ -17,12 +18,29 @@ from mavedb_link.constants import (
     MAX_MAPPED_LIMIT,
     MAX_SEARCH_LIMIT,
 )
-from mavedb_link.identifiers import looks_like_mavedb_urn
+from mavedb_link.identifiers import looks_like_gene_symbol
 
 
 def cmd(tool: str, **arguments: Any) -> dict[str, Any]:
     """One ready-to-call next step."""
     return {"tool": tool, "arguments": arguments}
+
+
+def safe_echo(text: str | None) -> str | None:
+    """The caller's free text if it may repeat in a page/widen step (GTS-CORE-TXT-04), else None.
+
+    At most 200 characters and no control or format characters (Unicode Cc/Cf).
+    """
+    if not text or len(text) > 200:
+        return None
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in text):
+        return None
+    return text
+
+
+def _gene(value: Any) -> str | None:
+    """``value`` when it passes the gene-symbol check, else None."""
+    return value.strip() if isinstance(value, str) and looks_like_gene_symbol(value) else None
 
 
 def widen_cmd(tool: str, base_args: dict[str, Any], total: int, ceiling: int) -> dict[str, Any]:
@@ -54,23 +72,30 @@ def _more_offset(
     return steps
 
 
+def _page_search(tool: str, query: str | None, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Page/widen a text search; omitted when the query is not safe to repeat."""
+    if not query:
+        return _more_offset(tool, {}, payload, MAX_SEARCH_LIMIT)
+    echo = safe_echo(query)
+    return _more_offset(tool, {"text": echo}, payload, MAX_SEARCH_LIMIT) if echo else []
+
+
 def default_error_next_commands(
     tool: str, error_code: str, arguments: dict[str, Any]
 ) -> list[dict[str, Any]]:
     """A sensible recovery step for any error lacking an explicit fallback."""
     if error_code in ("upstream_unavailable", "rate_limited"):
         return [cmd("get_diagnostics")]
-    value = str(
-        arguments.get("urn", "") or arguments.get("symbol", "") or arguments.get("text", "")
-    )
+    # Only validated identifiers are forwarded (GTS-CORE-TXT-04): a failed URN or free
+    # text never re-enters a step.
     if tool in ("get_score_set", "get_variant_scores", "get_mapped_variants", "get_experiment"):
-        if value and not looks_like_mavedb_urn(value):
-            return [cmd("search_score_sets", text=value), cmd("get_server_capabilities")]
-        return [cmd("search_score_sets"), cmd("get_server_capabilities")]
-    if tool == "find_variant" and arguments.get("gene_symbol"):
-        return [cmd("get_gene_score_sets", symbol=str(arguments["gene_symbol"]))]
-    if tool == "get_gene_score_sets" and value:
-        return [cmd("search_score_sets", text=value)]
+        gene = _gene(arguments.get("urn"))  # a gene symbol passed as a URN
+        first = cmd("search_score_sets", text=gene) if gene else cmd("search_score_sets")
+        return [first, cmd("get_server_capabilities")]
+    if tool == "find_variant" and (gene := _gene(arguments.get("gene_symbol"))):
+        return [cmd("get_gene_score_sets", symbol=gene)]
+    if tool == "get_gene_score_sets" and (gene := _gene(arguments.get("symbol"))):
+        return [cmd("search_score_sets", text=gene)]
     return [cmd("get_server_capabilities")]
 
 
@@ -98,10 +123,10 @@ def after_search_score_sets(query: str | None, payload: dict[str, Any]) -> list[
     """After search_score_sets: open the top hit; page/widen if truncated."""
     top = _top_urn(payload, "results")
     if not top:
-        return [cmd("get_gene_score_sets", symbol=query or "BRCA1"), cmd("get_server_capabilities")]
+        gene = _gene(query) or "BRCA1"
+        return [cmd("get_gene_score_sets", symbol=gene), cmd("get_server_capabilities")]
     steps = [cmd("get_score_set", urn=top)]
-    base = {"text": query} if query else {}
-    steps += _more_offset("search_score_sets", base, payload, MAX_SEARCH_LIMIT)
+    steps += _page_search("search_score_sets", query, payload)
     return steps
 
 
@@ -109,10 +134,11 @@ def after_search_experiments(query: str | None, payload: dict[str, Any]) -> list
     """After search_experiments: open the top hit; page/widen if truncated."""
     top = _top_urn(payload, "results")
     if not top:
-        return [cmd("search_score_sets", text=query or ""), cmd("get_server_capabilities")]
+        gene = _gene(query)
+        first = cmd("search_score_sets", text=gene) if gene else cmd("search_score_sets")
+        return [first, cmd("get_server_capabilities")]
     steps = [cmd("get_experiment", urn=top)]
-    base = {"text": query} if query else {}
-    steps += _more_offset("search_experiments", base, payload, MAX_SEARCH_LIMIT)
+    steps += _page_search("search_experiments", query, payload)
     return steps
 
 

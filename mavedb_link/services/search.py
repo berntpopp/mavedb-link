@@ -50,7 +50,7 @@ def _reject_unknown_exact(
         key = value.strip().upper() if upper else value.strip().lower()
         if key not in vocab:
             raise InvalidInputError(
-                f"'{value}' is not a known MaveDB {field} value, so it would match "
+                f"A {field} value is not a known MaveDB value, so it would match "
                 "nothing. Use search_score_sets(text=) to discover valid facet values, "
                 "or drop the filter.",
                 field=field,
@@ -77,7 +77,7 @@ def validate_facet_values(
     """
     if facet_mode is not None and facet_mode not in ("inclusive", "strict"):
         raise InvalidInputError(
-            f"Unknown facet_mode '{facet_mode}'.",
+            "Unknown facet_mode; use one of allowed_values.",
             field="facet_mode",
             allowed=["inclusive", "strict"],
         )
@@ -105,7 +105,7 @@ def validate_facet_values(
         needle = value.strip().lower()
         if not any(needle in name for name in author_vocab):
             raise InvalidInputError(
-                f"No MaveDB author name contains '{value}', so it would match nothing. "
+                "No MaveDB author name contains an authors value, so it would match nothing. "
                 "Try a surname, or drop the authors filter.",
                 field="authors",
             )
