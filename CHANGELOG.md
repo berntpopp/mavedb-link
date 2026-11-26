@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-26
+
+### Fixed
+
+- A tool call now answers within a bounded total deadline (`MAVEDB_LINK_API__TOOL_DEADLINE`, default 45 s, retries included, so below a common 60 s client timeout) with a retryable `upstream_unavailable` instead of running past the client's timeout. A live unpaged upstream search (e.g. the unfiltered experiments browse without a mirror) times out at 30 s per attempt, and five attempts could exceed two minutes.
+- `get_experiment`, `get_collection` and `get_classified_variants(calibration_urn=)` validate the URN before building the upstream URL: malformed or hostile input (control characters, spaces, `/`) is now `invalid_input` with `field` set, never an `internal` error from an invalid URL.
+- `get_classified_variants` no longer puts the caller's `classification` value into its error message (GTS-CORE-TXT-04): the message is fixed text naming the parameter, with the allowed values in `allowed_values`.
+
 ## [0.10.0] - 2026-11-26
 
 ### Added

@@ -32,6 +32,7 @@ from mavedb_link.identifiers import (
     score_set_urn_of_variant,
     validate_hgvs_variant,
     validate_score_set_urn,
+    validate_urn,
     variant_index_of,
     vrs_allele_id,
 )
@@ -506,13 +507,14 @@ async def get_classified_variants(
     score_set_urn = validate_score_set_urn(urn)
     if classification is not None and classification not in FUNCTIONAL_CLASSES:
         raise InvalidInputError(
-            f"Unknown classification '{classification}'.",
+            "Unknown classification; use one of allowed_values.",
             field="classification",
             allowed=FUNCTIONAL_CLASSES,
         )
     capped = _clamp(limit, 1, MAX_CLASSIFIED_LIMIT)
     if calibration_urn:
-        calibration = await client.get_json(f"/score-calibrations/{calibration_urn.strip()}")
+        calib = validate_urn(calibration_urn, "calibration", field="calibration_urn")
+        calibration = await client.get_json(f"/score-calibrations/{calib}")
     else:
         calibration = await client.get_json(
             f"/score-calibrations/score-set/{score_set_urn}/primary"
