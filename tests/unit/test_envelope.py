@@ -184,3 +184,51 @@ async def test_budget_guard_does_not_trim_a_record_payload() -> None:
     assert meta["budget_exceeded"] is True
     assert env["result"]["method_text"] == "y" * 200_000  # untouched
     assert meta["token_estimate"] > RESPONSE_TOKEN_BUDGET
+
+
+# --- _meta.pagination (Response-Envelope v1 §5) and foreign gene ids (§2b) ------
+
+
+async def test_list_page_reports_meta_pagination_at_every_mode() -> None:
+    page = {"results": [{"urn": "u"}], "total": 3, "returned": 1, "limit": 1, "offset": 0}
+
+    async def call() -> dict[str, Any]:
+        return {**page, "truncated": True, "next_offset": 1}
+
+    for mode in ("minimal", "compact"):
+        ctx = McpErrorContext("search_score_sets", response_mode=mode)
+        result = await run_mcp_tool("search_score_sets", call, context=ctx)
+        assert isinstance(result, dict)
+        assert result["_meta"]["pagination"] == {
+            "total_count": 3,
+            "has_more": True,
+            "next_cursor": None,
+            "next_offset": 1,
+        }
+
+
+async def test_record_payload_has_no_meta_pagination() -> None:
+    result = await run_mcp_tool("get_score_set", lambda: _ok({"urn": "u", "truncated": False}))
+    assert isinstance(result, dict)
+    assert "pagination" not in result["_meta"]
+
+
+async def test_foreign_gene_id_is_invalid_input_naming_the_converter() -> None:
+    from mavedb_link.identifiers import validate_gene_symbol
+
+    cases = {
+        "ENSG00000012048": ("hgnc_resolve_symbol", {"query": "ENSG00000012048"}),
+        "hgnc:1100": ("hgnc_resolve_symbol", {"query": "HGNC:1100"}),
+        "NCBIGene:672": ("hgnc_resolve_gene_by_xref", {"source": "entrez_id", "value": "672"}),
+    }
+    for value, (tool, arguments) in cases.items():
+
+        async def call(value: str = value) -> dict[str, Any]:
+            return {"gene": validate_gene_symbol(value)}
+
+        env = _error_dict(await run_mcp_tool("get_gene_score_sets", call))
+        assert env["error_code"] == "invalid_input"
+        assert env["field"] == "gene_symbol"
+        assert env["allowed_values"]
+        assert env["_meta"]["next_commands"] == [{"tool": tool, "arguments": arguments}]
+    assert validate_gene_symbol(" BRCA1 ") == "BRCA1"

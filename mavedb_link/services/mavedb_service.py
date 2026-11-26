@@ -32,6 +32,7 @@ from mavedb_link.constants import (
 from mavedb_link.data.hybrid import mapped_cache_status, mirror_status
 from mavedb_link.identifiers import (
     looks_like_gene_symbol,
+    validate_gene_symbol,
     validate_score_set_urn,
 )
 from mavedb_link.mcp.untrusted_content import sanitize_message
@@ -227,7 +228,7 @@ class MaveDBService:
         gene-only, never raises).
         """
         capped = _clamp(limit, 1, MAX_GENE_LIMIT)
-        sym = symbol.strip()
+        sym = validate_gene_symbol(symbol)
         gathered: Any = await asyncio.gather(
             resolvers.resolve_gene_identity(self._client, sym),
             self._client.post_json(

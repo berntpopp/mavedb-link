@@ -38,6 +38,7 @@ from mavedb_link.mcp.untrusted_content import (
     sanitize_message,
 )
 from mavedb_link.services.shaping import DEFAULT_RESPONSE_MODE
+from mavedb_link.services.support import pagination_meta
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +244,11 @@ def _error_envelope(exc: BaseException, context: McpErrorContext) -> dict[str, A
         envelope["_meta"]["next_commands"] = [_lower_mode_step(context)]
         return envelope
     if isinstance(exc, InvalidInputError):
-        if exc.field is not None:
-            envelope["field"] = exc.field
-        if exc.allowed is not None:
-            envelope["allowed_values"] = exc.allowed
-        if exc.hint is not None:
-            envelope["hint"] = exc.hint
+        typed = {"field": exc.field, "allowed_values": exc.allowed, "hint": exc.hint}
+        envelope.update({k: v for k, v in typed.items() if v is not None})
+        if exc.next_commands:  # the converter for an identifier form this server does not take
+            envelope["_meta"]["next_commands"] = exc.next_commands
+            return envelope
     if isinstance(exc, AmbiguousQueryError) and exc.candidates:
         envelope["candidates"] = exc.candidates
         envelope["_meta"]["next_commands"] = [
@@ -555,6 +555,8 @@ async def run_mcp_tool(
             # budget guard may flag/steer an over-budget response (1.3/1.4).
             result["_meta"]["token_estimate"] = _estimate_tokens(result)
             _apply_budget_guard(result, ctx)
+            if (pagination := pagination_meta(result)) is not None:  # after the trim
+                result["_meta"]["pagination"] = pagination
             # Response-Envelope v1.1 §Limits: bound the FINAL (post-budget-trim)
             # payload's fenced prose across every row -- per-object + total bytes,
             # not per shaped record. A breach raises UntrustedTextLimitError, mapped

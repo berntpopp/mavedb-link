@@ -63,3 +63,19 @@ def page_block(*, total: int | None, returned: int, limit: int, offset: int) -> 
         "truncated": truncated,
         "next_offset": offset + returned if truncated else None,
     }
+
+
+def pagination_meta(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Envelope ``_meta.pagination`` for a payload carrying the page block, else None.
+
+    These tools page by ``offset`` (``start`` for the score table), so ``next_offset``
+    is the continuation and ``next_cursor`` is always null: there is no cursor to send.
+    """
+    if "total" not in payload or not isinstance(payload.get("truncated"), bool):
+        return None
+    return {
+        "total_count": payload["total"],
+        "has_more": payload["truncated"],
+        "next_cursor": None,
+        "next_offset": payload.get("next_offset"),
+    }
