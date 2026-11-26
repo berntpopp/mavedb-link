@@ -37,6 +37,7 @@ class InvalidInputError(MaveDBError):
         *,
         allowed: list[str] | None = None,
         hint: str | None = None,
+        next_commands: list[dict[str, Any]] | None = None,
     ) -> None:
         """Initialise with the offending field and optional recovery data.
 
@@ -48,6 +49,8 @@ class InvalidInputError(MaveDBError):
         self.field = field
         self.allowed = allowed
         self.hint = hint
+        # Ready-to-call converters for an identifier form this server does not take.
+        self.next_commands = next_commands
 
 
 class NotFoundError(MaveDBError):

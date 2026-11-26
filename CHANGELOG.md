@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-26
+
+### Added
+
+- Every list tool reports `_meta.pagination` (Response-Envelope Standard v1 §5): `total_count` (null when the total is unknown), `has_more`, `next_offset` and `next_cursor`. The tools page by `offset`, so `next_offset` is the continuation and `next_cursor` is always null. The block is present at every `response_mode` and describes the page as shipped, after a budget trim. The top-level `total`, `truncated` and `next_offset` are unchanged.
+
+### Fixed
+
+- `get_gene_score_sets` no longer answers an Ensembl gene id (`ENSG00000012048`), an HGNC id (`HGNC:1100`) or an NCBI Gene id (`NCBIGene:672`) with `not_found`. MaveDB's gene lookup is keyed by symbol, so the gene was never looked up and the answer read as "no MAVE data for this gene". The tool now returns `invalid_input` with `field`, `allowed_values` and the converter (`hgnc_resolve_symbol` or `hgnc_resolve_gene_by_xref`) in `_meta.next_commands` (Response-Envelope Standard v1 §2b), and does not query MaveDB.
+
 ## [0.9.0] - 2026-11-26
 
 ### Changed

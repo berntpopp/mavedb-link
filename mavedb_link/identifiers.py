@@ -127,6 +127,45 @@ def variant_index_of(value: str) -> int | None:
     return None
 
 
+# Gene id namespaces MaveDB's gene lookup is not keyed by (it takes an HGNC symbol), with the
+# HGNC tool that converts each to a symbol. re.ASCII: matched text is echoed into next_commands.
+_FOREIGN_GENE_FORMS: tuple[tuple[re.Pattern[str], str, str, str], ...] = (
+    (re.compile(r"ENSG\d{11}(?:\.\d+)?", re.I | re.A), "hgnc_resolve_symbol", "query", "{0}"),
+    (re.compile(r"HGNC:(\d+)", re.I | re.A), "hgnc_resolve_symbol", "query", "HGNC:{1}"),
+    (
+        re.compile(r"(?:NCBIGene|GeneID|Entrez):(\d+)", re.I | re.A),
+        "hgnc_resolve_gene_by_xref",
+        "value",
+        "{1}",
+    ),
+)
+
+
+def validate_gene_symbol(value: str, *, field: str = "gene_symbol") -> str:
+    """Return the trimmed gene symbol, or raise for an Ensembl, HGNC or NCBI Gene id.
+
+    MaveDB would answer such an id with "no such gene", which reads as "no MAVE data
+    for this gene" although the gene was never looked up (Response-Envelope v1 §2b).
+    """
+    candidate = value.strip()
+    for pattern, tool, argument, template in _FOREIGN_GENE_FORMS:
+        match = pattern.fullmatch(candidate)
+        if match is None:
+            continue
+        arguments = {argument: template.format(match.group(0), *match.groups())}
+        if tool == "hgnc_resolve_gene_by_xref":
+            arguments = {"source": "entrez_id", **arguments}
+        raise InvalidInputError(
+            f"{field} takes an HGNC gene symbol, not an Ensembl, HGNC or NCBI Gene id. "
+            "MaveDB was not queried.",
+            field=field,
+            allowed=["HGNC gene symbol, e.g. BRCA1"],
+            hint="Convert the id to its symbol with the call in _meta.next_commands, then retry.",
+            next_commands=[{"tool": tool, "arguments": arguments}],
+        )
+    return candidate
+
+
 def validate_score_set_urn(value: str) -> str:
     """Return the trimmed score-set URN, or raise ``InvalidInputError``."""
     candidate = value.strip()
