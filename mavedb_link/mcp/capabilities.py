@@ -294,17 +294,17 @@ def build_capabilities() -> dict[str, Any]:
                 "ratios and baselines are rounded to 6 significant figures."
             ),
             "search_score_sets": "results[].has_calibrations (presence flag; ladder via get_score_set)",
-            "get_gene_score_sets": "score_sets[].has_calibrations (presence flag; ladder via get_score_set)",
-            "get_score_set": "score_calibrations (thresholds, ACMG, OddsPath, baseline)",
-            "get_variant_score": "variants[].classifications + top-level calibrations",
+            "get_gene_score_sets": "results[].has_calibrations (presence flag; ladder via get_score_set)",
+            "get_score_set": "result.score_calibrations (thresholds, ACMG, OddsPath, baseline)",
+            "get_variant_score": "results[].classifications + top-level calibrations",
             "get_variant_scores": (
-                "rows[].classification on every page + top-level calibrations ladder "
+                "results[].classification on every page + top-level calibrations ladder "
                 "on the first page (start=0) or full only (it is record-level data, "
                 "not re-shipped per page)"
             ),
-            "find_variant": "hits[].classifications",
-            "get_classified_variants": "variants[].classification (+ acmg)",
-            "get_score_distribution": "query.classifications + calibrations",
+            "find_variant": "results[].classifications",
+            "get_classified_variants": "results[].classification (+ acmg)",
+            "get_score_distribution": "result.query.classifications + result.calibrations",
         },
         "tool_hints": {
             "get_variant_score": [

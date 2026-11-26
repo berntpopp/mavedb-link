@@ -48,8 +48,8 @@ def _error_dict(result: Any) -> dict[str, Any]:
     return result.structured_content
 
 
-async def test_success_envelope_is_flat_banner_with_uniform_meta() -> None:
-    """SUCCESS: top-level ``success: True`` beside the payload, plus a ``_meta`` block.
+async def test_success_envelope_nests_payload_with_uniform_meta() -> None:
+    """SUCCESS: top-level ``success: True`` beside ``result``, plus a ``_meta`` block.
 
     Locks the fields ``run_mcp_tool`` actually stamps into ``_meta`` on every
     successful call: ``tool``, ``request_id``, ``elapsed_ms``, ``truncated``, and
@@ -62,10 +62,10 @@ async def test_success_envelope_is_flat_banner_with_uniform_meta() -> None:
     ctx = McpErrorContext(_REAL_TOOL, arguments={"urn": "urn:mavedb:00000001-a-1"})
     env = await run_mcp_tool(_REAL_TOOL, call, context=ctx)
 
-    # Flat banner: success + payload live at the SAME top level, no nesting.
+    # v1 §1: the record sits under ``result`` beside ``success``.
     assert env["success"] is True
-    assert env["urn"] == "urn:mavedb:00000001-a-1"
-    assert env["title"] == "Example score set"
+    assert env["result"]["urn"] == "urn:mavedb:00000001-a-1"
+    assert env["result"]["title"] == "Example score set"
 
     meta = env["_meta"]
     assert meta["tool"] == _REAL_TOOL

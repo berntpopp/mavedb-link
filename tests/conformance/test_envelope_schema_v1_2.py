@@ -2,12 +2,6 @@
 
 The schema is vendored from berntpopp/genefoundry-envelope, tag v1.2.0
 (``envelope-v1.2.schema.json``); its digest is pinned in the sibling ``.sha256`` file.
-
-One rule is not met yet and is excluded by name, not by weakening the schema: v1 §1
-puts the payload under ``result`` (object) or ``results`` (array), while most tools
-here still return their payload flat beside ``success``. Moving it is a breaking
-wire change of its own; ``test_payload_sits_under_the_primary_key`` is a strict
-xfail that fails the day the payload moves, so this exclusion cannot outlive it.
 """
 
 from __future__ import annotations
@@ -21,7 +15,6 @@ import httpx
 import pytest
 import respx
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
 
 from mavedb_link.mcp.capabilities import TOOLS
 from tests import fixtures
@@ -52,16 +45,10 @@ _CALLS: dict[str, dict[str, Any]] = {
 }
 
 
-def _is_payload_key_rule(error: ValidationError) -> bool:
-    """The v1 §1 ``result``/``results`` rule at the envelope root (see module docstring)."""
-    return error.validator == "anyOf" and not error.absolute_path
-
-
 def _violations(envelope: dict[str, Any]) -> list[str]:
     return [
         f"{'/'.join(map(str, e.absolute_path))}: {e.message}"
         for e in _VALIDATOR.iter_errors(envelope)
-        if not _is_payload_key_rule(e)
     ]
 
 
@@ -109,13 +96,3 @@ def test_unknown_tool_error_validates() -> None:
     from mavedb_link.mcp.notfound_guard import unknown_tool_envelope
 
     assert list(_VALIDATOR.iter_errors(unknown_tool_envelope())) == []
-
-
-@pytest.mark.xfail(strict=True, reason="payload is still flat; v1 §1 result/results is open")
-@respx.mock(base_url=fixtures.BASE_URL, assert_all_called=False)
-async def test_payload_sits_under_the_primary_key(
-    respx_mock: respx.Router, facade: Any, structured: Any
-) -> None:
-    _mock_all(respx_mock)
-    envelope = structured(await facade.call_tool("get_score_set", _CALLS["get_score_set"]))
-    _VALIDATOR.validate(envelope)

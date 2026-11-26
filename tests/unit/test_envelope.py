@@ -168,7 +168,7 @@ async def test_budget_guard_updates_next_start_alias_when_trimming() -> None:
     }
     ctx = McpErrorContext("get_variant_scores", arguments={"urn": "u"}, response_mode="standard")
     env = await run_mcp_tool("get_variant_scores", lambda: _ok(dict(page)), context=ctx)
-    assert env["returned"] == len(env["rows"]) < 200
+    assert env["returned"] == len(env["results"]) < 200
     assert env["next_start"] == env["returned"]
     assert env["next_offset"] == env["returned"]
     assert env["_meta"]["token_estimate"] <= RESPONSE_TOKEN_BUDGET
@@ -182,5 +182,5 @@ async def test_budget_guard_does_not_trim_a_record_payload() -> None:
     env = await run_mcp_tool("get_score_set", lambda: _ok(dict(record)), context=ctx)
     meta = env["_meta"]
     assert meta["budget_exceeded"] is True
-    assert env["method_text"] == "y" * 200_000  # untouched
+    assert env["result"]["method_text"] == "y" * 200_000  # untouched
     assert meta["token_estimate"] > RESPONSE_TOKEN_BUDGET
